@@ -16,7 +16,7 @@ export default function Founders() {
           {/* Founders photo */}
           <div className="w-full aspect-[4/3] rounded-2xl overflow-hidden">
             <img
-              src="/contan.jpeg"
+              src="/aboutcontan.png"
               alt="Connor and Tanner Haslinger, co-founders of SuppVis"
               className="w-full h-full object-cover"
             />
