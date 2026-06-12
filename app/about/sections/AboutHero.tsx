@@ -16,7 +16,7 @@ export default function AboutHero() {
           {/* Founders photo placeholder */}
           <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden">
             <img
-              src="/aboutcontan.png"
+              src="/abouttancon.jpeg"
               alt="Connor and Tanner Haslinger, co-founders of SuppVis"
               className="absolute inset-0 w-full h-full object-cover"
             />
