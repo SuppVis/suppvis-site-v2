@@ -17,7 +17,7 @@ const founders = [
   },
   {
     initial: "C",
-    photo: "/contan.jpeg",
+    photo: "/connorhead.jpg",
     name: "Connor Haslinger",
     title: "COO / Co-Founder",
     paragraphs: [
