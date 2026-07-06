@@ -68,12 +68,17 @@ function definedEntries(record: DynamoRecord) {
 
 export async function upsertDynamoItem(input: UpsertInput) {
   const tableName = getRequiredTableName(input.tableEnvName);
+  const keyAttributeNames = new Set(Object.keys(input.key));
   const expressionAttributeNames: Record<string, string> = {};
   const expressionAttributeValues: Record<string, unknown> = {};
   const updateParts: string[] = [];
   let index = 0;
 
   for (const [name, value] of definedEntries(input.set)) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
     const nameKey = `#n${index}`;
     const valueKey = `:v${index}`;
     expressionAttributeNames[nameKey] = name;
@@ -83,6 +88,10 @@ export async function upsertDynamoItem(input: UpsertInput) {
   }
 
   for (const [name, value] of definedEntries(input.setIfNotExists || {})) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
     const nameKey = `#n${index}`;
     const valueKey = `:v${index}`;
     expressionAttributeNames[nameKey] = name;
