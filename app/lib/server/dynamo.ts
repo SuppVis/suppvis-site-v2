@@ -1,0 +1,142 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { PersistenceError, ServerConfigError } from "./errors";
+
+export const DYNAMO_TABLE_ENVS = {
+  betaApplications: "DYNAMODB_BETA_APPLICATIONS_TABLE",
+  emailSubscribers: "DYNAMODB_EMAIL_SUBSCRIBERS_TABLE",
+  smsSubscribers: "DYNAMODB_SMS_SUBSCRIBERS_TABLE",
+  broadcastAuditLogs: "DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE",
+} as const;
+
+type DynamoRecord = Record<string, unknown>;
+
+type UpsertInput = {
+  tableEnvName: string;
+  key: DynamoRecord;
+  set: DynamoRecord;
+  setIfNotExists?: DynamoRecord;
+  operation: string;
+};
+
+let documentClient: DynamoDBDocumentClient | null = null;
+
+function getAwsRegion() {
+  return process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1";
+}
+
+function getDocumentClient() {
+  if (!documentClient) {
+    documentClient = DynamoDBDocumentClient.from(
+      new DynamoDBClient({
+        region: getAwsRegion(),
+      }),
+      {
+        marshallOptions: {
+          removeUndefinedValues: true,
+        },
+      },
+    );
+  }
+
+  return documentClient;
+}
+
+function getRequiredTableName(envName: string) {
+  const tableName = process.env[envName]?.trim();
+
+  if (!tableName) {
+    throw new ServerConfigError(`Missing required environment variable: ${envName}`);
+  }
+
+  return tableName;
+}
+
+export function assertDynamoTablesConfigured(...envNames: string[]) {
+  for (const envName of envNames) {
+    getRequiredTableName(envName);
+  }
+}
+
+function definedEntries(record: DynamoRecord) {
+  return Object.entries(record).filter(([, value]) => value !== undefined);
+}
+
+export async function upsertDynamoItem(input: UpsertInput) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+  const expressionAttributeNames: Record<string, string> = {};
+  const expressionAttributeValues: Record<string, unknown> = {};
+  const updateParts: string[] = [];
+  let index = 0;
+
+  for (const [name, value] of definedEntries(input.set)) {
+    const nameKey = `#n${index}`;
+    const valueKey = `:v${index}`;
+    expressionAttributeNames[nameKey] = name;
+    expressionAttributeValues[valueKey] = value;
+    updateParts.push(`${nameKey} = ${valueKey}`);
+    index += 1;
+  }
+
+  for (const [name, value] of definedEntries(input.setIfNotExists || {})) {
+    const nameKey = `#n${index}`;
+    const valueKey = `:v${index}`;
+    expressionAttributeNames[nameKey] = name;
+    expressionAttributeValues[valueKey] = value;
+    updateParts.push(`${nameKey} = if_not_exists(${nameKey}, ${valueKey})`);
+    index += 1;
+  }
+
+  if (!updateParts.length) {
+    throw new ServerConfigError(`No attributes configured for ${input.operation}`);
+  }
+
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: input.key,
+        UpdateExpression: `SET ${updateParts.join(", ")}`,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+      }),
+    );
+  } catch (error) {
+    console.error("[dynamodb] upsert failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function putDynamoItem(
+  tableEnvName: string,
+  item: DynamoRecord,
+  operation: string,
+) {
+  const tableName = getRequiredTableName(tableEnvName);
+
+  try {
+    await getDocumentClient().send(
+      new PutCommand({
+        TableName: tableName,
+        Item: item,
+      }),
+    );
+  } catch (error) {
+    console.error("[dynamodb] put failed", {
+      operation,
+      tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}

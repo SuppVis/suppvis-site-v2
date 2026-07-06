@@ -6,27 +6,49 @@ import { useScrollReveal } from "../hooks/useScrollReveal";
 export default function WaitlistClose() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const sectionRef = useScrollReveal();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
 
     const form = e.currentTarget;
     const data = new FormData(form);
 
     try {
-      await fetch("https://formspree.io/f/placeholder", {
+      const response = await fetch("/api/beta-applications", {
         method: "POST",
-        body: data,
-        headers: { Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          email: data.get("email"),
+          phone: data.get("phone"),
+          smsOptIn: data.get("smsOptIn") === "on",
+          sourcePage: `${window.location.pathname}${window.location.hash || "#waitlist"}`,
+          botField: data.get("botField"),
+        }),
       });
-    } catch {
-      // Still show success state for now
-    }
 
-    setLoading(false);
-    setSubmitted(true);
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.message || "Please try again in a moment.");
+      }
+
+      setSubmitted(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "We could not save your application right now. Please try again in a moment.",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -48,6 +70,19 @@ export default function WaitlistClose() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4 text-left">
+            <div
+              className="absolute left-[-9999px] h-0 w-0 overflow-hidden"
+              aria-hidden="true"
+            >
+              <label htmlFor="beta-bot-field">Company website</label>
+              <input
+                type="text"
+                id="beta-bot-field"
+                name="botField"
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
             <div>
               <label htmlFor="email" className="sr-only">
                 Email Address
@@ -61,6 +96,36 @@ export default function WaitlistClose() {
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
             </div>
+            <div>
+              <label htmlFor="phone" className="sr-only">
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                id="phone"
+                name="phone"
+                placeholder="Phone number for beta texts (optional)"
+                autoComplete="tel"
+                className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+              />
+            </div>
+            <label className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
+              <input
+                type="checkbox"
+                name="smsOptIn"
+                className="mt-1 h-4 w-4 shrink-0 accent-accent"
+              />
+              <span>
+                I agree to receive beta access and product update texts from
+                SuppVis. Consent is not required to apply. Message and data
+                rates may apply. Reply STOP to opt out.
+              </span>
+            </label>
+            {error && (
+              <p className="text-error text-sm text-center" role="alert">
+                {error}
+              </p>
+            )}
             <button
               type="submit"
               disabled={loading}

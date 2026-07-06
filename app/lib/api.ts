@@ -28,7 +28,6 @@ export async function fetchArticles(): Promise<Article[]> {
     });
     if (!res.ok) return [];
     const data: ArticlesResponse = await res.json();
-    console.log("[fetchArticles] raw response sample:", JSON.stringify(data.articles?.[0], null, 2));
     return data.articles ?? [];
   } catch {
     return [];
@@ -42,7 +41,6 @@ export async function fetchArticle(slug: string): Promise<Article | null> {
     });
     if (!res.ok) return null;
     const data: ArticleResponse = await res.json();
-    console.log("[fetchArticle] raw response:", JSON.stringify(data.article, null, 2));
     return data.article ?? null;
   } catch {
     return null;
