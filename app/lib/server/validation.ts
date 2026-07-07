@@ -116,6 +116,20 @@ export const broadcastAuditSchema = z.object({
   dryRun: z.boolean().optional().default(true),
 }).strict();
 
+export const emailUnsubscribeSchema = z.object({
+  subscriberId: z
+    .string()
+    .trim()
+    .regex(/^email_[a-f0-9]{32}$/, "Invalid unsubscribe link."),
+  token: z.string().trim().min(24).max(200),
+}).strict();
+
+export const twilioInboundSmsSchema = z.object({
+  From: z.string().trim().min(1).max(40),
+  Body: z.string().trim().max(1600).default(""),
+  MessageSid: z.string().trim().max(80).optional(),
+}).passthrough();
+
 function hasReasonableEmailShape(email: string) {
   return /^[^\s@]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(
     email.trim(),

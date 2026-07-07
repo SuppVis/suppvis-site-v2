@@ -4,7 +4,10 @@ import {
   stableId,
 } from "@/app/lib/server/crypto";
 import { handleApiError } from "@/app/lib/server/errors";
-import { saveEmailSubscriber } from "@/app/lib/server/persistence";
+import {
+  markEmailResubscribeIfUnsubscribed,
+  saveEmailSubscriber,
+} from "@/app/lib/server/persistence";
 import {
   enforceRateLimit,
   isHoneypotFilled,
@@ -39,9 +42,15 @@ export async function POST(request: NextRequest) {
 
     const now = new Date().toISOString();
     const normalizedEmail = normalizeEmail(submission.email);
+    const subscriberId = stableId("email", normalizedEmail);
+
+    await markEmailResubscribeIfUnsubscribed({
+      id: subscriberId,
+      now,
+    });
 
     await saveEmailSubscriber({
-      id: stableId("email", normalizedEmail),
+      id: subscriberId,
       email: submission.email.trim(),
       normalized_email: normalizedEmail,
       status: "subscribed",

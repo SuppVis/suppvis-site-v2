@@ -24,6 +24,17 @@ type UpsertInput = {
   operation: string;
 };
 
+type UpdateInput = {
+  tableEnvName: string;
+  key: DynamoRecord;
+  set: DynamoRecord;
+  remove?: string[];
+  conditionExpression?: string;
+  conditionAttributeNames?: Record<string, string>;
+  conditionAttributeValues?: DynamoRecord;
+  operation: string;
+};
+
 let documentClient: DynamoDBDocumentClient | null = null;
 
 function getAwsRegion() {
@@ -137,6 +148,85 @@ export async function upsertDynamoItem(input: UpsertInput) {
     }
 
     console.error("[dynamodb] upsert failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function updateDynamoItem(input: UpdateInput) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+  const keyAttributeNames = new Set(Object.keys(input.key));
+  const expressionAttributeNames: Record<string, string> = {
+    ...(input.conditionAttributeNames || {}),
+  };
+  const expressionAttributeValues: Record<string, unknown> = {
+    ...(input.conditionAttributeValues || {}),
+  };
+  const setParts: string[] = [];
+  const removeParts: string[] = [];
+  let index = 0;
+
+  for (const [name, value] of definedEntries(input.set)) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
+    const nameKey = `#u${index}`;
+    const valueKey = `:u${index}`;
+    expressionAttributeNames[nameKey] = name;
+    expressionAttributeValues[valueKey] = value;
+    setParts.push(`${nameKey} = ${valueKey}`);
+    index += 1;
+  }
+
+  for (const name of input.remove || []) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
+    const nameKey = `#r${removeParts.length}`;
+    expressionAttributeNames[nameKey] = name;
+    removeParts.push(nameKey);
+  }
+
+  const updateExpression = [
+    setParts.length ? `SET ${setParts.join(", ")}` : "",
+    removeParts.length ? `REMOVE ${removeParts.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (!updateExpression) {
+    throw new ServerConfigError(`No attributes configured for ${input.operation}`);
+  }
+
+  try {
+    await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: input.key,
+        UpdateExpression: updateExpression,
+        ConditionExpression: input.conditionExpression,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+      }),
+    );
+
+    return { wrote: true };
+  } catch (error) {
+    if (
+      input.conditionExpression &&
+      error instanceof Error &&
+      error.name === "ConditionalCheckFailedException"
+    ) {
+      return { wrote: false };
+    }
+
+    console.error("[dynamodb] update failed", {
       operation: input.operation,
       tableEnvName: input.tableEnvName,
       errorName: error instanceof Error ? error.name : "UnknownError",

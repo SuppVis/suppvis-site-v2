@@ -1,6 +1,7 @@
 import {
   DYNAMO_TABLE_ENVS,
   putDynamoItem,
+  updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
 
@@ -23,22 +24,26 @@ export type EmailSubscriberRecord = {
   id: string;
   email: string;
   normalized_email: string;
-  status: "subscribed";
+  status: "subscribed" | "unsubscribed" | "bounced" | "complained";
   consent_timestamp: string;
   consent_source: string;
   created_at: string;
   updated_at: string;
   unsubscribe_token: string;
+  resubscribed_at?: string;
 };
 
 export type SmsSubscriberRecord = {
   id: string;
   phone_number_raw: string;
   phone_number_e164: string;
-  status: "pending_verification";
+  status: "pending_verification" | "subscribed" | "unsubscribed";
   sms_consent_timestamp: string;
   sms_consent_source: string;
   opt_out_timestamp: string | null;
+  opt_out_source?: string | null;
+  last_opt_out_keyword?: string | null;
+  resubscribed_at?: string;
   created_at: string;
   updated_at: string;
 };
@@ -93,6 +98,7 @@ export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
       status: record.status,
       consent_timestamp: record.consent_timestamp,
       consent_source: record.consent_source,
+      resubscribed_at: record.resubscribed_at,
       updated_at: record.updated_at,
     },
     setIfNotExists: {
@@ -115,6 +121,9 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
       sms_consent_timestamp: record.sms_consent_timestamp,
       sms_consent_source: record.sms_consent_source,
       opt_out_timestamp: record.opt_out_timestamp,
+      opt_out_source: record.opt_out_source,
+      last_opt_out_keyword: record.last_opt_out_keyword,
+      resubscribed_at: record.resubscribed_at,
       updated_at: record.updated_at,
     },
     setIfNotExists: {
@@ -122,6 +131,146 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
       created_at: record.created_at,
     },
   });
+}
+
+export async function markEmailResubscribeIfUnsubscribed(input: {
+  id: string;
+  now: string;
+}) {
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+    key: { id: input.id },
+    operation: "mark_email_resubscribe",
+    set: {
+      resubscribed_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id) AND #status = :unsubscribed",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":unsubscribed": "unsubscribed",
+    },
+  });
+}
+
+export async function unsubscribeEmailSubscriber(input: {
+  id: string;
+  token: string;
+  now: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+    key: { id: input.id },
+    operation: "unsubscribe_email_subscriber",
+    set: {
+      status: "unsubscribed",
+      unsubscribed_at: input.now,
+      unsubscribe_source: "email_link",
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id) AND #token = :token",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#token": "unsubscribe_token",
+    },
+    conditionAttributeValues: {
+      ":token": input.token,
+    },
+  });
+
+  return result.wrote;
+}
+
+export async function markSmsResubscribeIfUnsubscribed(input: {
+  id: string;
+  now: string;
+}) {
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "mark_sms_resubscribe",
+    set: {
+      resubscribed_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id) AND #status = :unsubscribed",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":unsubscribed": "unsubscribed",
+    },
+  });
+}
+
+export async function optOutSmsSubscriber(input: {
+  id: string;
+  phone_number_e164: string;
+  keyword: string;
+  now: string;
+}) {
+  await upsertDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "sms_stop_opt_out",
+    set: {
+      phone_number_raw: input.phone_number_e164,
+      phone_number_e164: input.phone_number_e164,
+      status: "unsubscribed",
+      opt_out_timestamp: input.now,
+      opt_out_source: "sms_stop",
+      last_opt_out_keyword: input.keyword,
+      updated_at: input.now,
+    },
+    setIfNotExists: {
+      id: input.id,
+      created_at: input.now,
+    },
+  });
+}
+
+export async function resubscribeSmsSubscriberFromKeyword(input: {
+  id: string;
+  phone_number_e164: string;
+  keyword: string;
+  now: string;
+}) {
+  await upsertDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "sms_start_resubscribe",
+    set: {
+      phone_number_raw: input.phone_number_e164,
+      phone_number_e164: input.phone_number_e164,
+      status: "pending_verification",
+      sms_consent_timestamp: input.now,
+      sms_consent_source: "sms_start",
+      opt_out_timestamp: null,
+      opt_out_source: null,
+      last_opt_out_keyword: input.keyword,
+      resubscribed_at: input.now,
+      updated_at: input.now,
+    },
+    setIfNotExists: {
+      id: input.id,
+      created_at: input.now,
+    },
+  });
+}
+
+export function canSendEmailToSubscriber(record: { status?: string }) {
+  return record.status === "subscribed";
+}
+
+export function canSendSmsToSubscriber(record: { status?: string }) {
+  return (
+    record.status === "subscribed" ||
+    record.status === "pending_verification"
+  );
 }
 
 export async function saveBroadcastAudit(record: BroadcastAuditRecord) {

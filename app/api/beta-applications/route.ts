@@ -11,6 +11,7 @@ import {
   readJsonBody,
 } from "@/app/lib/server/request";
 import {
+  markSmsResubscribeIfUnsubscribed,
   saveBetaApplication,
   saveSmsSubscriber,
 } from "@/app/lib/server/persistence";
@@ -82,14 +83,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (submission.smsOptIn && phoneRaw && phoneE164) {
+      const smsSubscriberId = stableId("sms", phoneE164);
+
+      await markSmsResubscribeIfUnsubscribed({
+        id: smsSubscriberId,
+        now,
+      });
+
       await saveSmsSubscriber({
-        id: stableId("sms", phoneE164),
+        id: smsSubscriberId,
         phone_number_raw: phoneRaw,
         phone_number_e164: phoneE164,
         status: "pending_verification",
         sms_consent_timestamp: now,
         sms_consent_source: `${submission.sourcePage}:beta_application`,
         opt_out_timestamp: null,
+        opt_out_source: null,
+        last_opt_out_keyword: null,
         created_at: now,
         updated_at: now,
       });

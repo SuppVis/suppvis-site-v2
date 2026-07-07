@@ -12,7 +12,7 @@ export const WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER =
   "You're receiving this because you joined the SuppVis beta waitlist. You can unsubscribe at any time.";
 
 export const WELCOME_SMS_TEMPLATE =
-  "Welcome to SuppVis. You’re one of our founding beta members. We’re two brothers who built SuppVis to show what your supplements are actually doing — backed by research, not hype. Get access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Thanks for being early with us. — Tanner & Connor";
+  "Welcome to SuppVis. You're one of our founding beta members. We're two brothers who built SuppVis to show what your supplements are actually doing - backed by research, not hype. Get access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Reply STOP to unsubscribe.";
 
 export const WELCOME_EMAIL_ENABLED_ENV = "WELCOME_EMAIL_ENABLED";
 export const WELCOME_SMS_ENABLED_ENV = "WELCOME_SMS_ENABLED";
@@ -20,6 +20,12 @@ export const WELCOME_SMS_ENABLED_ENV = "WELCOME_SMS_ENABLED";
 type WelcomeTemplateInput = {
   firstName: string;
   unsubscribeUrl?: string;
+};
+
+type UnsubscribeUrlInput = {
+  appBaseUrl?: string;
+  subscriberId: string;
+  token: string;
 };
 
 function escapeHtml(value: string) {
@@ -41,6 +47,18 @@ export function isWelcomeEmailEnabled() {
 
 export function isWelcomeSmsEnabled() {
   return process.env[WELCOME_SMS_ENABLED_ENV] === "true";
+}
+
+export function buildEmailUnsubscribeUrl({
+  appBaseUrl = process.env.APP_BASE_URL || "https://www.suppvis.health",
+  subscriberId,
+  token,
+}: UnsubscribeUrlInput) {
+  const url = new URL("/unsubscribe", appBaseUrl.replace(/\/+$/, ""));
+  url.searchParams.set("subscriber", subscriberId);
+  url.searchParams.set("token", token);
+
+  return url.toString();
 }
 
 export function buildWelcomeEmailText({
