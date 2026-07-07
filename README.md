@@ -10,7 +10,7 @@ Next.js marketing site for SuppVis.
 - npm
 - Tailwind CSS v4 via PostCSS
 - Vercel serverless API routes
-- AWS SDK v3 for future DynamoDB persistence
+- AWS SDK v3 for DynamoDB persistence and disabled future SES email sending
 
 ## Local Setup
 
@@ -70,6 +70,7 @@ Welcome templates:
 - `WELCOME_SMS_ENABLED` - keep `false` until STOP/UNSUBSCRIBE handling and an SMS provider are configured.
 - `SES_FROM_EMAIL` - future verified sender, recommended `beta@suppvis.health`.
 - `SES_REGION` - future SES region, recommended `us-east-1`.
+- `SES_CONFIGURATION_SET` - future SES event configuration set, currently `suppvis-welcome`.
 
 Future Twilio SMS webhook verification:
 
@@ -108,7 +109,9 @@ The current code writes these record shapes:
 
 ## Welcome Message Templates
 
-Welcome email and SMS copy lives in `app/lib/server/messages/welcome.ts`. This file only exports constants and template builders. It does not send messages, load provider SDKs, or run as part of form submission.
+Welcome email and SMS copy lives in `app/lib/server/messages/welcome.ts`. The disabled, server-only SES helper lives in `app/lib/server/email/welcome.ts`.
+
+The SES helper is not called by public signup routes. It returns a disabled result unless `WELCOME_EMAIL_ENABLED=true`, and that flag must remain `false` until SES production access, SES send IAM permission, and one-recipient internal testing are explicitly approved.
 
 Real welcome sends must remain disabled until:
 
@@ -116,6 +119,8 @@ Real welcome sends must remain disabled until:
 - SMS STOP/UNSUBSCRIBE suppression is wired into the future sending pipeline.
 - A sending provider is configured.
 - The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
+
+For the first SES test, prefer a one-recipient internal script or protected route added in a separate approval. Do not connect the SES helper to `/api/beta-applications`, `/api/email-subscribers`, or any public signup flow until that internal test passes.
 
 ## Unsubscribe And SMS Opt-Out Foundation
 
@@ -174,14 +179,14 @@ Before real welcome emails are enabled:
 - Configure SPF/DMARC as appropriate.
 - Request SES production access if the account is still in sandbox.
 - Add bounce and complaint handling before broader sends.
-- Set `SES_FROM_EMAIL=beta@suppvis.health` and `SES_REGION=us-east-1`, or equivalent provider-specific sender/domain variables.
+- Set `SES_FROM_EMAIL=beta@suppvis.health`, `SES_REGION=us-east-1`, `SES_CONFIGURATION_SET=suppvis-welcome`, and `APP_BASE_URL=https://www.suppvis.health`.
 - Include the unsubscribe link in every email and suppress subscribers with `status = unsubscribed` before sending.
 - Add least-privilege SES IAM permissions only after explicit approval. The future app principal should only need `ses:SendEmail` and/or `ses:SendRawEmail` scoped to the verified identity and optional configuration set.
 
 Future bounce/complaint handling:
 
-- Use an SES configuration set for welcome emails.
-- Route bounce, complaint, delivery, and reject events to SNS, EventBridge, or another approved event processor.
+- Use the `suppvis-welcome` SES configuration set for welcome emails.
+- Route bounce, complaint, and reject events to SNS, EventBridge, or another approved event processor.
 - Update `email_subscribers.status` to `bounced` or `complained` when those events occur.
 - Suppress sends for `unsubscribed`, `bounced`, and `complained` records.
 

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1079.0",
+    "@aws-sdk/client-sesv2": "^3.1081.0",
     "@aws-sdk/lib-dynamodb": "^3.1079.0",
     "libphonenumber-js": "^1.13.8",
     "next": "14.2.29",
