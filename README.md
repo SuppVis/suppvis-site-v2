@@ -140,6 +140,33 @@ SMS opt-out support is provider-ready but not connected to Twilio yet:
 
 Use `beta@suppvis.health` as the recommended production sender for beta/TestFlight/waitlist emails. Do not use a personal Gmail account or personal inbox for production sending.
 
+Recommended SES setup:
+
+- Use SES in `us-east-1` unless there is a later reason to move email sending to a different AWS Region.
+- Verify the domain `suppvis.health` in SES, not only `beta@suppvis.health`, so future domain addresses can inherit verification.
+- Use Easy DKIM with SES-generated DNS records.
+- Keep `SES_FROM_EMAIL=beta@suppvis.health`.
+- Keep `WELCOME_EMAIL_ENABLED=false` until sender verification, unsubscribe suppression, bounce/complaint handling, and internal test approval are complete.
+
+High-level AWS console steps:
+
+1. Open AWS SES in `us-east-1`.
+2. Go to Configuration > Identities.
+3. Create an identity with type `Domain` and value `suppvis.health`.
+4. Enable Easy DKIM.
+5. Copy the generated DKIM `CNAME` records into the domain DNS provider.
+6. Add SPF and DMARC DNS records if they are not already present.
+7. Optionally configure a custom MAIL FROM subdomain, such as `mail.suppvis.health` or `bounce.suppvis.health`.
+8. Check the SES Account dashboard to determine whether the account is still in sandbox.
+9. If sandboxed, request production access only after DNS/authentication records and bounce/complaint handling plans are ready.
+
+DNS records to expect:
+
+- SES Easy DKIM: three generated `CNAME` records under `_domainkey.suppvis.health`.
+- SPF: a `TXT` record authorizing SES if using a custom MAIL FROM, usually including `include:amazonses.com`.
+- DMARC: a `TXT` record at `_dmarc.suppvis.health`; start with monitoring policy such as `p=none` before tightening.
+- Custom MAIL FROM, if used: SES-provided `MX` and `TXT` records for the chosen subdomain.
+
 Before real welcome emails are enabled:
 
 - Verify `suppvis.health` or `beta@suppvis.health` with AWS SES or the chosen transactional provider.
@@ -149,6 +176,73 @@ Before real welcome emails are enabled:
 - Add bounce and complaint handling before broader sends.
 - Set `SES_FROM_EMAIL=beta@suppvis.health` and `SES_REGION=us-east-1`, or equivalent provider-specific sender/domain variables.
 - Include the unsubscribe link in every email and suppress subscribers with `status = unsubscribed` before sending.
+- Add least-privilege SES IAM permissions only after explicit approval. The future app principal should only need `ses:SendEmail` and/or `ses:SendRawEmail` scoped to the verified identity and optional configuration set.
+
+Future bounce/complaint handling:
+
+- Use an SES configuration set for welcome emails.
+- Route bounce, complaint, delivery, and reject events to SNS, EventBridge, or another approved event processor.
+- Update `email_subscribers.status` to `bounced` or `complained` when those events occur.
+- Suppress sends for `unsubscribed`, `bounced`, and `complained` records.
+
+Do not do yet:
+
+- Do not enable `WELCOME_EMAIL_ENABLED`.
+- Do not send test or production email.
+- Do not request SES production access until domain authentication and bounce/complaint handling are planned.
+- Do not use a personal Gmail address for production sending.
+
+## Future Twilio SMS Setup
+
+Use a Twilio Messaging Service for future beta welcome SMS and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and internal testing are approved.
+
+Recommended setup:
+
+- Create or use a Twilio account owned by SuppVis.
+- Create a Messaging Service for SuppVis beta/waitlist messages.
+- Use A2P 10DLC for standard US app-to-person long-code messaging unless Twilio recommends verified toll-free for the use case.
+- Complete required brand/campaign or toll-free verification before real sends.
+- Configure the inbound message webhook on the Messaging Service:
+  - URL: `https://www.suppvis.health/api/webhooks/twilio/sms`
+  - Method: `POST`
+- Require Twilio webhook signature verification in production.
+
+Future Twilio environment variables:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_MESSAGING_SERVICE_SID`
+- `TWILIO_WEBHOOK_SIGNATURE_REQUIRED=true`
+- `WELCOME_SMS_ENABLED=false`
+
+Compliance information likely needed:
+
+- Legal business name and contact details.
+- Website URL: `https://www.suppvis.health`.
+- Message use case: beta waitlist access and product updates for users who explicitly opted into texts.
+- Sample messages, including welcome copy and STOP language.
+- Opt-in flow description: website beta form with phone field and explicit SMS consent checkbox.
+- Opt-out flow description: users can reply STOP; app syncs opt-out state into DynamoDB.
+- Privacy policy and terms URLs.
+
+Current recommended future SMS welcome copy:
+
+> Welcome to SuppVis. You're one of our founding beta members. We built SuppVis to show what your supplements are actually doing - backed by research, not hype. Get access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Reply STOP to unsubscribe. Msg & data rates may apply.
+
+STOP/START behavior:
+
+- Twilio Messaging Service or Advanced Opt-Out can block provider-level sends to opted-out numbers.
+- The app webhook also syncs STOP keywords into DynamoDB with `status = unsubscribed`, `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`.
+- START/UNSTOP can reactivate the local record as `pending_verification`; explicit website SMS consent can also resubscribe a previously opted-out phone number.
+- Future sending code must suppress any SMS subscriber with `status = unsubscribed` and should also respect Twilio/provider-level opt-out state.
+
+Do not do yet:
+
+- Do not enable `WELCOME_SMS_ENABLED`.
+- Do not send test or production SMS.
+- Do not create accidental broadcast or bulk-send tooling.
+- Do not add Twilio secrets to the repo.
+- Do not turn off webhook signature verification for production provider traffic.
 
 ## Vercel Environment Setup
 
