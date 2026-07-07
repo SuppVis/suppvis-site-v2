@@ -1,21 +1,87 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, ChangeEvent } from "react";
 import { useScrollReveal } from "../hooks/useScrollReveal";
+
+type FormValues = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  smsOptIn: boolean;
+};
+
+const initialFormValues: FormValues = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  smsOptIn: false,
+};
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
 
 export default function WaitlistClose() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
   const sectionRef = useScrollReveal();
+  const hasPhone = Boolean(formValues.phone.trim());
+  const isFormReady =
+    Boolean(formValues.firstName.trim()) &&
+    Boolean(formValues.lastName.trim()) &&
+    isValidEmail(formValues.email) &&
+    (!hasPhone || formValues.smsOptIn);
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, type, value, checked } = event.currentTarget;
+
+    setFormValues((current) => {
+      if (name === "phone" && !value.trim()) {
+        return {
+          ...current,
+          phone: value,
+          smsOptIn: false,
+        };
+      }
+
+      return {
+        ...current,
+        [name]: type === "checkbox" ? checked : value,
+      };
+    });
+  };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
 
     const form = e.currentTarget;
     const data = new FormData(form);
+    const firstName = formValues.firstName.trim();
+    const lastName = formValues.lastName.trim();
+    const email = formValues.email.trim();
+    const phone = formValues.phone.trim();
+
+    if (!firstName || !lastName) {
+      setError("Enter your first and last name.");
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+
+    if (phone && !formValues.smsOptIn) {
+      setError("Check the SMS consent box or remove the phone number.");
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const response = await fetch("/api/beta-applications", {
@@ -25,18 +91,28 @@ export default function WaitlistClose() {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          email: data.get("email"),
-          phone: data.get("phone"),
-          smsOptIn: data.get("smsOptIn") === "on",
+          firstName,
+          lastName,
+          email,
+          phone,
+          smsOptIn: formValues.smsOptIn,
           sourcePage: `${window.location.pathname}${window.location.hash || "#waitlist"}`,
           botField: data.get("botField"),
         }),
       });
 
       const result = await response.json().catch(() => null);
+      const fieldErrors = result?.fieldErrors as
+        | Record<string, string[] | undefined>
+        | undefined;
+      const firstFieldError = fieldErrors
+        ? Object.values(fieldErrors).flat().find(Boolean)
+        : null;
 
       if (!response.ok || !result?.ok) {
-        throw new Error(result?.message || "Please try again in a moment.");
+        throw new Error(
+          firstFieldError || result?.message || "Please try again in a moment.",
+        );
       }
 
       setSubmitted(true);
@@ -44,7 +120,7 @@ export default function WaitlistClose() {
       setError(
         err instanceof Error
           ? err.message
-          : "We could not save your application right now. Please try again in a moment.",
+          : "We couldn't save your application right now. Please try again in a moment.",
       );
     } finally {
       setLoading(false);
@@ -65,7 +141,11 @@ export default function WaitlistClose() {
         {submitted ? (
           <div className="animate-pulse-glow rounded-2xl bg-bg-secondary border border-accent/20 p-10">
             <p className="text-text-primary text-xl font-semibold">
-              You&rsquo;re in. We&rsquo;ll reach out with beta access details soon.
+              You&rsquo;re in. We&rsquo;ll send beta testing access details soon.
+            </p>
+            <p className="mt-3 text-sm text-text-secondary">
+              If you opted into texts, we&rsquo;ll only text you about beta
+              access and product updates.
             </p>
           </div>
         ) : (
@@ -83,6 +163,40 @@ export default function WaitlistClose() {
                 autoComplete="off"
               />
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label htmlFor="firstName" className="sr-only">
+                  First name
+                </label>
+                <input
+                  type="text"
+                  id="firstName"
+                  name="firstName"
+                  required
+                  value={formValues.firstName}
+                  onChange={handleInputChange}
+                  autoComplete="given-name"
+                  placeholder="First name"
+                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+                />
+              </div>
+              <div>
+                <label htmlFor="lastName" className="sr-only">
+                  Last name
+                </label>
+                <input
+                  type="text"
+                  id="lastName"
+                  name="lastName"
+                  required
+                  value={formValues.lastName}
+                  onChange={handleInputChange}
+                  autoComplete="family-name"
+                  placeholder="Last name"
+                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+                />
+              </div>
+            </div>
             <div>
               <label htmlFor="email" className="sr-only">
                 Email Address
@@ -92,6 +206,9 @@ export default function WaitlistClose() {
                 id="email"
                 name="email"
                 required
+                value={formValues.email}
+                onChange={handleInputChange}
+                autoComplete="email"
                 placeholder="Email Address"
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
@@ -104,6 +221,8 @@ export default function WaitlistClose() {
                 type="tel"
                 id="phone"
                 name="phone"
+                value={formValues.phone}
+                onChange={handleInputChange}
                 placeholder="Phone number for beta texts (optional)"
                 autoComplete="tel"
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
@@ -113,12 +232,15 @@ export default function WaitlistClose() {
               <input
                 type="checkbox"
                 name="smsOptIn"
+                checked={formValues.smsOptIn}
+                onChange={handleInputChange}
+                disabled={!hasPhone}
                 className="mt-1 h-4 w-4 shrink-0 accent-accent"
               />
               <span>
                 I agree to receive beta access and product update texts from
-                SuppVis. Consent is not required to apply. Message and data
-                rates may apply. Reply STOP to opt out.
+                SuppVis. Message and data rates may apply. Reply STOP to opt
+                out.
               </span>
             </label>
             {error && (
@@ -128,10 +250,10 @@ export default function WaitlistClose() {
             )}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isFormReady}
               className="w-full rounded-xl bg-accent text-bg-primary font-semibold text-lg py-4 hover:bg-accent-hover transition-colors disabled:opacity-60"
             >
-              {loading ? "Submitting..." : "Get Early Access"}
+              {loading ? "Submitting..." : "Get early access"}
             </button>
             <p className="text-text-muted text-xs text-center pt-1">
               No spam, ever. Unsubscribe anytime.

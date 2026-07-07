@@ -6,6 +6,8 @@ import {
 
 export type BetaApplicationRecord = {
   id: string;
+  first_name: string;
+  last_name: string;
   email: string;
   normalized_email: string;
   phone_raw?: string;
@@ -59,6 +61,8 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
     key: { id: record.id },
     operation: "save_beta_application",
     set: {
+      first_name: record.first_name,
+      last_name: record.last_name,
       email: record.email,
       normalized_email: record.normalized_email,
       phone_raw: record.phone_raw,

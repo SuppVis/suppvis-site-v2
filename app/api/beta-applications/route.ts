@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
 
     await saveBetaApplication({
       id: betaId,
+      first_name: submission.firstName.trim(),
+      last_name: submission.lastName.trim(),
       email: submission.email.trim(),
       normalized_email: normalizedEmail,
       phone_raw: phoneRaw,

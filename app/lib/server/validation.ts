@@ -8,6 +8,12 @@ const emailSchema = z
   .max(254, "Email is too long.")
   .email("Enter a valid email address.");
 
+const nameSchema = z
+  .string()
+  .trim()
+  .min(1, "Enter your first and last name.")
+  .max(80, "Name is too long.");
+
 const phoneSchema = z
   .string()
   .trim()
@@ -27,6 +33,8 @@ const honeypotSchema = z.string().trim().max(200).optional().default("");
 
 export const betaApplicationSchema = z
   .object({
+    firstName: nameSchema,
+    lastName: nameSchema,
     email: emailSchema,
     phone: phoneSchema,
     smsOptIn: z.boolean().optional().default(false),

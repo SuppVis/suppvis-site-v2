@@ -39,6 +39,8 @@ The site includes serverless API routes for:
 
 These routes validate input server-side, use honeypot fields, apply basic in-memory rate limiting, and return safe user-facing errors. They do not send real email or SMS messages.
 
+The beta waitlist form collects first name, last name, email, and an optional phone number. If a phone number is provided, explicit SMS consent is required before the phone number is stored as an SMS subscriber.
+
 ## Required Environment Variables
 
 Existing public content API:
@@ -58,6 +60,11 @@ AWS/DynamoDB:
 Admin dry-run audit:
 
 - `ADMIN_BROADCAST_TOKEN_HASH`
+
+Welcome templates:
+
+- `WELCOME_EMAIL_ENABLED` - keep `false` until unsubscribe handling and a sender are configured.
+- `WELCOME_SMS_ENABLED` - keep `false` until STOP/UNSUBSCRIBE handling and an SMS provider are configured.
 
 Recommended before production public collection:
 
@@ -84,10 +91,21 @@ Tables:
 
 The current code writes these record shapes:
 
-- Beta applications: `id`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `status`, `source_page`, `created_at`, `updated_at`
+- Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`
 - SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_consent_timestamp`, `sms_consent_source`, `opt_out_timestamp`, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
+
+## Welcome Message Templates
+
+Welcome email and SMS copy lives in `app/lib/server/messages/welcome.ts`. This file only exports constants and template builders. It does not send messages, load provider SDKs, or run as part of form submission.
+
+Real welcome sends must remain disabled until:
+
+- Email unsubscribe links/routes are implemented and tested.
+- SMS STOP/UNSUBSCRIBE webhook handling is implemented and tested.
+- A sending provider is configured.
+- The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
 
 ## Vercel Environment Setup
 
@@ -126,6 +144,7 @@ $hash = [System.Security.Cryptography.SHA256]::HashData($bytes)
 - No IAM credentials are created, modified, rotated, or deleted by this repo.
 - No real email sending is enabled.
 - No real SMS sending is enabled.
+- Welcome message templates are present, but the submit routes do not send them.
 - SMS subscribers are stored as `pending_verification` until a verification and compliance flow exists.
 - The current rate limiter is in-memory and best-effort for serverless functions.
 
