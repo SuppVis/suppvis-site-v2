@@ -50,6 +50,7 @@ export default function WaitlistClose() {
   const [successSupport, setSuccessSupport] = useState(
     "If you opted into texts, we’ll only text you about beta access and product updates.",
   );
+  const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
   const sectionRef = useScrollReveal();
   const hasPhone = Boolean(formValues.phone.trim());
@@ -82,6 +83,7 @@ export default function WaitlistClose() {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
+    setDuplicateSubmission(false);
 
     const form = e.currentTarget;
     const data = new FormData(form);
@@ -149,6 +151,7 @@ export default function WaitlistClose() {
           ? "You do not need to submit again."
           : "If you opted into texts, we’ll only text you about beta access and product updates.",
       );
+      setDuplicateSubmission(Boolean(result?.duplicate));
       setSubmitted(true);
     } catch (err) {
       setError(
@@ -167,10 +170,12 @@ export default function WaitlistClose() {
         <h2 className="font-headline font-extrabold text-3xl sm:text-4xl md:text-5xl text-text-primary mb-6 leading-tight">
           Your stack is already costing you. Find out if it&rsquo;s paying off.
         </h2>
-        <p className="text-text-secondary text-lg mb-10">
-          Join the beta. Get founding member access and a direct line to the team
-          building it.
-        </p>
+        {!duplicateSubmission && (
+          <p className="text-text-secondary text-lg mb-10">
+            Join the beta. Get early access and help shape SuppVis before it
+            opens to everyone.
+          </p>
+        )}
 
         {submitted ? (
           <div className="animate-pulse-glow rounded-2xl bg-bg-secondary border border-accent/20 p-10">
@@ -265,15 +270,12 @@ export default function WaitlistClose() {
                 name="phone"
                 value={formValues.phone}
                 onChange={handleInputChange}
-                placeholder="Phone number for beta texts (optional)"
+                placeholder="Phone number (optional)"
                 autoComplete="tel"
                 inputMode="tel"
                 maxLength={40}
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
-              <p className="mt-2 text-xs text-text-muted">
-                Phone is optional. Texts require the SMS consent below.
-              </p>
             </div>
             <label className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
               <input
