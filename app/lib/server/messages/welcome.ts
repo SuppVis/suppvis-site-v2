@@ -1,3 +1,5 @@
+import { normalizeDisplayName } from "../validation";
+
 export const TESTFLIGHT_BETA_URL =
   "https://testflight.apple.com/join/nTASgewZ";
 
@@ -30,7 +32,7 @@ function escapeHtml(value: string) {
 }
 
 function normalizeFirstName(firstName: string) {
-  return firstName.trim() || "there";
+  return firstName.trim() ? normalizeDisplayName(firstName) : "there";
 }
 
 export function isWelcomeEmailEnabled() {

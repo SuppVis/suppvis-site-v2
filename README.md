@@ -39,7 +39,7 @@ The site includes serverless API routes for:
 
 These routes validate input server-side, use honeypot fields, apply basic in-memory rate limiting, and return safe user-facing errors. They do not send real email or SMS messages.
 
-The beta waitlist form collects first name, last name, email, and an optional phone number. If a phone number is provided, explicit SMS consent is required before the phone number is stored as an SMS subscriber.
+The beta waitlist form collects first name, last name, email, and an optional phone number. If a phone number is provided, explicit SMS consent is required before the phone number is stored as an SMS subscriber. Repeated beta signups with the same normalized email return a friendly already-signed-up success response instead of creating a second beta application.
 
 ## Required Environment Variables
 
@@ -71,9 +71,9 @@ Recommended before production public collection:
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
 - `TURNSTILE_SECRET_KEY`
 
-## DynamoDB Tables To Create Later
+## DynamoDB Tables
 
-Create these tables after infrastructure approval. Use separate names for production and preview, for example with `suppvis-site-v2-prod-` and `suppvis-site-v2-preview-` prefixes.
+The production DynamoDB tables already exist. New Preview, Development, or future isolated environments need equivalent tables and matching environment variables before form writes will work.
 
 Each table can start with:
 
@@ -84,10 +84,10 @@ Each table can start with:
 
 Tables:
 
-- `beta_applications`
-- `email_subscribers`
-- `sms_subscribers`
-- `broadcast_audit_logs`
+- `suppvis-prod-beta-applications`
+- `suppvis-prod-email-subscribers`
+- `suppvis-prod-sms-subscribers`
+- `suppvis-prod-broadcast-audit-logs`
 
 The current code writes these record shapes:
 
@@ -150,9 +150,9 @@ $hash = [System.Security.Cryptography.SHA256]::HashData($bytes)
 
 ## Production TODOs
 
-- Create the DynamoDB tables.
-- Create a least-privilege IAM principal or configure Vercel OIDC-to-AWS role assumption.
-- Add Vercel environment variables for production and preview.
+- Create equivalent DynamoDB tables for any new isolated non-production environments.
+- Consider replacing the current least-privilege IAM user with a future Vercel OIDC-to-AWS role assumption.
+- Keep Vercel environment variables current for production and preview.
 - Add Turnstile or another CAPTCHA before broad public collection.
 - Replace in-memory rate limiting with DynamoDB TTL-backed limits, Upstash/Vercel KV, or Vercel Firewall rules.
 - Verify SES domain identity and request SES production access before sending email.

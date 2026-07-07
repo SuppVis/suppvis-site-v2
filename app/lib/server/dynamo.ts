@@ -20,6 +20,7 @@ type UpsertInput = {
   key: DynamoRecord;
   set: DynamoRecord;
   setIfNotExists?: DynamoRecord;
+  conditionAttributeNotExists?: string[];
   operation: string;
 };
 
@@ -72,6 +73,7 @@ export async function upsertDynamoItem(input: UpsertInput) {
   const expressionAttributeNames: Record<string, string> = {};
   const expressionAttributeValues: Record<string, unknown> = {};
   const updateParts: string[] = [];
+  const conditionParts: string[] = [];
   let index = 0;
 
   for (const [name, value] of definedEntries(input.set)) {
@@ -100,6 +102,12 @@ export async function upsertDynamoItem(input: UpsertInput) {
     index += 1;
   }
 
+  for (const name of input.conditionAttributeNotExists || []) {
+    const nameKey = `#c${conditionParts.length}`;
+    expressionAttributeNames[nameKey] = name;
+    conditionParts.push(`attribute_not_exists(${nameKey})`);
+  }
+
   if (!updateParts.length) {
     throw new ServerConfigError(`No attributes configured for ${input.operation}`);
   }
@@ -110,11 +118,24 @@ export async function upsertDynamoItem(input: UpsertInput) {
         TableName: tableName,
         Key: input.key,
         UpdateExpression: `SET ${updateParts.join(", ")}`,
+        ConditionExpression: conditionParts.length
+          ? conditionParts.join(" AND ")
+          : undefined,
         ExpressionAttributeNames: expressionAttributeNames,
         ExpressionAttributeValues: expressionAttributeValues,
       }),
     );
+
+    return { wrote: true };
   } catch (error) {
+    if (
+      input.conditionAttributeNotExists?.length &&
+      error instanceof Error &&
+      error.name === "ConditionalCheckFailedException"
+    ) {
+      return { wrote: false };
+    }
+
     console.error("[dynamodb] upsert failed", {
       operation: input.operation,
       tableEnvName: input.tableEnvName,

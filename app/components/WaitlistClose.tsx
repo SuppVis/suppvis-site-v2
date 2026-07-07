@@ -20,13 +20,36 @@ const initialFormValues: FormValues = {
 };
 
 function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  return /^[^\s@]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(
+    email.trim(),
+  );
+}
+
+function sanitizePhoneInput(phone: string) {
+  return phone.replace(/[^\d()+\-\s.]/g, "").slice(0, 40);
+}
+
+function RequiredMarker() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute right-4 top-2.5 text-sm font-semibold text-accent"
+    >
+      *
+    </span>
+  );
 }
 
 export default function WaitlistClose() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState(
+    "You’re in. We’ll send beta testing access details soon.",
+  );
+  const [successSupport, setSuccessSupport] = useState(
+    "If you opted into texts, we’ll only text you about beta access and product updates.",
+  );
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
   const sectionRef = useScrollReveal();
   const hasPhone = Boolean(formValues.phone.trim());
@@ -38,19 +61,20 @@ export default function WaitlistClose() {
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
+    const nextValue = name === "phone" ? sanitizePhoneInput(value) : value;
 
     setFormValues((current) => {
-      if (name === "phone" && !value.trim()) {
+      if (name === "phone" && !nextValue.trim()) {
         return {
           ...current,
-          phone: value,
+          phone: nextValue,
           smsOptIn: false,
         };
       }
 
       return {
         ...current,
-        [name]: type === "checkbox" ? checked : value,
+        [name]: type === "checkbox" ? checked : nextValue,
       };
     });
   };
@@ -115,6 +139,16 @@ export default function WaitlistClose() {
         );
       }
 
+      setSuccessMessage(
+        typeof result?.message === "string"
+          ? result.message
+          : "You’re in. We’ll send beta testing access details soon.",
+      );
+      setSuccessSupport(
+        result?.duplicate
+          ? "You do not need to submit again."
+          : "If you opted into texts, we’ll only text you about beta access and product updates.",
+      );
       setSubmitted(true);
     } catch (err) {
       setError(
@@ -141,11 +175,10 @@ export default function WaitlistClose() {
         {submitted ? (
           <div className="animate-pulse-glow rounded-2xl bg-bg-secondary border border-accent/20 p-10">
             <p className="text-text-primary text-xl font-semibold">
-              You&rsquo;re in. We&rsquo;ll send beta testing access details soon.
+              {successMessage}
             </p>
             <p className="mt-3 text-sm text-text-secondary">
-              If you opted into texts, we&rsquo;ll only text you about beta
-              access and product updates.
+              {successSupport}
             </p>
           </div>
         ) : (
@@ -164,58 +197,67 @@ export default function WaitlistClose() {
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div>
+              <div className="relative">
                 <label htmlFor="firstName" className="sr-only">
-                  First name
+                  First name required
                 </label>
                 <input
                   type="text"
                   id="firstName"
                   name="firstName"
                   required
+                  aria-required="true"
                   value={formValues.firstName}
                   onChange={handleInputChange}
                   autoComplete="given-name"
                   placeholder="First name"
-                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+                  maxLength={50}
+                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 pr-9 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
                 />
+                <RequiredMarker />
               </div>
-              <div>
+              <div className="relative">
                 <label htmlFor="lastName" className="sr-only">
-                  Last name
+                  Last name required
                 </label>
                 <input
                   type="text"
                   id="lastName"
                   name="lastName"
                   required
+                  aria-required="true"
                   value={formValues.lastName}
                   onChange={handleInputChange}
                   autoComplete="family-name"
                   placeholder="Last name"
-                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+                  maxLength={50}
+                  className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 pr-9 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
                 />
+                <RequiredMarker />
               </div>
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="email" className="sr-only">
-                Email Address
+                Email address required
               </label>
               <input
                 type="email"
                 id="email"
                 name="email"
                 required
+                aria-required="true"
                 value={formValues.email}
                 onChange={handleInputChange}
                 autoComplete="email"
                 placeholder="Email Address"
-                className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
+                maxLength={254}
+                className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 pr-9 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
+              <RequiredMarker />
             </div>
             <div>
               <label htmlFor="phone" className="sr-only">
-                Phone Number
+                Phone number optional
               </label>
               <input
                 type="tel"
@@ -225,8 +267,13 @@ export default function WaitlistClose() {
                 onChange={handleInputChange}
                 placeholder="Phone number for beta texts (optional)"
                 autoComplete="tel"
+                inputMode="tel"
+                maxLength={40}
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
+              <p className="mt-2 text-xs text-text-muted">
+                Phone is optional. Texts require the SMS consent below.
+              </p>
             </div>
             <label className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
               <input
@@ -238,9 +285,9 @@ export default function WaitlistClose() {
                 className="mt-1 h-4 w-4 shrink-0 accent-accent"
               />
               <span>
-                I agree to receive beta access and product update texts from
-                SuppVis. Message and data rates may apply. Reply STOP to opt
-                out.
+                I agree to receive SuppVis text messages about beta access and
+                product updates. Reply STOP to opt out. Msg &amp; data rates may
+                apply.
               </span>
             </label>
             {error && (

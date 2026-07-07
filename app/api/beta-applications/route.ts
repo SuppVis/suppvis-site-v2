@@ -16,6 +16,7 @@ import {
 } from "@/app/lib/server/persistence";
 import {
   betaApplicationSchema,
+  normalizeDisplayName,
   normalizeEmail,
   normalizePhoneToE164,
 } from "@/app/lib/server/validation";
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date().toISOString();
+    const firstName = normalizeDisplayName(submission.firstName);
+    const lastName = normalizeDisplayName(submission.lastName);
     const normalizedEmail = normalizeEmail(submission.email);
     const phoneRaw = submission.phone.trim() || undefined;
     const phoneE164 = phoneRaw ? normalizePhoneToE164(phoneRaw) || undefined : undefined;
@@ -55,10 +58,10 @@ export async function POST(request: NextRequest) {
 
     assertDynamoTablesConfigured(...requiredTables);
 
-    await saveBetaApplication({
+    const betaCreated = await saveBetaApplication({
       id: betaId,
-      first_name: submission.firstName.trim(),
-      last_name: submission.lastName.trim(),
+      first_name: firstName,
+      last_name: lastName,
       email: submission.email.trim(),
       normalized_email: normalizedEmail,
       phone_raw: phoneRaw,
@@ -69,6 +72,14 @@ export async function POST(request: NextRequest) {
       created_at: now,
       updated_at: now,
     });
+
+    if (!betaCreated) {
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        message: "You’re already signed up. We’ll reach out with beta access details soon.",
+      });
+    }
 
     if (submission.smsOptIn && phoneRaw && phoneE164) {
       await saveSmsSubscriber({

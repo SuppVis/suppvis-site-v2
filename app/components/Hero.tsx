@@ -54,27 +54,27 @@ export default function Hero() {
           <span className="text-text-muted/40">&middot;</span>
           <span className="whitespace-nowrap">2,300+ Drug-Supplement Interactions</span>
         </div>
-      </div>
 
-      {/* Scroll indicator */}
-      <div
-        className={`absolute bottom-[40px] left-1/2 -translate-x-1/2 animate-bounce-down transition-opacity duration-500 ${
-          chevronVisible ? "opacity-100" : "opacity-0"
-        }`}
-      >
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="text-text-muted"
+        {/* Scroll indicator */}
+        <div
+          className={`mt-10 flex justify-center animate-bounce-down transition-opacity duration-500 pointer-events-none md:mt-12 ${
+            chevronVisible ? "opacity-100" : "opacity-0"
+          }`}
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-text-muted"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
       </div>
     </section>
   );

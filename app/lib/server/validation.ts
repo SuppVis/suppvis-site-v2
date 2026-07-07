@@ -6,13 +6,15 @@ const emailSchema = z
   .trim()
   .min(1, "Email is required.")
   .max(254, "Email is too long.")
-  .email("Enter a valid email address.");
+  .email("Enter a valid email address.")
+  .refine(hasReasonableEmailShape, "Enter a valid email address.");
 
 const nameSchema = z
   .string()
   .trim()
   .min(1, "Enter your first and last name.")
-  .max(80, "Name is too long.");
+  .max(50, "Name is too long.")
+  .refine(hasReasonableNameShape, "Enter a valid name.");
 
 const phoneSchema = z
   .string()
@@ -41,6 +43,7 @@ export const betaApplicationSchema = z
     sourcePage: sourceSchema,
     botField: honeypotSchema,
   })
+  .strict()
   .superRefine((data, ctx) => {
     const hasPhone = Boolean(data.phone.trim());
 
@@ -73,7 +76,7 @@ export const emailSubscriberSchema = z.object({
   email: emailSchema,
   consentSource: sourceSchema,
   botField: honeypotSchema,
-});
+}).strict();
 
 export const smsSubscriberSchema = z
   .object({
@@ -86,6 +89,7 @@ export const smsSubscriberSchema = z
     consentSource: sourceSchema,
     botField: honeypotSchema,
   })
+  .strict()
   .superRefine((data, ctx) => {
     if (!normalizePhoneToE164(data.phone)) {
       ctx.addIssue({
@@ -110,10 +114,38 @@ export const broadcastAuditSchema = z.object({
   messagePreview: z.string().trim().min(1).max(500),
   targetCount: z.number().int().nonnegative().max(1_000_000).optional(),
   dryRun: z.boolean().optional().default(true),
-});
+}).strict();
+
+function hasReasonableEmailShape(email: string) {
+  return /^[^\s@]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(
+    email.trim(),
+  );
+}
+
+function hasReasonableNameShape(name: string) {
+  return /^[\p{L}][\p{L}\p{M}'’ -]{0,49}$/u.test(name.trim());
+}
 
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+export function normalizeDisplayName(name: string) {
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(/([-'’\s])/u)
+    .map((part) => {
+      if (!part || /^[-'’\s]$/u.test(part)) {
+        return part;
+      }
+
+      return (
+        part.charAt(0).toLocaleUpperCase("en-US") +
+        part.slice(1).toLocaleLowerCase("en-US")
+      );
+    })
+    .join("");
 }
 
 export function normalizePhoneToE164(phone: string) {

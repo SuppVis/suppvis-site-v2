@@ -56,10 +56,11 @@ export type BroadcastAuditRecord = {
 };
 
 export async function saveBetaApplication(record: BetaApplicationRecord) {
-  await upsertDynamoItem({
+  const result = await upsertDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.betaApplications,
     key: { id: record.id },
     operation: "save_beta_application",
+    conditionAttributeNotExists: ["id"],
     set: {
       first_name: record.first_name,
       last_name: record.last_name,
@@ -77,6 +78,8 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
       created_at: record.created_at,
     },
   });
+
+  return result.wrote;
 }
 
 export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
