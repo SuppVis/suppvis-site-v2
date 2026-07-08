@@ -114,11 +114,22 @@ export function buildWelcomeEmailHtml({
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;border-collapse:collapse;">
             <tr>
               <td style="padding:0 0 18px 0;text-align:left;">
-                <div style="font-size:24px;line-height:1;font-weight:800;letter-spacing:0;color:#F0F4F8;">SuppVis</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="text-align:left;vertical-align:middle;">
+                      <div style="font-size:24px;line-height:1;font-weight:800;letter-spacing:0;color:#F0F4F8;">SuppVis</div>
+                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">Beta access</div>
+                    </td>
+                    <td align="right" style="vertical-align:middle;">
+                      <div style="display:inline-block;width:42px;height:42px;line-height:42px;text-align:center;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);color:#F0F4F8;font-size:14px;font-weight:800;">SV</div>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
             <tr>
               <td style="background:#0D1117;border:1px solid rgba(20,184,166,0.22);border-radius:18px;padding:34px 28px;box-shadow:0 18px 50px rgba(0,0,0,0.28);">
+                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">Founding beta member</p>
                 <h1 style="margin:0 0 22px 0;color:#F0F4F8;font-size:28px;line-height:1.15;font-weight:800;">You're in.</h1>
                 <p style="margin:0 0 18px 0;color:#D9E2EA;font-size:16px;line-height:1.65;">Hey ${name},</p>
                 <p style="margin:0 0 18px 0;color:#9BAFBF;font-size:16px;line-height:1.65;">Welcome to SuppVis. Right now you're one of a small group of founding members getting in before anyone else, and we're genuinely glad you're here.</p>

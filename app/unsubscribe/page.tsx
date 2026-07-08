@@ -3,7 +3,7 @@ import UnsubscribeClient from "./UnsubscribeClient";
 
 export const metadata: Metadata = {
   title: "Unsubscribe | SuppVis",
-  description: "Update your SuppVis beta email preferences.",
+  description: "Opt out of SuppVis beta email updates.",
 };
 
 type UnsubscribePageProps = {
