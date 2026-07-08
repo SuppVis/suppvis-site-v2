@@ -33,6 +33,47 @@ export type EmailSubscriberRecord = {
   resubscribed_at?: string;
 };
 
+function stringAttribute(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function emailSubscriberStatusAttribute(value: unknown) {
+  return value === "subscribed" ||
+    value === "unsubscribed" ||
+    value === "bounced" ||
+    value === "complained"
+    ? value
+    : undefined;
+}
+
+function emailSubscriberFromAttributes(
+  attributes: Record<string, unknown> | undefined,
+  fallback: EmailSubscriberRecord,
+): EmailSubscriberRecord {
+  return {
+    id: stringAttribute(attributes?.id) || fallback.id,
+    email: stringAttribute(attributes?.email) || fallback.email,
+    normalized_email:
+      stringAttribute(attributes?.normalized_email) ||
+      fallback.normalized_email,
+    status:
+      emailSubscriberStatusAttribute(attributes?.status) || fallback.status,
+    consent_timestamp:
+      stringAttribute(attributes?.consent_timestamp) ||
+      fallback.consent_timestamp,
+    consent_source:
+      stringAttribute(attributes?.consent_source) || fallback.consent_source,
+    created_at: stringAttribute(attributes?.created_at) || fallback.created_at,
+    updated_at: stringAttribute(attributes?.updated_at) || fallback.updated_at,
+    unsubscribe_token:
+      stringAttribute(attributes?.unsubscribe_token) ||
+      fallback.unsubscribe_token,
+    resubscribed_at:
+      stringAttribute(attributes?.resubscribed_at) ||
+      fallback.resubscribed_at,
+  };
+}
+
 export type SmsSubscriberRecord = {
   id: string;
   phone_number_raw: string;
@@ -88,14 +129,14 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
 }
 
 export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
-  await upsertDynamoItem({
+  const result = await upsertDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
     key: { id: record.id },
     operation: "save_email_subscriber",
+    returnValues: "ALL_NEW",
     set: {
       email: record.email,
       normalized_email: record.normalized_email,
-      status: record.status,
       consent_timestamp: record.consent_timestamp,
       consent_source: record.consent_source,
       resubscribed_at: record.resubscribed_at,
@@ -103,10 +144,13 @@ export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
     },
     setIfNotExists: {
       id: record.id,
+      status: record.status,
       created_at: record.created_at,
       unsubscribe_token: record.unsubscribe_token,
     },
   });
+
+  return emailSubscriberFromAttributes(result.attributes, record);
 }
 
 export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
@@ -142,6 +186,7 @@ export async function markEmailResubscribeIfUnsubscribed(input: {
     key: { id: input.id },
     operation: "mark_email_resubscribe",
     set: {
+      status: "subscribed",
       resubscribed_at: input.now,
       updated_at: input.now,
     },

@@ -21,6 +21,7 @@ type UpsertInput = {
   set: DynamoRecord;
   setIfNotExists?: DynamoRecord;
   conditionAttributeNotExists?: string[];
+  returnValues?: "ALL_NEW" | "UPDATED_NEW" | "NONE";
   operation: string;
 };
 
@@ -124,7 +125,7 @@ export async function upsertDynamoItem(input: UpsertInput) {
   }
 
   try {
-    await getDocumentClient().send(
+    const result = await getDocumentClient().send(
       new UpdateCommand({
         TableName: tableName,
         Key: input.key,
@@ -134,10 +135,14 @@ export async function upsertDynamoItem(input: UpsertInput) {
           : undefined,
         ExpressionAttributeNames: expressionAttributeNames,
         ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: input.returnValues,
       }),
     );
 
-    return { wrote: true };
+    return {
+      wrote: true,
+      attributes: result.Attributes as DynamoRecord | undefined,
+    };
   } catch (error) {
     if (
       input.conditionAttributeNotExists?.length &&

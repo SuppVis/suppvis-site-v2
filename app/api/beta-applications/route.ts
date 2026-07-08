@@ -1,20 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { stableId } from "@/app/lib/server/crypto";
+import {
+  createUrlSafeToken,
+  stableId,
+} from "@/app/lib/server/crypto";
+import { sendWelcomeEmail } from "@/app/lib/server/email/welcome";
 import {
   assertDynamoTablesConfigured,
   DYNAMO_TABLE_ENVS,
 } from "@/app/lib/server/dynamo";
 import { handleApiError } from "@/app/lib/server/errors";
+import { isWelcomeEmailEnabled } from "@/app/lib/server/messages/welcome";
+import {
+  markEmailResubscribeIfUnsubscribed,
+  markSmsResubscribeIfUnsubscribed,
+  saveBetaApplication,
+  saveEmailSubscriber,
+  saveSmsSubscriber,
+} from "@/app/lib/server/persistence";
 import {
   enforceRateLimit,
   isHoneypotFilled,
   readJsonBody,
 } from "@/app/lib/server/request";
-import {
-  markSmsResubscribeIfUnsubscribed,
-  saveBetaApplication,
-  saveSmsSubscriber,
-} from "@/app/lib/server/persistence";
 import {
   betaApplicationSchema,
   normalizeDisplayName,
@@ -24,6 +31,48 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function logWelcomeEmailResult(input: {
+  status: string;
+  reason?: string;
+  messageId?: string;
+}) {
+  console.info("[welcome-email] beta signup result", {
+    status: input.status,
+    reason: input.reason,
+    messageId: input.messageId,
+  });
+}
+
+async function sendBetaWelcomeEmailIfEnabled(input: {
+  betaCreated: boolean;
+  subscriber: Awaited<ReturnType<typeof saveEmailSubscriber>>;
+  firstName: string;
+}) {
+  if (!input.betaCreated) {
+    return;
+  }
+
+  if (!isWelcomeEmailEnabled()) {
+    console.info("[welcome-email] beta signup skipped", {
+      reason: "welcome_email_disabled",
+    });
+    return;
+  }
+
+  try {
+    const result = await sendWelcomeEmail({
+      subscriber: input.subscriber,
+      firstName: input.firstName,
+    });
+
+    logWelcomeEmailResult(result);
+  } catch (error) {
+    console.error("[welcome-email] beta signup failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,9 +98,15 @@ export async function POST(request: NextRequest) {
     const lastName = normalizeDisplayName(submission.lastName);
     const normalizedEmail = normalizeEmail(submission.email);
     const phoneRaw = submission.phone.trim() || undefined;
-    const phoneE164 = phoneRaw ? normalizePhoneToE164(phoneRaw) || undefined : undefined;
+    const phoneE164 = phoneRaw
+      ? normalizePhoneToE164(phoneRaw) || undefined
+      : undefined;
     const betaId = stableId("beta", normalizedEmail);
-    const requiredTables: string[] = [DYNAMO_TABLE_ENVS.betaApplications];
+    const emailSubscriberId = stableId("email", normalizedEmail);
+    const requiredTables: string[] = [
+      DYNAMO_TABLE_ENVS.betaApplications,
+      DYNAMO_TABLE_ENVS.emailSubscribers,
+    ];
 
     if (submission.smsOptIn) {
       requiredTables.push(DYNAMO_TABLE_ENVS.smsSubscribers);
@@ -74,13 +129,22 @@ export async function POST(request: NextRequest) {
       updated_at: now,
     });
 
-    if (!betaCreated) {
-      return NextResponse.json({
-        ok: true,
-        duplicate: true,
-        message: "You’re already signed up. We’ll reach out with beta access details soon.",
-      });
-    }
+    await markEmailResubscribeIfUnsubscribed({
+      id: emailSubscriberId,
+      now,
+    });
+
+    const emailSubscriber = await saveEmailSubscriber({
+      id: emailSubscriberId,
+      email: submission.email.trim(),
+      normalized_email: normalizedEmail,
+      status: "subscribed",
+      consent_timestamp: now,
+      consent_source: `${submission.sourcePage}:beta_application`,
+      created_at: now,
+      updated_at: now,
+      unsubscribe_token: createUrlSafeToken(),
+    });
 
     if (submission.smsOptIn && phoneRaw && phoneE164) {
       const smsSubscriberId = stableId("sms", phoneE164);
@@ -102,6 +166,20 @@ export async function POST(request: NextRequest) {
         last_opt_out_keyword: null,
         created_at: now,
         updated_at: now,
+      });
+    }
+
+    await sendBetaWelcomeEmailIfEnabled({
+      betaCreated,
+      firstName,
+      subscriber: emailSubscriber,
+    });
+
+    if (!betaCreated) {
+      return NextResponse.json({
+        ok: true,
+        duplicate: true,
+        message: "You're already signed up. We'll reach out with beta access details soon.",
       });
     }
 
