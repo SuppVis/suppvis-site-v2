@@ -33,7 +33,22 @@ export type EmailSubscriberRecord = {
   resubscribed_at?: string;
   unsubscribed_at?: string;
   unsubscribe_source?: string;
+  last_email_sent_at?: string;
+  last_email_message_id?: string;
+  last_email_type?: EmailTrackingMessageType;
+  welcome_email_sent_at?: string;
+  welcome_email_message_id?: string;
+  welcome_email_type?: EmailTrackingMessageType;
+  resubscribe_email_sent_at?: string;
+  resubscribe_email_message_id?: string;
+  unsubscribe_confirmation_email_sent_at?: string;
+  unsubscribe_confirmation_email_message_id?: string;
 };
+
+export type EmailTrackingMessageType =
+  | "welcome_beta"
+  | "beta_resubscribe"
+  | "beta_unsubscribe_confirmation";
 
 function stringAttribute(value: unknown) {
   return typeof value === "string" ? value : undefined;
@@ -293,6 +308,46 @@ export async function unsubscribeEmailSubscriber(input: {
     status: "invalid" as const,
     subscriber: null,
   };
+}
+
+export async function recordEmailSendAccepted(input: {
+  id: string;
+  messageId: string;
+  messageType: EmailTrackingMessageType;
+  now: string;
+}) {
+  const variantFields =
+    input.messageType === "welcome_beta"
+      ? {
+          welcome_email_sent_at: input.now,
+          welcome_email_message_id: input.messageId,
+          welcome_email_type: input.messageType,
+        }
+      : input.messageType === "beta_resubscribe"
+        ? {
+            resubscribe_email_sent_at: input.now,
+            resubscribe_email_message_id: input.messageId,
+          }
+        : {
+            unsubscribe_confirmation_email_sent_at: input.now,
+            unsubscribe_confirmation_email_message_id: input.messageId,
+          };
+
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+    key: { id: input.id },
+    operation: "record_email_send_accepted",
+    set: {
+      last_email_sent_at: input.now,
+      last_email_message_id: input.messageId,
+      last_email_type: input.messageType,
+      ...variantFields,
+    },
+    conditionExpression: "attribute_exists(#id)",
+    conditionAttributeNames: {
+      "#id": "id",
+    },
+  });
 }
 
 export async function markSmsResubscribeIfUnsubscribed(input: {

@@ -18,17 +18,18 @@ import {
   UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT,
   WELCOME_EMAIL_SUBJECT,
 } from "../messages/welcome";
-import { canSendEmailToSubscriber } from "../persistence";
+import {
+  canSendEmailToSubscriber,
+  recordEmailSendAccepted,
+  type EmailTrackingMessageType,
+} from "../persistence";
 
 const EMAIL_MAX_LENGTH = 254;
 
 let sesClient: SESv2Client | null = null;
 let sesClientRegion: string | null = null;
 
-type EmailMessageType =
-  | "welcome_beta"
-  | "beta_resubscribe"
-  | "beta_unsubscribe_confirmation";
+type EmailMessageType = EmailTrackingMessageType;
 
 type EmailSubscriber = {
   id: string;
@@ -87,6 +88,12 @@ export type EmailSendResult =
     };
 
 export type WelcomeEmailSendResult = EmailSendResult;
+
+type SentEmailResult = Extract<EmailSendResult, { status: "sent" }>;
+type EmailSkippedReason = Extract<
+  EmailSendResult,
+  { status: "skipped" }
+>["reason"];
 
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -195,7 +202,7 @@ function buildSubscriberEmailCommand(input: {
   });
 }
 
-function sentResult(output: SendEmailCommandOutput): EmailSendResult {
+function sentResult(output: SendEmailCommandOutput): SentEmailResult {
   return {
     ok: true,
     status: "sent",
@@ -203,10 +210,78 @@ function sentResult(output: SendEmailCommandOutput): EmailSendResult {
   };
 }
 
+function subscriberLogContext(input: {
+  messageType: EmailMessageType;
+  subscriber?: EmailSubscriber | null;
+}) {
+  return {
+    messageType: input.messageType,
+    subscriberId: input.subscriber?.id,
+  };
+}
+
+function logEmailSkipped(input: {
+  messageType: EmailMessageType;
+  reason: EmailSkippedReason;
+  subscriber?: EmailSubscriber | null;
+}) {
+  console.info("[email] send skipped", {
+    ...subscriberLogContext(input),
+    reason: input.reason,
+    subscriberStatus: input.subscriber?.status,
+  });
+}
+
+async function recordAcceptedSend(input: {
+  messageId?: string;
+  messageType: EmailMessageType;
+  subscriber: EmailSubscriber;
+}) {
+  if (!input.messageId) {
+    console.warn("[email] tracking skipped", {
+      ...subscriberLogContext(input),
+      reason: "missing_message_id",
+    });
+
+    return;
+  }
+
+  try {
+    const result = await recordEmailSendAccepted({
+      id: input.subscriber.id,
+      messageId: input.messageId,
+      messageType: input.messageType,
+      now: new Date().toISOString(),
+    });
+
+    console.info("[email] tracking result", {
+      ...subscriberLogContext(input),
+      messageId: input.messageId,
+      status: result.wrote ? "recorded" : "subscriber_missing",
+    });
+  } catch (error) {
+    console.error("[email] tracking failed", {
+      ...subscriberLogContext(input),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
 async function sendSubscriberEmail(
   input: SendSubscriberEmailInput,
 ): Promise<EmailSendResult> {
+  console.info("[email] send attempt", {
+    ...subscriberLogContext(input),
+    enabled: input.enabled,
+    subscriberStatus: input.subscriber?.status,
+  });
+
   if (!input.enabled) {
+    console.info("[email] send disabled", {
+      ...subscriberLogContext(input),
+      reason: input.disabledReason,
+    });
+
     return {
       ok: true,
       status: "disabled",
@@ -215,6 +290,12 @@ async function sendSubscriberEmail(
   }
 
   if (!input.subscriber) {
+    logEmailSkipped({
+      messageType: input.messageType,
+      reason: "missing_subscriber",
+      subscriber: input.subscriber,
+    });
+
     return {
       ok: true,
       status: "skipped",
@@ -225,6 +306,12 @@ async function sendSubscriberEmail(
   const normalizedEmail = normalizeEmailForSend(input.subscriber);
 
   if (!isValidEmailAddress(normalizedEmail)) {
+    logEmailSkipped({
+      messageType: input.messageType,
+      reason: "invalid_email",
+      subscriber: input.subscriber,
+    });
+
     return {
       ok: true,
       status: "skipped",
@@ -233,6 +320,12 @@ async function sendSubscriberEmail(
   }
 
   if (input.requireUnsubscribeToken && !hasRequiredUnsubscribeToken(input.subscriber)) {
+    logEmailSkipped({
+      messageType: input.messageType,
+      reason: "missing_unsubscribe_token",
+      subscriber: input.subscriber,
+    });
+
     return {
       ok: true,
       status: "skipped",
@@ -245,6 +338,12 @@ async function sendSubscriberEmail(
       ? isSuppressedForConfirmation(input.subscriber)
       : !canSendEmailToSubscriber(input.subscriber)
   ) {
+    logEmailSkipped({
+      messageType: input.messageType,
+      reason: "subscriber_suppressed",
+      subscriber: input.subscriber,
+    });
+
     return {
       ok: true,
       status: "skipped",
@@ -279,8 +378,20 @@ async function sendSubscriberEmail(
   });
 
   const output = await getSesClient(sesRegion).send(command);
+  const result = sentResult(output);
 
-  return sentResult(output);
+  console.info("[email] ses accepted", {
+    ...subscriberLogContext(input),
+    messageId: result.messageId,
+  });
+
+  await recordAcceptedSend({
+    messageId: result.messageId,
+    messageType: input.messageType,
+    subscriber: input.subscriber,
+  });
+
+  return result;
 }
 
 export async function sendWelcomeEmail(
