@@ -31,6 +31,8 @@ export type EmailSubscriberRecord = {
   updated_at: string;
   unsubscribe_token: string;
   resubscribed_at?: string;
+  unsubscribed_at?: string;
+  unsubscribe_source?: string;
 };
 
 function stringAttribute(value: unknown) {
@@ -71,6 +73,12 @@ function emailSubscriberFromAttributes(
     resubscribed_at:
       stringAttribute(attributes?.resubscribed_at) ||
       fallback.resubscribed_at,
+    unsubscribed_at:
+      stringAttribute(attributes?.unsubscribed_at) ||
+      fallback.unsubscribed_at,
+    unsubscribe_source:
+      stringAttribute(attributes?.unsubscribe_source) ||
+      fallback.unsubscribe_source,
   };
 }
 
@@ -206,6 +214,19 @@ export async function unsubscribeEmailSubscriber(input: {
   token: string;
   now: string;
 }) {
+  const fallback: EmailSubscriberRecord = {
+    id: input.id,
+    email: "",
+    normalized_email: "",
+    status: "unsubscribed",
+    consent_timestamp: "",
+    consent_source: "",
+    created_at: input.now,
+    updated_at: input.now,
+    unsubscribe_token: input.token,
+    unsubscribed_at: input.now,
+    unsubscribe_source: "email_link",
+  };
   const result = await updateDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
     key: { id: input.id },
@@ -224,9 +245,14 @@ export async function unsubscribeEmailSubscriber(input: {
     conditionAttributeValues: {
       ":token": input.token,
     },
+    returnValues: "ALL_NEW",
   });
 
-  return result.wrote;
+  if (!result.wrote) {
+    return null;
+  }
+
+  return emailSubscriberFromAttributes(result.attributes, fallback);
 }
 
 export async function markSmsResubscribeIfUnsubscribed(input: {

@@ -84,13 +84,15 @@ export default function UnsubscribeClient({
             </div>
 
             <div
-              className="flex size-14 shrink-0 items-center justify-center rounded-2xl border border-accent/35 bg-accent/10 shadow-[0_0_32px_rgba(20,184,166,0.16)] sm:size-16"
+              className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-accent/35 bg-accent/10 shadow-[0_0_32px_rgba(20,184,166,0.16)] sm:size-16"
               aria-label="SuppVis"
               role="img"
             >
-              <span className="font-headline text-lg font-extrabold text-text-primary sm:text-xl">
-                SV
-              </span>
+              <img
+                src="/favicon.svg"
+                alt=""
+                className="size-full object-cover"
+              />
             </div>
           </div>
 

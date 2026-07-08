@@ -3,7 +3,10 @@ import {
   createUrlSafeToken,
   stableId,
 } from "@/app/lib/server/crypto";
-import { sendWelcomeEmail } from "@/app/lib/server/email/welcome";
+import {
+  sendResubscribeEmail,
+  sendWelcomeEmail,
+} from "@/app/lib/server/email/welcome";
 import {
   assertDynamoTablesConfigured,
   DYNAMO_TABLE_ENVS,
@@ -45,28 +48,42 @@ function logWelcomeEmailResult(input: {
 }
 
 async function sendBetaWelcomeEmailIfEnabled(input: {
-  betaCreated: boolean;
+  shouldSendWelcomeEmail: boolean;
+  sendReason: "new_beta_application" | "email_resubscribed";
   subscriber: Awaited<ReturnType<typeof saveEmailSubscriber>>;
   firstName: string;
 }) {
-  if (!input.betaCreated) {
+  if (!input.shouldSendWelcomeEmail) {
+    console.info("[welcome-email] beta signup skipped", {
+      reason: "duplicate_beta_application",
+    });
     return;
   }
 
   if (!isWelcomeEmailEnabled()) {
     console.info("[welcome-email] beta signup skipped", {
       reason: "welcome_email_disabled",
+      trigger: input.sendReason,
     });
     return;
   }
 
   try {
-    const result = await sendWelcomeEmail({
+    const sendEmail =
+      input.sendReason === "email_resubscribed"
+        ? sendResubscribeEmail
+        : sendWelcomeEmail;
+    const result = await sendEmail({
       subscriber: input.subscriber,
       firstName: input.firstName,
     });
+    const resultReason =
+      "reason" in result && result.reason ? result.reason : input.sendReason;
 
-    logWelcomeEmailResult(result);
+    logWelcomeEmailResult({
+      ...result,
+      reason: resultReason,
+    });
   } catch (error) {
     console.error("[welcome-email] beta signup failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",
@@ -129,10 +146,11 @@ export async function POST(request: NextRequest) {
       updated_at: now,
     });
 
-    await markEmailResubscribeIfUnsubscribed({
+    const emailResubscribeResult = await markEmailResubscribeIfUnsubscribed({
       id: emailSubscriberId,
       now,
     });
+    const emailWasResubscribed = emailResubscribeResult.wrote;
 
     const emailSubscriber = await saveEmailSubscriber({
       id: emailSubscriberId,
@@ -170,7 +188,8 @@ export async function POST(request: NextRequest) {
     }
 
     await sendBetaWelcomeEmailIfEnabled({
-      betaCreated,
+      shouldSendWelcomeEmail: betaCreated || emailWasResubscribed,
+      sendReason: betaCreated ? "new_beta_application" : "email_resubscribed",
       firstName,
       subscriber: emailSubscriber,
     });

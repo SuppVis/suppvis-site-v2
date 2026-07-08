@@ -66,9 +66,11 @@ Admin dry-run audit:
 
 Welcome templates:
 
-- `WELCOME_EMAIL_ENABLED` - keep `false` until unsubscribe handling and a sender are configured.
+- `WELCOME_EMAIL_ENABLED` - enables first-time welcome and beta resubscribe emails from the beta signup route; keep `false` unless an approved send test or production rollout is active.
+- `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED` - optional unsubscribe confirmation email; keep `false` unless explicitly approved.
 - `WELCOME_SMS_ENABLED` - keep `false` until STOP/UNSUBSCRIBE handling and an SMS provider are configured.
 - `SES_FROM_EMAIL` - future verified sender, recommended `beta@suppvis.health`.
+- `SES_FROM_NAME` - display name for the sender, recommended `SuppVis Beta Testers`.
 - `SES_REGION` - future SES region, recommended `us-east-1`.
 - `SES_CONFIGURATION_SET` - future SES event configuration set, currently `suppvis-welcome`.
 
@@ -111,7 +113,11 @@ The current code writes these record shapes:
 
 Welcome email and SMS copy lives in `app/lib/server/messages/welcome.ts`. The disabled, server-only SES helper lives in `app/lib/server/email/welcome.ts`.
 
-The SES helper is not called by public signup routes. It returns a disabled result unless `WELCOME_EMAIL_ENABLED=true`, and that flag must remain `false` until SES production access, SES send IAM permission, and one-recipient internal testing are explicitly approved.
+The beta signup route can call the SES helper, but only after storage succeeds and only when `WELCOME_EMAIL_ENABLED=true`. First-time beta signups send the `beta_signup_welcome` variant with `message_type=welcome_beta`. Explicit beta-form resubscribes after an unsubscribe send the `beta_resubscribe` variant with `message_type=beta_resubscribe`. Ordinary duplicate beta signups while already subscribed do not send another email.
+
+The unsubscribe route can optionally send a one-time `beta_unsubscribe_confirmation` email after a successful unsubscribe, but only when `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED=true`. That confirmation uses `message_type=beta_unsubscribe_confirmation` and should remain disabled unless explicitly approved.
+
+The `founder_contact_outreach` template exists for later contact-list/founder outreach use only. It is not connected to a public route or bulk sender.
 
 Real welcome sends must remain disabled until:
 
@@ -120,11 +126,11 @@ Real welcome sends must remain disabled until:
 - A sending provider is configured.
 - The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
 
-For the first SES test, prefer a one-recipient internal script or protected route added in a separate approval. Do not connect the SES helper to `/api/beta-applications`, `/api/email-subscribers`, or any public signup flow until that internal test passes.
+Do not enable bulk sends or broadcast sends from these helpers. They are one-recipient transactional paths only.
 
 ## Unsubscribe And SMS Opt-Out Foundation
 
-Email unsubscribe support is provider-ready but not connected to a sender yet:
+Email unsubscribe support is provider-ready. The unsubscribe-confirmation sender path exists but stays disabled unless `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED=true`:
 
 - Future emails should link to `/unsubscribe?subscriber=<email_subscriber_id>&token=<unsubscribe_token>`.
 - The API route conditionally updates the matching email subscriber record to `status = unsubscribed`, sets `unsubscribed_at`, and keeps the record for audit/history.
@@ -179,7 +185,7 @@ Before real welcome emails are enabled:
 - Configure SPF/DMARC as appropriate.
 - Request SES production access if the account is still in sandbox.
 - Add bounce and complaint handling before broader sends.
-- Set `SES_FROM_EMAIL=beta@suppvis.health`, `SES_REGION=us-east-1`, `SES_CONFIGURATION_SET=suppvis-welcome`, and `APP_BASE_URL=https://www.suppvis.health`.
+- Set `SES_FROM_EMAIL=beta@suppvis.health`, `SES_FROM_NAME=SuppVis Beta Testers`, `SES_REGION=us-east-1`, `SES_CONFIGURATION_SET=suppvis-welcome`, and `APP_BASE_URL=https://www.suppvis.health`.
 - Include the unsubscribe link in every email and suppress subscribers with `status = unsubscribed` before sending.
 - Add least-privilege SES IAM permissions only after explicit approval. The future app principal should only need `ses:SendEmail` and/or `ses:SendRawEmail` scoped to the verified identity and optional configuration set.
 

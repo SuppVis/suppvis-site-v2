@@ -33,6 +33,7 @@ type UpdateInput = {
   conditionExpression?: string;
   conditionAttributeNames?: Record<string, string>;
   conditionAttributeValues?: DynamoRecord;
+  returnValues?: "ALL_NEW" | "UPDATED_NEW" | "NONE";
   operation: string;
 };
 
@@ -210,7 +211,7 @@ export async function updateDynamoItem(input: UpdateInput) {
   }
 
   try {
-    await getDocumentClient().send(
+    const result = await getDocumentClient().send(
       new UpdateCommand({
         TableName: tableName,
         Key: input.key,
@@ -218,10 +219,14 @@ export async function updateDynamoItem(input: UpdateInput) {
         ConditionExpression: input.conditionExpression,
         ExpressionAttributeNames: expressionAttributeNames,
         ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: input.returnValues,
       }),
     );
 
-    return { wrote: true };
+    return {
+      wrote: true,
+      attributes: result.Attributes as DynamoRecord | undefined,
+    };
   } catch (error) {
     if (
       input.conditionExpression &&

@@ -6,9 +6,16 @@ import {
 import { ServerConfigError } from "../errors";
 import {
   buildEmailUnsubscribeUrl,
+  buildResubscribeEmailHtml,
+  buildResubscribeEmailText,
+  buildUnsubscribeConfirmationEmailHtml,
+  buildUnsubscribeConfirmationEmailText,
   buildWelcomeEmailHtml,
   buildWelcomeEmailText,
+  isUnsubscribeConfirmationEmailEnabled,
   isWelcomeEmailEnabled,
+  RESUBSCRIBE_EMAIL_SUBJECT,
+  UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT,
   WELCOME_EMAIL_SUBJECT,
 } from "../messages/welcome";
 import { canSendEmailToSubscriber } from "../persistence";
@@ -18,7 +25,12 @@ const EMAIL_MAX_LENGTH = 254;
 let sesClient: SESv2Client | null = null;
 let sesClientRegion: string | null = null;
 
-type WelcomeEmailSubscriber = {
+type EmailMessageType =
+  | "welcome_beta"
+  | "beta_resubscribe"
+  | "beta_unsubscribe_confirmation";
+
+type EmailSubscriber = {
   id: string;
   email: string;
   normalized_email: string;
@@ -26,16 +38,38 @@ type WelcomeEmailSubscriber = {
   unsubscribe_token?: string;
 };
 
-type WelcomeEmailInput = {
-  subscriber: WelcomeEmailSubscriber | null | undefined;
+type SubscriberEmailInput = {
+  subscriber: EmailSubscriber | null | undefined;
   firstName?: string;
 };
 
-export type WelcomeEmailSendResult =
+type EmailContent = {
+  html: string;
+  subject: string;
+  text: string;
+};
+
+type SendSubscriberEmailInput = SubscriberEmailInput & {
+  allowUnsubscribed?: boolean;
+  buildContent: (input: {
+    appBaseUrl: string;
+    unsubscribeUrl?: string;
+  }) => EmailContent;
+  disabledReason:
+    | "welcome_email_disabled"
+    | "unsubscribe_confirmation_email_disabled";
+  enabled: boolean;
+  messageType: EmailMessageType;
+  requireUnsubscribeToken?: boolean;
+};
+
+export type EmailSendResult =
   | {
       ok: true;
       status: "disabled";
-      reason: "welcome_email_disabled";
+      reason:
+        | "welcome_email_disabled"
+        | "unsubscribe_confirmation_email_disabled";
     }
   | {
       ok: true;
@@ -52,6 +86,8 @@ export type WelcomeEmailSendResult =
       messageId?: string;
     };
 
+export type WelcomeEmailSendResult = EmailSendResult;
+
 function getRequiredEnv(name: string) {
   const value = process.env[name]?.trim();
 
@@ -60,6 +96,10 @@ function getRequiredEnv(name: string) {
   }
 
   return value;
+}
+
+function getOptionalEnv(name: string) {
+  return process.env[name]?.trim();
 }
 
 function getSesClient(region: string) {
@@ -80,34 +120,44 @@ function isValidEmailAddress(email: string) {
   );
 }
 
-function normalizeEmailForSend(subscriber: WelcomeEmailSubscriber) {
+function normalizeEmailForSend(subscriber: EmailSubscriber) {
   return subscriber.normalized_email.trim().toLowerCase();
 }
 
-function hasRequiredUnsubscribeToken(subscriber: WelcomeEmailSubscriber) {
+function escapeDisplayName(value: string) {
+  return value.replace(/["\\\r\n]/g, "").trim();
+}
+
+function formatFromEmailAddress(email: string) {
+  const displayName = escapeDisplayName(
+    getOptionalEnv("SES_FROM_NAME") || "SuppVis Beta Testers",
+  );
+
+  return displayName ? `${displayName} <${email}>` : email;
+}
+
+function hasRequiredUnsubscribeToken(subscriber: EmailSubscriber) {
   return Boolean(subscriber.unsubscribe_token?.trim());
 }
 
-function buildWelcomeEmailCommand(input: {
-  fromEmail: string;
-  configurationSetName: string;
-  appBaseUrl: string;
-  subscriber: WelcomeEmailSubscriber;
-  firstName?: string;
-}) {
-  const recipientEmail = normalizeEmailForSend(input.subscriber);
-  const unsubscribeUrl = buildEmailUnsubscribeUrl({
-    appBaseUrl: input.appBaseUrl,
-    subscriberId: input.subscriber.id,
-    token: input.subscriber.unsubscribe_token || "",
-  });
-  const firstName = input.firstName?.trim() || "there";
+function isSuppressedForConfirmation(subscriber: EmailSubscriber) {
+  return subscriber.status === "bounced" || subscriber.status === "complained";
+}
 
+function buildSubscriberEmailCommand(input: {
+  configurationSetName: string;
+  content: EmailContent;
+  fromEmailAddress: string;
+  messageType: EmailMessageType;
+  recipientEmail: string;
+  replyToEmail: string;
+  subscriber: EmailSubscriber;
+}) {
   return new SendEmailCommand({
-    FromEmailAddress: input.fromEmail,
-    ReplyToAddresses: [input.fromEmail],
+    FromEmailAddress: input.fromEmailAddress,
+    ReplyToAddresses: [input.replyToEmail],
     Destination: {
-      ToAddresses: [recipientEmail],
+      ToAddresses: [input.recipientEmail],
     },
     ConfigurationSetName: input.configurationSetName,
     EmailTags: [
@@ -117,33 +167,27 @@ function buildWelcomeEmailCommand(input: {
       },
       {
         Name: "normalized_email",
-        Value: recipientEmail,
+        Value: input.recipientEmail,
       },
       {
         Name: "message_type",
-        Value: "welcome_beta",
+        Value: input.messageType,
       },
     ],
     Content: {
       Simple: {
         Subject: {
           Charset: "UTF-8",
-          Data: WELCOME_EMAIL_SUBJECT,
+          Data: input.content.subject,
         },
         Body: {
           Html: {
             Charset: "UTF-8",
-            Data: buildWelcomeEmailHtml({
-              firstName,
-              unsubscribeUrl,
-            }),
+            Data: input.content.html,
           },
           Text: {
             Charset: "UTF-8",
-            Data: buildWelcomeEmailText({
-              firstName,
-              unsubscribeUrl,
-            }),
+            Data: input.content.text,
           },
         },
       },
@@ -151,7 +195,7 @@ function buildWelcomeEmailCommand(input: {
   });
 }
 
-function sentResult(output: SendEmailCommandOutput): WelcomeEmailSendResult {
+function sentResult(output: SendEmailCommandOutput): EmailSendResult {
   return {
     ok: true,
     status: "sent",
@@ -159,14 +203,14 @@ function sentResult(output: SendEmailCommandOutput): WelcomeEmailSendResult {
   };
 }
 
-export async function sendWelcomeEmail(
-  input: WelcomeEmailInput,
-): Promise<WelcomeEmailSendResult> {
-  if (!isWelcomeEmailEnabled()) {
+async function sendSubscriberEmail(
+  input: SendSubscriberEmailInput,
+): Promise<EmailSendResult> {
+  if (!input.enabled) {
     return {
       ok: true,
       status: "disabled",
-      reason: "welcome_email_disabled",
+      reason: input.disabledReason,
     };
   }
 
@@ -188,7 +232,7 @@ export async function sendWelcomeEmail(
     };
   }
 
-  if (!hasRequiredUnsubscribeToken(input.subscriber)) {
+  if (input.requireUnsubscribeToken && !hasRequiredUnsubscribeToken(input.subscriber)) {
     return {
       ok: true,
       status: "skipped",
@@ -196,7 +240,11 @@ export async function sendWelcomeEmail(
     };
   }
 
-  if (!canSendEmailToSubscriber(input.subscriber)) {
+  if (
+    input.allowUnsubscribed
+      ? isSuppressedForConfirmation(input.subscriber)
+      : !canSendEmailToSubscriber(input.subscriber)
+  ) {
     return {
       ok: true,
       status: "skipped",
@@ -206,17 +254,101 @@ export async function sendWelcomeEmail(
 
   const sesRegion = getRequiredEnv("SES_REGION");
   const fromEmail = getRequiredEnv("SES_FROM_EMAIL");
+  const fromEmailAddress = formatFromEmailAddress(fromEmail);
   const configurationSetName = getRequiredEnv("SES_CONFIGURATION_SET");
   const appBaseUrl = getRequiredEnv("APP_BASE_URL");
-  const command = buildWelcomeEmailCommand({
+  const unsubscribeUrl = input.subscriber.unsubscribe_token
+    ? buildEmailUnsubscribeUrl({
+        appBaseUrl,
+        subscriberId: input.subscriber.id,
+        token: input.subscriber.unsubscribe_token,
+      })
+    : undefined;
+  const content = input.buildContent({
     appBaseUrl,
+    unsubscribeUrl,
+  });
+  const command = buildSubscriberEmailCommand({
     configurationSetName,
-    firstName: input.firstName,
-    fromEmail,
+    content,
+    fromEmailAddress,
+    messageType: input.messageType,
+    recipientEmail: normalizedEmail,
+    replyToEmail: fromEmail,
     subscriber: input.subscriber,
   });
 
   const output = await getSesClient(sesRegion).send(command);
 
   return sentResult(output);
+}
+
+export async function sendWelcomeEmail(
+  input: SubscriberEmailInput,
+): Promise<WelcomeEmailSendResult> {
+  return sendSubscriberEmail({
+    ...input,
+    buildContent: ({ appBaseUrl, unsubscribeUrl }) => ({
+      html: buildWelcomeEmailHtml({
+        appBaseUrl,
+        firstName: input.firstName || "there",
+        unsubscribeUrl,
+      }),
+      subject: WELCOME_EMAIL_SUBJECT,
+      text: buildWelcomeEmailText({
+        firstName: input.firstName || "there",
+        unsubscribeUrl,
+      }),
+    }),
+    disabledReason: "welcome_email_disabled",
+    enabled: isWelcomeEmailEnabled(),
+    messageType: "welcome_beta",
+    requireUnsubscribeToken: true,
+  });
+}
+
+export async function sendResubscribeEmail(
+  input: SubscriberEmailInput,
+): Promise<WelcomeEmailSendResult> {
+  return sendSubscriberEmail({
+    ...input,
+    buildContent: ({ appBaseUrl, unsubscribeUrl }) => ({
+      html: buildResubscribeEmailHtml({
+        appBaseUrl,
+        firstName: input.firstName || "there",
+        unsubscribeUrl,
+      }),
+      subject: RESUBSCRIBE_EMAIL_SUBJECT,
+      text: buildResubscribeEmailText({
+        firstName: input.firstName || "there",
+        unsubscribeUrl,
+      }),
+    }),
+    disabledReason: "welcome_email_disabled",
+    enabled: isWelcomeEmailEnabled(),
+    messageType: "beta_resubscribe",
+    requireUnsubscribeToken: true,
+  });
+}
+
+export async function sendUnsubscribeConfirmationEmail(input: {
+  subscriber: EmailSubscriber | null | undefined;
+}): Promise<EmailSendResult> {
+  return sendSubscriberEmail({
+    subscriber: input.subscriber,
+    allowUnsubscribed: true,
+    buildContent: ({ appBaseUrl }) => ({
+      html: buildUnsubscribeConfirmationEmailHtml({
+        appBaseUrl,
+      }),
+      subject: UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT,
+      text: buildUnsubscribeConfirmationEmailText({
+        appBaseUrl,
+      }),
+    }),
+    disabledReason: "unsubscribe_confirmation_email_disabled",
+    enabled: isUnsubscribeConfirmationEmailEnabled(),
+    messageType: "beta_unsubscribe_confirmation",
+    requireUnsubscribeToken: false,
+  });
 }
