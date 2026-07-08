@@ -147,9 +147,11 @@ export default function WaitlistClose() {
           : "You’re in. We’ll send beta testing access details soon.",
       );
       setSuccessSupport(
-        result?.duplicate
-          ? "You do not need to submit again."
-          : "If you opted into texts, we’ll only text you about beta access and product updates.",
+        result?.resubscribed
+          ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
+          : result?.duplicate
+            ? "You do not need to submit again."
+            : "If you opted into texts, we’ll only text you about beta access and product updates.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));
       setSubmitted(true);

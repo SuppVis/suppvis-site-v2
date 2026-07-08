@@ -237,22 +237,62 @@ export async function unsubscribeEmailSubscriber(input: {
       unsubscribe_source: "email_link",
       updated_at: input.now,
     },
-    conditionExpression: "attribute_exists(#id) AND #token = :token",
     conditionAttributeNames: {
       "#id": "id",
       "#token": "unsubscribe_token",
+      "#status": "status",
     },
     conditionAttributeValues: {
       ":token": input.token,
+      ":unsubscribed": "unsubscribed",
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #token = :token AND (attribute_not_exists(#status) OR #status <> :unsubscribed)",
+    returnValues: "ALL_NEW",
+  });
+
+  if (result.wrote) {
+    return {
+      status: "unsubscribed" as const,
+      subscriber: emailSubscriberFromAttributes(result.attributes, fallback),
+    };
+  }
+
+  const alreadyUnsubscribedResult = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+    key: { id: input.id },
+    operation: "unsubscribe_email_subscriber_already_unsubscribed",
+    set: {
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #token = :token AND #status = :unsubscribed",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#token": "unsubscribe_token",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":token": input.token,
+      ":unsubscribed": "unsubscribed",
     },
     returnValues: "ALL_NEW",
   });
 
-  if (!result.wrote) {
-    return null;
+  if (alreadyUnsubscribedResult.wrote) {
+    return {
+      status: "already_unsubscribed" as const,
+      subscriber: emailSubscriberFromAttributes(
+        alreadyUnsubscribedResult.attributes,
+        fallback,
+      ),
+    };
   }
 
-  return emailSubscriberFromAttributes(result.attributes, fallback);
+  return {
+    status: "invalid" as const,
+    subscriber: null,
+  };
 }
 
 export async function markSmsResubscribeIfUnsubscribed(input: {

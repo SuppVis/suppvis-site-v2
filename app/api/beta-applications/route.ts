@@ -189,10 +189,21 @@ export async function POST(request: NextRequest) {
 
     await sendBetaWelcomeEmailIfEnabled({
       shouldSendWelcomeEmail: betaCreated || emailWasResubscribed,
-      sendReason: betaCreated ? "new_beta_application" : "email_resubscribed",
+      sendReason: emailWasResubscribed
+        ? "email_resubscribed"
+        : "new_beta_application",
       firstName,
       subscriber: emailSubscriber,
     });
+
+    if (emailWasResubscribed) {
+      return NextResponse.json({
+        ok: true,
+        resubscribed: true,
+        message:
+          "You're subscribed again. We'll send SuppVis beta updates to your email.",
+      });
+    }
 
     if (!betaCreated) {
       return NextResponse.json({

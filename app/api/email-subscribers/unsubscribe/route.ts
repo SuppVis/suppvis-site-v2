@@ -26,6 +26,14 @@ function logUnsubscribeConfirmationResult(input: {
   });
 }
 
+function logUnsubscribeResult(input: {
+  status: "unsubscribed" | "already_unsubscribed" | "invalid" | "invalid_request_shape";
+}) {
+  console.info("[unsubscribe-email] unsubscribe result", {
+    status: input.status,
+  });
+}
+
 async function sendUnsubscribeConfirmationIfEnabled(
   subscriber: EmailSubscriberRecord,
 ) {
@@ -59,14 +67,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readJsonBody(request);
-    const submission = emailUnsubscribeSchema.parse(body);
-    const unsubscribedSubscriber = await unsubscribeEmailSubscriber({
-      id: submission.subscriberId,
-      token: submission.token,
-      now: new Date().toISOString(),
-    });
+    const parsedSubmission = emailUnsubscribeSchema.safeParse(body);
 
-    if (!unsubscribedSubscriber) {
+    if (!parsedSubmission.success) {
+      logUnsubscribeResult({ status: "invalid_request_shape" });
+
       return NextResponse.json(
         {
           ok: false,
@@ -77,7 +82,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await sendUnsubscribeConfirmationIfEnabled(unsubscribedSubscriber);
+    const submission = parsedSubmission.data;
+    const unsubscribeResult = await unsubscribeEmailSubscriber({
+      id: submission.subscriberId,
+      token: submission.token,
+      now: new Date().toISOString(),
+    });
+
+    logUnsubscribeResult({ status: unsubscribeResult.status });
+
+    if (unsubscribeResult.status === "invalid") {
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "invalid_unsubscribe_link",
+          message: "This unsubscribe link is invalid or expired.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (unsubscribeResult.status === "already_unsubscribed") {
+      return NextResponse.json({
+        ok: true,
+        alreadyUnsubscribed: true,
+        message: "You're already unsubscribed from SuppVis emails.",
+      });
+    }
+
+    await sendUnsubscribeConfirmationIfEnabled(unsubscribeResult.subscriber);
 
     return NextResponse.json({
       ok: true,
