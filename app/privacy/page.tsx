@@ -18,7 +18,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-text-muted text-sm mb-12">
-            Effective date: May 3rd, 2026
+            Effective date: July 9th, 2026
           </p>
 
           <div className="space-y-10 text-[15px] text-text-secondary leading-[1.75]">
@@ -139,6 +139,23 @@ export default function PrivacyPage() {
                 </li>
                 <li>Comply with legal obligations.</li>
               </ul>
+              <div className="mt-6 rounded-2xl border border-accent/25 bg-accent/5 p-5 shadow-[0_0_30px_rgba(20,184,166,0.08)]">
+                <p>
+                  <strong className="text-text-primary">
+                    SMS/Text Messaging.
+                  </strong>{" "}
+                  If you provide your mobile number and opt in, SuppVis may send
+                  you text messages about beta access, product updates, and
+                  SuppVis news. Message frequency varies. Message and data rates
+                  may apply. You can opt out at any time by replying STOP, or
+                  reply HELP for help. We do not sell, rent, or share your mobile
+                  phone number or your SMS consent/opt-in information with any
+                  third parties or affiliates for their own marketing purposes.
+                  Mobile opt-in data is excluded from the anonymized
+                  data-sharing and any other sharing arrangements described in
+                  this policy.
+                </p>
+              </div>
               <p className="mt-4">
                 We do not use your individual health data to serve advertising
                 and we do not build advertising profiles from your personal
