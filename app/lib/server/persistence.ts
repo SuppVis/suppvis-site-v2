@@ -97,20 +97,110 @@ function emailSubscriberFromAttributes(
   };
 }
 
+function smsSubscriberStatusAttribute(value: unknown) {
+  return value === "pending_verification" ||
+    value === "subscribed" ||
+    value === "unsubscribed" ||
+    value === "failed" ||
+    value === "invalid" ||
+    value === "opt_out_provider"
+    ? value
+    : undefined;
+}
+
+export type SmsSubscriberStatus =
+  | "pending_verification"
+  | "subscribed"
+  | "unsubscribed"
+  | "failed"
+  | "invalid"
+  | "opt_out_provider";
+
+export type SmsTrackingMessageType = "welcome_beta_sms";
+
 export type SmsSubscriberRecord = {
   id: string;
   phone_number_raw: string;
   phone_number_e164: string;
-  status: "pending_verification" | "subscribed" | "unsubscribed";
+  status: SmsSubscriberStatus;
   sms_consent_timestamp: string;
   sms_consent_source: string;
   opt_out_timestamp: string | null;
   opt_out_source?: string | null;
   last_opt_out_keyword?: string | null;
   resubscribed_at?: string;
+  welcome_sms_sent_at?: string;
+  welcome_sms_message_sid?: string;
+  last_sms_sent_at?: string;
+  last_sms_message_sid?: string;
+  last_sms_status?: string;
+  last_sms_error_code?: string;
+  last_sms_error_message_safe?: string;
+  sms_status_updated_at?: string;
+  sms_provider_status?: string;
   created_at: string;
   updated_at: string;
 };
+
+function smsSubscriberFromAttributes(
+  attributes: Record<string, unknown> | undefined,
+  fallback: SmsSubscriberRecord,
+): SmsSubscriberRecord {
+  return {
+    id: stringAttribute(attributes?.id) || fallback.id,
+    phone_number_raw:
+      stringAttribute(attributes?.phone_number_raw) ||
+      fallback.phone_number_raw,
+    phone_number_e164:
+      stringAttribute(attributes?.phone_number_e164) ||
+      fallback.phone_number_e164,
+    status: smsSubscriberStatusAttribute(attributes?.status) || fallback.status,
+    sms_consent_timestamp:
+      stringAttribute(attributes?.sms_consent_timestamp) ||
+      fallback.sms_consent_timestamp,
+    sms_consent_source:
+      stringAttribute(attributes?.sms_consent_source) ||
+      fallback.sms_consent_source,
+    opt_out_timestamp:
+      stringAttribute(attributes?.opt_out_timestamp) ||
+      fallback.opt_out_timestamp,
+    opt_out_source:
+      stringAttribute(attributes?.opt_out_source) || fallback.opt_out_source,
+    last_opt_out_keyword:
+      stringAttribute(attributes?.last_opt_out_keyword) ||
+      fallback.last_opt_out_keyword,
+    resubscribed_at:
+      stringAttribute(attributes?.resubscribed_at) || fallback.resubscribed_at,
+    welcome_sms_sent_at:
+      stringAttribute(attributes?.welcome_sms_sent_at) ||
+      fallback.welcome_sms_sent_at,
+    welcome_sms_message_sid:
+      stringAttribute(attributes?.welcome_sms_message_sid) ||
+      fallback.welcome_sms_message_sid,
+    last_sms_sent_at:
+      stringAttribute(attributes?.last_sms_sent_at) ||
+      fallback.last_sms_sent_at,
+    last_sms_message_sid:
+      stringAttribute(attributes?.last_sms_message_sid) ||
+      fallback.last_sms_message_sid,
+    last_sms_status:
+      stringAttribute(attributes?.last_sms_status) || fallback.last_sms_status,
+    last_sms_error_code:
+      stringAttribute(attributes?.last_sms_error_code) ||
+      fallback.last_sms_error_code,
+    last_sms_error_message_safe:
+      stringAttribute(attributes?.last_sms_error_message_safe) ||
+      fallback.last_sms_error_message_safe,
+    sms_status_updated_at:
+      stringAttribute(attributes?.sms_status_updated_at) ||
+      fallback.sms_status_updated_at,
+    sms_provider_status:
+      stringAttribute(attributes?.sms_provider_status) ||
+      fallback.sms_provider_status,
+    created_at: stringAttribute(attributes?.created_at) || fallback.created_at,
+    updated_at: stringAttribute(attributes?.updated_at) || fallback.updated_at,
+  };
+}
 
 export type BroadcastAuditRecord = {
   id: string;
@@ -177,27 +267,27 @@ export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
 }
 
 export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
-  await upsertDynamoItem({
+  const result = await upsertDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
     key: { id: record.id },
     operation: "save_sms_subscriber",
+    returnValues: "ALL_NEW",
     set: {
       phone_number_raw: record.phone_number_raw,
       phone_number_e164: record.phone_number_e164,
-      status: record.status,
       sms_consent_timestamp: record.sms_consent_timestamp,
       sms_consent_source: record.sms_consent_source,
-      opt_out_timestamp: record.opt_out_timestamp,
-      opt_out_source: record.opt_out_source,
-      last_opt_out_keyword: record.last_opt_out_keyword,
       resubscribed_at: record.resubscribed_at,
       updated_at: record.updated_at,
     },
     setIfNotExists: {
       id: record.id,
+      status: record.status,
       created_at: record.created_at,
     },
   });
+
+  return smsSubscriberFromAttributes(result.attributes, record);
 }
 
 export async function markEmailResubscribeIfUnsubscribed(input: {
@@ -350,6 +440,135 @@ export async function recordEmailSendAccepted(input: {
   });
 }
 
+function smsSubscriberStatusForProviderStatus(input: {
+  errorCode?: string;
+  providerStatus: string;
+}): SmsSubscriberStatus | undefined {
+  const normalizedStatus = input.providerStatus.toLowerCase();
+
+  if (input.errorCode === "21610") {
+    return "opt_out_provider";
+  }
+
+  if (input.errorCode === "21211") {
+    return "invalid";
+  }
+
+  if (normalizedStatus === "failed" || normalizedStatus === "undelivered") {
+    return "failed";
+  }
+
+  if (
+    normalizedStatus === "accepted" ||
+    normalizedStatus === "queued" ||
+    normalizedStatus === "sending" ||
+    normalizedStatus === "sent" ||
+    normalizedStatus === "delivered"
+  ) {
+    return "subscribed";
+  }
+
+  return undefined;
+}
+
+export async function recordSmsSendAccepted(input: {
+  id: string;
+  messageSid: string;
+  messageType: SmsTrackingMessageType;
+  now: string;
+}) {
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "record_sms_send_accepted",
+    set: {
+      status: "subscribed",
+      welcome_sms_sent_at: input.now,
+      welcome_sms_message_sid: input.messageSid,
+      last_sms_sent_at: input.now,
+      last_sms_message_sid: input.messageSid,
+      last_sms_status: "accepted",
+      sms_provider_status: "accepted",
+      sms_status_updated_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id)",
+    conditionAttributeNames: {
+      "#id": "id",
+    },
+  });
+}
+
+export async function recordSmsSendFailure(input: {
+  id: string;
+  errorCode?: string;
+  errorMessageSafe?: string;
+  now: string;
+}) {
+  const status =
+    input.errorCode === "21610"
+      ? "opt_out_provider"
+      : input.errorCode === "21211"
+        ? "invalid"
+        : "failed";
+
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "record_sms_send_failure",
+    set: {
+      status,
+      last_sms_status: "failed",
+      last_sms_error_code: input.errorCode,
+      last_sms_error_message_safe: input.errorMessageSafe,
+      sms_provider_status: "failed",
+      sms_status_updated_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id)",
+    conditionAttributeNames: {
+      "#id": "id",
+    },
+  });
+}
+
+export async function recordSmsProviderStatus(input: {
+  id: string;
+  messageSid: string;
+  providerStatus: string;
+  errorCode?: string;
+  errorMessageSafe?: string;
+  now: string;
+}) {
+  const status = smsSubscriberStatusForProviderStatus({
+    errorCode: input.errorCode,
+    providerStatus: input.providerStatus,
+  });
+  const isProviderOptOut = status === "opt_out_provider";
+
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.id },
+    operation: "record_sms_provider_status",
+    set: {
+      status,
+      opt_out_timestamp: isProviderOptOut ? input.now : undefined,
+      opt_out_source: isProviderOptOut ? "twilio_provider" : undefined,
+      last_sms_message_sid: input.messageSid,
+      last_sms_status: input.providerStatus,
+      last_sms_error_code: input.errorCode,
+      last_sms_error_message_safe: input.errorMessageSafe,
+      sms_provider_status: input.providerStatus,
+      sms_status_updated_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id)",
+    conditionAttributeNames: {
+      "#id": "id",
+    },
+  });
+}
+
 export async function markSmsResubscribeIfUnsubscribed(input: {
   id: string;
   now: string;
@@ -359,6 +578,10 @@ export async function markSmsResubscribeIfUnsubscribed(input: {
     key: { id: input.id },
     operation: "mark_sms_resubscribe",
     set: {
+      status: "pending_verification",
+      opt_out_timestamp: null,
+      opt_out_source: null,
+      last_opt_out_keyword: null,
       resubscribed_at: input.now,
       updated_at: input.now,
     },

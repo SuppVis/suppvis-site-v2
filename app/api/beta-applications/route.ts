@@ -7,6 +7,7 @@ import {
   sendResubscribeEmail,
   sendWelcomeEmail,
 } from "@/app/lib/server/email/welcome";
+import { sendWelcomeSms } from "@/app/lib/server/sms/welcome";
 import {
   assertDynamoTablesConfigured,
   DYNAMO_TABLE_ENVS,
@@ -91,6 +92,26 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
   }
 }
 
+async function sendBetaWelcomeSmsIfEnabled(input: {
+  shouldSendWelcomeSms: boolean;
+  subscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null;
+}) {
+  if (!input.subscriber) {
+    return;
+  }
+
+  try {
+    await sendWelcomeSms({
+      shouldSendWelcomeSms: input.shouldSendWelcomeSms,
+      subscriber: input.subscriber,
+    });
+  } catch (error) {
+    console.error("[sms] beta signup failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const rateLimited = enforceRateLimit(request, {
@@ -164,6 +185,9 @@ export async function POST(request: NextRequest) {
       unsubscribe_token: createUrlSafeToken(),
     });
 
+    let smsSubscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null =
+      null;
+
     if (submission.smsOptIn && phoneRaw && phoneE164) {
       const smsSubscriberId = stableId("sms", phoneE164);
 
@@ -172,7 +196,7 @@ export async function POST(request: NextRequest) {
         now,
       });
 
-      await saveSmsSubscriber({
+      smsSubscriber = await saveSmsSubscriber({
         id: smsSubscriberId,
         phone_number_raw: phoneRaw,
         phone_number_e164: phoneE164,
@@ -194,6 +218,11 @@ export async function POST(request: NextRequest) {
         : "new_beta_application",
       firstName,
       subscriber: emailSubscriber,
+    });
+
+    await sendBetaWelcomeSmsIfEnabled({
+      shouldSendWelcomeSms: betaCreated,
+      subscriber: smsSubscriber,
     });
 
     if (emailWasResubscribed) {

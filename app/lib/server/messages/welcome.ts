@@ -30,7 +30,7 @@ export const WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER =
   "You're receiving this because you joined the SuppVis beta waitlist. You can unsubscribe at any time.";
 
 export const WELCOME_SMS_TEMPLATE =
-  "Welcome to SuppVis. You're one of our founding beta members. We're two brothers who built SuppVis to show what your supplements are actually doing - backed by research, not hype. Get access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Reply STOP to unsubscribe.";
+  "SuppVis: Welcome to the beta.\n\nWe're two brothers building SuppVis to show what your supplements are doing - backed by research, not hype.\n\nAccess: https://testflight.apple.com/join/nTASgewZ\n\nComplete onboarding when you get in - that's what unlocks everything.\n\nThanks for being early with us.\n\nTanner & Connor\n\nReply STOP to unsubscribe or HELP for help. Msg & data rates may apply.";
 
 export const WELCOME_EMAIL_ENABLED_ENV = "WELCOME_EMAIL_ENABLED";
 export const UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV =

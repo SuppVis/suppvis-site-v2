@@ -63,13 +63,6 @@ export const betaApplicationSchema = z
       });
     }
 
-    if (hasPhone && !data.smsOptIn) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["smsOptIn"],
-        message: "Check the SMS consent box or remove the phone number.",
-      });
-    }
   });
 
 export const emailSubscriberSchema = z.object({
@@ -128,6 +121,14 @@ export const twilioInboundSmsSchema = z.object({
   From: z.string().trim().min(1).max(40),
   Body: z.string().trim().max(1600).default(""),
   MessageSid: z.string().trim().max(80).optional(),
+}).passthrough();
+
+export const twilioStatusCallbackSchema = z.object({
+  MessageSid: z.string().trim().min(1).max(80),
+  MessageStatus: z.string().trim().max(80).optional(),
+  SmsStatus: z.string().trim().max(80).optional(),
+  ErrorCode: z.string().trim().max(40).optional(),
+  ErrorMessage: z.string().trim().max(500).optional(),
 }).passthrough();
 
 function hasReasonableEmailShape(email: string) {

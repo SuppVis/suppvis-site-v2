@@ -38,10 +38,11 @@ The site includes serverless API routes for:
 - `POST /api/admin/broadcast-audit`
 - `POST /api/email-subscribers/unsubscribe`
 - `POST /api/webhooks/twilio/sms`
+- `POST /api/webhooks/twilio/status`
 
-These routes validate input server-side, use honeypot fields, apply basic in-memory rate limiting, and return safe user-facing errors. They do not send real email or SMS messages.
+These routes validate input server-side, use honeypot fields, apply basic in-memory rate limiting, and return safe user-facing errors. Email and SMS sender paths are gated by explicit environment flags.
 
-The beta waitlist form collects first name, last name, email, and an optional phone number. If a phone number is provided, explicit SMS consent is required before the phone number is stored as an SMS subscriber. Repeated beta signups with the same normalized email return a friendly already-signed-up success response instead of creating a second beta application.
+The beta waitlist form collects first name, last name, email, and an optional phone number. SMS consent is a separate optional checkbox, unchecked by default, and is not required to join the beta waitlist. A phone number is stored on the beta application when provided, but an SMS subscriber record is created only when the user explicitly opts into texts. Repeated beta signups with the same normalized email return a friendly already-signed-up success response instead of creating a second beta application.
 
 ## Required Environment Variables
 
@@ -74,10 +75,13 @@ Welcome templates:
 - `SES_REGION` - future SES region, recommended `us-east-1`.
 - `SES_CONFIGURATION_SET` - future SES event configuration set, currently `suppvis-welcome`.
 
-Future Twilio SMS webhook verification:
+Twilio SMS configuration:
 
+- `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
+- `TWILIO_MESSAGING_SERVICE_SID`
 - `TWILIO_WEBHOOK_SIGNATURE_REQUIRED` - keep `false` for local testing; production webhooks should require signatures before provider traffic is connected.
+- `TWILIO_STATUS_CALLBACK_URL` - recommended `https://www.suppvis.health/api/webhooks/twilio/status`.
 
 Recommended before production public collection:
 
@@ -106,7 +110,7 @@ The current code writes these record shapes:
 
 - Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
-- SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_consent_timestamp`, `sms_consent_source`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, `created_at`, `updated_at`
+- SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_consent_timestamp`, `sms_consent_source`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
 
 ## Welcome Message Templates
@@ -123,7 +127,7 @@ Real welcome sends must remain disabled until:
 
 - Email unsubscribe suppression is wired into the future sending pipeline.
 - SMS STOP/UNSUBSCRIBE suppression is wired into the future sending pipeline.
-- A sending provider is configured.
+- A sending provider is configured and approved.
 - The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
 
 Do not enable bulk sends or broadcast sends from these helpers. They are one-recipient transactional paths only.
@@ -137,13 +141,14 @@ Email unsubscribe support is provider-ready. The unsubscribe-confirmation sender
 - Token-only lookup is intentionally not used because it would require a GSI or token lookup table. Passing the deterministic subscriber id plus token avoids production scans.
 - A later signup with the same email sets `status = subscribed` again and records `resubscribed_at` when the previous record was unsubscribed.
 
-SMS opt-out support is provider-ready but not connected to Twilio yet:
+SMS opt-out support is provider-ready:
 
 - `POST /api/webhooks/twilio/sms` accepts Twilio-style inbound SMS form payloads.
+- `POST /api/webhooks/twilio/status` accepts Twilio-style SMS status callbacks when outbound SMS is enabled later.
 - STOP keywords are `STOP`, `UNSUBSCRIBE`, `CANCEL`, `END`, and `QUIT`.
 - START keywords are `START` and `UNSTOP`.
 - STOP updates the deterministic phone-based SMS subscriber record to `status = unsubscribed`, sets `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`, and keeps the record.
-- START or explicit website SMS consent can reactivate the phone record as `pending_verification` and set `resubscribed_at`.
+- START or explicit website SMS consent can reactivate a locally unsubscribed phone record as `pending_verification` and set `resubscribed_at`.
 - Production Twilio traffic should require signature verification with `TWILIO_AUTH_TOKEN`.
 - The app currently returns empty TwiML and does not send a STOP confirmation. Prefer Twilio Messaging Service advanced opt-out confirmations during provider setup, or add app-generated confirmations only after that behavior is chosen.
 
@@ -205,16 +210,19 @@ Do not do yet:
 
 ## Future Twilio SMS Setup
 
-Use a Twilio Messaging Service for future beta welcome SMS and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and internal testing are approved.
+Use a Twilio Messaging Service for beta welcome SMS and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and an explicitly approved internal test are ready.
 
 Recommended setup:
 
 - Create or use a Twilio account owned by SuppVis.
 - Create a Messaging Service for SuppVis beta/waitlist messages.
-- Use A2P 10DLC for standard US app-to-person long-code messaging unless Twilio recommends verified toll-free for the use case.
+- Register the SMS program as a MARKETING campaign if messages include beta access, product updates, feature announcements, or SuppVis news.
 - Complete required brand/campaign or toll-free verification before real sends.
 - Configure the inbound message webhook on the Messaging Service:
   - URL: `https://www.suppvis.health/api/webhooks/twilio/sms`
+  - Method: `POST`
+- Configure the status callback on outgoing messages:
+  - URL: `https://www.suppvis.health/api/webhooks/twilio/status`
   - Method: `POST`
 - Require Twilio webhook signature verification in production.
 
@@ -224,21 +232,28 @@ Future Twilio environment variables:
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_MESSAGING_SERVICE_SID`
 - `TWILIO_WEBHOOK_SIGNATURE_REQUIRED=true`
+- `TWILIO_STATUS_CALLBACK_URL=https://www.suppvis.health/api/webhooks/twilio/status`
 - `WELCOME_SMS_ENABLED=false`
+
+Do not add `SMS_TEST_RECIPIENT_ALLOWLIST`. SMS eligibility comes from DynamoDB `sms_subscribers` consent/status fields and the global `WELCOME_SMS_ENABLED` kill switch.
 
 Compliance information likely needed:
 
 - Legal business name and contact details.
 - Website URL: `https://www.suppvis.health`.
-- Message use case: beta waitlist access and product updates for users who explicitly opted into texts.
+- Message use case: recurring promotional beta access announcements, product and feature updates, platform news, and related SuppVis information for users who explicitly opt into texts.
 - Sample messages, including welcome copy and STOP language.
-- Opt-in flow description: website beta form with phone field and explicit SMS consent checkbox.
+- Opt-in flow description: website beta form with optional phone field and separate optional SMS marketing consent checkbox, unchecked by default.
 - Opt-out flow description: users can reply STOP; app syncs opt-out state into DynamoDB.
 - Privacy policy and terms URLs.
 
+SMS consent checkbox copy:
+
+> I agree to receive recurring promotional text messages from SuppVis about beta access, product updates, feature announcements, and SuppVis news. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
+
 Current recommended future SMS welcome copy:
 
-> Welcome to SuppVis. You're one of our founding beta members. We built SuppVis to show what your supplements are actually doing - backed by research, not hype. Get access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Reply STOP to unsubscribe. Msg & data rates may apply.
+> SuppVis: Welcome to the beta. We're two brothers building SuppVis to show what your supplements are doing - backed by research, not hype. Access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Thanks for being early with us. Tanner & Connor. Reply STOP to unsubscribe. Msg&data rates may apply.
 
 STOP/START behavior:
 

@@ -18,7 +18,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-text-muted text-sm mb-12">
-            Effective date: May 3, 2026
+            Effective date: July 10, 2026
           </p>
 
           <div className="space-y-10 text-[15px] text-text-secondary leading-[1.75]">
@@ -641,6 +641,82 @@ export default function TermsPage() {
                   </span>
                 </p>
               </address>
+            </section>
+
+            {/* Section 18 */}
+            <section>
+              <h2 className="font-headline font-bold text-xl text-text-primary mb-4">
+                18. SMS Messaging Terms
+              </h2>
+              <div className="space-y-4">
+                <p>
+                  <strong className="text-text-primary">
+                    Program Description.
+                  </strong>{" "}
+                  If you voluntarily provide your mobile phone number and
+                  separately opt in to receive SMS messages from SuppVis, we may
+                  send you recurring promotional text messages regarding beta
+                  access, product and feature updates, platform announcements,
+                  SuppVis news, and related information about SuppVis services.
+                </p>
+                <p>
+                  <strong className="text-text-primary">Consent.</strong>{" "}
+                  Consent to receive SMS messages is voluntary and is not
+                  required as a condition of joining the SuppVis beta waitlist,
+                  purchasing any product or service, creating an account, or
+                  otherwise using SuppVis services.
+                </p>
+                <p>
+                  <strong className="text-text-primary">
+                    Message Frequency.
+                  </strong>{" "}
+                  Message frequency varies.
+                </p>
+                <p>
+                  <strong className="text-text-primary">Charges.</strong>{" "}
+                  Message and data rates may apply depending on your mobile
+                  carrier and service plan.
+                </p>
+                <p>
+                  <strong className="text-text-primary">Opting Out.</strong>{" "}
+                  You may opt out of SMS messages at any time by replying STOP.
+                  After opting out, you may receive a final confirmation message
+                  indicating that you have been unsubscribed.
+                </p>
+                <p>
+                  <strong className="text-text-primary">Help.</strong> For
+                  assistance, reply HELP or contact us at{" "}
+                  <a
+                    href="mailto:support@suppvis.health"
+                    className="text-accent hover:text-accent-hover transition-colors"
+                  >
+                    support@suppvis.health
+                  </a>
+                  .
+                </p>
+                <p>
+                  <strong className="text-text-primary">Privacy.</strong> We do
+                  not sell, rent, share, or otherwise provide your mobile phone
+                  number or SMS consent information to third parties or
+                  affiliates for their own marketing or promotional purposes.
+                  Please review our{" "}
+                  <a
+                    href="/privacy"
+                    className="text-accent hover:text-accent-hover transition-colors"
+                  >
+                    Privacy Policy
+                  </a>{" "}
+                  for additional information about how we collect, use, and
+                  protect your information.
+                </p>
+                <p>
+                  <strong className="text-text-primary">
+                    Carrier Disclaimer.
+                  </strong>{" "}
+                  Mobile carriers are not responsible for delayed or undelivered
+                  messages.
+                </p>
+              </div>
             </section>
           </div>
         </article>

@@ -48,7 +48,7 @@ export default function WaitlistClose() {
     "You’re in. We’ll send beta testing access details soon.",
   );
   const [successSupport, setSuccessSupport] = useState(
-    "If you opted into texts, we’ll only text you about beta access and product updates.",
+    "If you opted into texts, we may text you about beta access, product updates, feature announcements, and SuppVis news.",
   );
   const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
@@ -58,7 +58,7 @@ export default function WaitlistClose() {
     Boolean(formValues.firstName.trim()) &&
     Boolean(formValues.lastName.trim()) &&
     isValidEmail(formValues.email) &&
-    (!hasPhone || formValues.smsOptIn);
+    (!formValues.smsOptIn || hasPhone);
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
@@ -102,8 +102,8 @@ export default function WaitlistClose() {
       return;
     }
 
-    if (phone && !formValues.smsOptIn) {
-      setError("Check the SMS consent box or remove the phone number.");
+    if (formValues.smsOptIn && !phone) {
+      setError("Enter a phone number to opt into texts.");
       return;
     }
 
@@ -151,7 +151,7 @@ export default function WaitlistClose() {
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
           : result?.duplicate
             ? "You do not need to submit again."
-            : "If you opted into texts, we’ll only text you about beta access and product updates.",
+            : "If you opted into texts, we may text you about beta access, product updates, feature announcements, and SuppVis news.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));
       setSubmitted(true);
@@ -279,21 +279,39 @@ export default function WaitlistClose() {
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
             </div>
-            <label className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
+            <div className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
               <input
+                id="smsOptIn"
                 type="checkbox"
                 name="smsOptIn"
                 checked={formValues.smsOptIn}
                 onChange={handleInputChange}
-                disabled={!hasPhone}
+                aria-describedby="sms-consent-copy"
                 className="mt-1 h-4 w-4 shrink-0 accent-accent"
               />
-              <span>
-                I agree to receive SuppVis text messages about beta access and
-                product updates. Reply STOP to opt out. Msg &amp; data rates may
-                apply.
-              </span>
-            </label>
+              <label id="sms-consent-copy" htmlFor="smsOptIn">
+                I agree to receive recurring promotional text messages from
+                SuppVis about beta access, product updates, feature
+                announcements, and SuppVis news. Message frequency varies.
+                Message and data rates may apply. Reply STOP to unsubscribe or
+                HELP for help. Consent is not required to join the SuppVis beta
+                waitlist or use SuppVis services. See our{" "}
+                <a
+                  href="/terms"
+                  className="text-accent hover:text-accent-hover transition-colors"
+                >
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a
+                  href="/privacy"
+                  className="text-accent hover:text-accent-hover transition-colors"
+                >
+                  Privacy Policy
+                </a>
+                .
+              </label>
+            </div>
             {error && (
               <p className="text-error text-sm text-center" role="alert">
                 {error}
