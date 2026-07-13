@@ -8,6 +8,8 @@ import {
 } from "@/app/lib/server/admin-access";
 import AdminCampaignDraft from "./AdminCampaignDraft";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "SuppVis Admin",
   robots: {
@@ -133,7 +135,13 @@ export default async function AdminPage() {
           ))}
         </div>
 
-        <AdminCampaignDraft />
+      <AdminCampaignDraft
+        adminEmail={access.email}
+        testSendEnabled={
+          process.env.ADMIN_EMAIL_CAMPAIGNS_ENABLED === "true" &&
+          process.env.ADMIN_EMAIL_TEST_SEND_ENABLED === "true"
+        }
+        />
       </div>
     </main>
   );

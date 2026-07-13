@@ -6,6 +6,8 @@ import {
   isMicrosoftAuthConfigured,
 } from "@/app/lib/server/admin-access";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "SuppVis Admin Sign In",
   robots: {

@@ -1,7 +1,9 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
+  GetCommand,
   PutCommand,
+  QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { PersistenceError, ServerConfigError } from "./errors";
@@ -9,6 +11,7 @@ import { PersistenceError, ServerConfigError } from "./errors";
 export const DYNAMO_TABLE_ENVS = {
   betaApplications: "DYNAMODB_BETA_APPLICATIONS_TABLE",
   emailSubscribers: "DYNAMODB_EMAIL_SUBSCRIBERS_TABLE",
+  emailCampaigns: "DYNAMODB_EMAIL_CAMPAIGNS_TABLE",
   smsSubscribers: "DYNAMODB_SMS_SUBSCRIBERS_TABLE",
   broadcastAuditLogs: "DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE",
 } as const;
@@ -34,6 +37,17 @@ type UpdateInput = {
   conditionAttributeNames?: Record<string, string>;
   conditionAttributeValues?: DynamoRecord;
   returnValues?: "ALL_NEW" | "UPDATED_NEW" | "NONE";
+  operation: string;
+};
+
+type QueryInput = {
+  tableEnvName: string;
+  indexName?: string;
+  keyConditionExpression: string;
+  expressionAttributeNames?: Record<string, string>;
+  expressionAttributeValues?: DynamoRecord;
+  limit?: number;
+  scanIndexForward?: boolean;
   operation: string;
 };
 
@@ -239,6 +253,62 @@ export async function updateDynamoItem(input: UpdateInput) {
     console.error("[dynamodb] update failed", {
       operation: input.operation,
       tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function getDynamoItem(input: {
+  tableEnvName: string;
+  key: DynamoRecord;
+  operation: string;
+}) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+
+  try {
+    const result = await getDocumentClient().send(
+      new GetCommand({
+        TableName: tableName,
+        Key: input.key,
+      }),
+    );
+
+    return result.Item as DynamoRecord | undefined;
+  } catch (error) {
+    console.error("[dynamodb] get failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function queryDynamoItems(input: QueryInput) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+
+  try {
+    const result = await getDocumentClient().send(
+      new QueryCommand({
+        TableName: tableName,
+        IndexName: input.indexName,
+        KeyConditionExpression: input.keyConditionExpression,
+        ExpressionAttributeNames: input.expressionAttributeNames,
+        ExpressionAttributeValues: input.expressionAttributeValues,
+        Limit: input.limit,
+        ScanIndexForward: input.scanIndexForward,
+      }),
+    );
+
+    return (result.Items || []) as DynamoRecord[];
+  } catch (error) {
+    console.error("[dynamodb] query failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      indexName: input.indexName,
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
 

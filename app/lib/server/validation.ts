@@ -130,6 +130,78 @@ export const broadcastAuditSchema = z.object({
   dryRun: z.boolean().optional().default(true),
 }).strict();
 
+export const adminEmailCampaignMessageTypes = [
+  "beta_update",
+  "testflight_update",
+  "feedback_request",
+] as const;
+
+export const adminEmailCampaignStatuses = [
+  "draft",
+  "test_ready",
+  "tested",
+  "approved",
+  "sending",
+  "completed",
+  "canceled",
+] as const;
+
+const optionalTrimmedString = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .default("");
+
+const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
+  (value) => !value || isAllowedAdminCampaignUrl(value),
+  "Enter an https:// link.",
+);
+
+export const adminCampaignContentSchema = z
+  .object({
+    messageType: z.enum(adminEmailCampaignMessageTypes).default("beta_update"),
+    subject: z.string().trim().min(1).max(120),
+    heading: z.string().trim().min(1).max(160),
+    body: z.string().trim().min(1).max(5000),
+    ctaLabel: optionalTrimmedString(64),
+    ctaUrl: adminCampaignCtaUrlSchema,
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.ctaUrl && !data.ctaLabel) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ctaLabel"],
+        message: "Add a CTA label or remove the CTA URL.",
+      });
+    }
+
+    if (data.ctaLabel && !data.ctaUrl) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ctaUrl"],
+        message: "Add a CTA URL or remove the CTA label.",
+      });
+    }
+  });
+
+export const createAdminCampaignSchema = adminCampaignContentSchema;
+
+export const updateAdminCampaignSchema = adminCampaignContentSchema.extend({
+  expectedVersion: z.number().int().min(1).max(1_000_000),
+});
+
+export const adminCampaignIdSchema = z
+  .string()
+  .trim()
+  .regex(/^email_campaign_[0-9a-f-]{36}$/);
+
+export const adminCampaignPreviewSchema = adminCampaignContentSchema;
+
+export const adminCampaignTestSendSchema = z.object({}).strict();
+
 export const emailUnsubscribeSchema = z.object({
   subscriberId: z
     .string()
@@ -197,4 +269,26 @@ export function normalizePhoneToE164(phone: string) {
   );
 
   return parsed?.isValid() ? parsed.number : null;
+}
+
+function isAllowedAdminCampaignUrl(value: string) {
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "https:") {
+      return true;
+    }
+
+    if (
+      process.env.NODE_ENV !== "production" &&
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
 }

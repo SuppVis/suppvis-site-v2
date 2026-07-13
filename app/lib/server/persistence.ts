@@ -1,6 +1,8 @@
 import {
   DYNAMO_TABLE_ENVS,
+  getDynamoItem,
   putDynamoItem,
+  queryDynamoItems,
   updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
@@ -252,6 +254,157 @@ export type BroadcastAuditRecord = {
   status: "dry_run_recorded";
   created_at: string;
 };
+
+export type EmailCampaignStatus =
+  | "draft"
+  | "test_ready"
+  | "tested"
+  | "approved"
+  | "sending"
+  | "completed"
+  | "canceled";
+
+export type EmailCampaignMessageType =
+  | "beta_update"
+  | "testflight_update"
+  | "feedback_request";
+
+export type EmailCampaignRecord = {
+  id: string;
+  record_type: "email_campaign";
+  message_type: EmailCampaignMessageType;
+  subject: string;
+  heading: string;
+  body: string;
+  cta_label: string;
+  cta_url: string;
+  status: EmailCampaignStatus;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  tested_at: string | null;
+  approved_at: string | null;
+  sent_at: string | null;
+  test_recipient: string | null;
+  test_message_id?: string | null;
+};
+
+export type EmailCampaignSummary = Pick<
+  EmailCampaignRecord,
+  | "id"
+  | "message_type"
+  | "subject"
+  | "heading"
+  | "status"
+  | "created_by"
+  | "updated_by"
+  | "created_at"
+  | "updated_at"
+  | "version"
+  | "tested_at"
+  | "test_recipient"
+>;
+
+function numberAttribute(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function emailCampaignStatusAttribute(value: unknown) {
+  return value === "draft" ||
+    value === "test_ready" ||
+    value === "tested" ||
+    value === "approved" ||
+    value === "sending" ||
+    value === "completed" ||
+    value === "canceled"
+    ? value
+    : undefined;
+}
+
+function emailCampaignMessageTypeAttribute(value: unknown) {
+  return value === "beta_update" ||
+    value === "testflight_update" ||
+    value === "feedback_request"
+    ? value
+    : undefined;
+}
+
+function nullableStringAttribute(value: unknown) {
+  return value === null ? null : stringAttribute(value);
+}
+
+function emailCampaignFromAttributes(
+  attributes: Record<string, unknown> | undefined,
+): EmailCampaignRecord | null {
+  const id = stringAttribute(attributes?.id);
+  const messageType = emailCampaignMessageTypeAttribute(attributes?.message_type);
+  const subject = stringAttribute(attributes?.subject);
+  const heading = stringAttribute(attributes?.heading);
+  const body = stringAttribute(attributes?.body);
+  const status = emailCampaignStatusAttribute(attributes?.status);
+  const createdBy = stringAttribute(attributes?.created_by);
+  const updatedBy = stringAttribute(attributes?.updated_by);
+  const createdAt = stringAttribute(attributes?.created_at);
+  const updatedAt = stringAttribute(attributes?.updated_at);
+  const version = numberAttribute(attributes?.version);
+
+  if (
+    !id ||
+    !messageType ||
+    !subject ||
+    !heading ||
+    body === undefined ||
+    !status ||
+    !createdBy ||
+    !updatedBy ||
+    !createdAt ||
+    !updatedAt ||
+    !version
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    record_type: "email_campaign",
+    message_type: messageType,
+    subject,
+    heading,
+    body,
+    cta_label: stringAttribute(attributes?.cta_label) || "",
+    cta_url: stringAttribute(attributes?.cta_url) || "",
+    status,
+    created_by: createdBy,
+    updated_by: updatedBy,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    version,
+    tested_at: nullableStringAttribute(attributes?.tested_at) || null,
+    approved_at: nullableStringAttribute(attributes?.approved_at) || null,
+    sent_at: nullableStringAttribute(attributes?.sent_at) || null,
+    test_recipient: nullableStringAttribute(attributes?.test_recipient) || null,
+    test_message_id: nullableStringAttribute(attributes?.test_message_id) || null,
+  };
+}
+
+function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary {
+  return {
+    id: record.id,
+    message_type: record.message_type,
+    subject: record.subject,
+    heading: record.heading,
+    status: record.status,
+    created_by: record.created_by,
+    updated_by: record.updated_by,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+    version: record.version,
+    tested_at: record.tested_at,
+    test_recipient: record.test_recipient,
+  };
+}
 
 export async function saveBetaApplication(record: BetaApplicationRecord) {
   const result = await upsertDynamoItem({
@@ -765,4 +918,200 @@ export async function saveBroadcastAudit(record: BroadcastAuditRecord) {
     record,
     "save_broadcast_audit",
   );
+}
+
+export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
+  const result = await upsertDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: record.id },
+    operation: "create_email_campaign_draft",
+    conditionAttributeNotExists: ["id"],
+    returnValues: "ALL_NEW",
+    set: {
+      record_type: record.record_type,
+      message_type: record.message_type,
+      subject: record.subject,
+      heading: record.heading,
+      body: record.body,
+      cta_label: record.cta_label,
+      cta_url: record.cta_url,
+      status: record.status,
+      created_by: record.created_by,
+      updated_by: record.updated_by,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
+      version: record.version,
+      tested_at: record.tested_at,
+      approved_at: record.approved_at,
+      sent_at: record.sent_at,
+      test_recipient: record.test_recipient,
+    },
+  });
+
+  return result.wrote;
+}
+
+export async function getEmailCampaign(id: string) {
+  const item = await getDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id },
+    operation: "get_email_campaign",
+  });
+
+  return emailCampaignFromAttributes(item);
+}
+
+export async function listRecentEmailCampaignDrafts(limit = 20) {
+  const items = await queryDynamoItems({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    indexName: "record_type-updated_at-index",
+    keyConditionExpression: "#recordType = :recordType",
+    expressionAttributeNames: {
+      "#recordType": "record_type",
+    },
+    expressionAttributeValues: {
+      ":recordType": "email_campaign",
+    },
+    limit,
+    scanIndexForward: false,
+    operation: "list_recent_email_campaigns",
+  });
+
+  return items
+    .map((item) => emailCampaignFromAttributes(item))
+    .filter((record): record is EmailCampaignRecord => Boolean(record))
+    .map(emailCampaignSummary);
+}
+
+export async function updateEmailCampaignDraft(input: {
+  body: string;
+  cta_label: string;
+  cta_url: string;
+  expectedVersion: number;
+  heading: string;
+  id: string;
+  message_type: EmailCampaignMessageType;
+  now: string;
+  subject: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "update_email_campaign_draft",
+    returnValues: "ALL_NEW",
+    set: {
+      message_type: input.message_type,
+      subject: input.subject,
+      heading: input.heading,
+      body: input.body,
+      cta_label: input.cta_label,
+      cta_url: input.cta_url,
+      status: "draft",
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignTestReady(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  test_recipient: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_test_ready",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "test_ready",
+      test_recipient: input.test_recipient,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignTestSent(input: {
+  expectedVersion: number;
+  id: string;
+  messageId?: string;
+  now: string;
+  test_recipient: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_test_sent",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "tested",
+      tested_at: input.now,
+      test_recipient: input.test_recipient,
+      test_message_id: input.messageId,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
 }

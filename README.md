@@ -59,6 +59,7 @@ AWS/DynamoDB:
 - `AWS_SECRET_ACCESS_KEY`
 - `DYNAMODB_BETA_APPLICATIONS_TABLE`
 - `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE`
+- `DYNAMODB_EMAIL_CAMPAIGNS_TABLE`
 - `DYNAMODB_SMS_SUBSCRIBERS_TABLE`
 - `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE`
 
@@ -115,6 +116,7 @@ Tables:
 
 - `suppvis-prod-beta-applications`
 - `suppvis-prod-email-subscribers`
+- `suppvis-prod-email-campaigns`
 - `suppvis-prod-sms-subscribers`
 - `suppvis-prod-broadcast-audit-logs`
 
@@ -122,8 +124,21 @@ The current code writes these record shapes:
 
 - Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `legacy_sms_consent`, `sms_informational_consent`, `sms_marketing_consent`, `sms_consent_version`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
+- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`
 - SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_informational_consent`, `sms_informational_consent_at`, `sms_marketing_consent`, `sms_marketing_consent_at`, `sms_consent_timestamp`, `sms_consent_source`, `sms_consent_version`, `sms_global_opt_out`, `sms_global_opt_out_at`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
+
+Email campaign table settings:
+
+- Table name: `suppvis-prod-email-campaigns`
+- Partition key: `id` string
+- Billing mode: on-demand
+- Encryption: AWS-managed encryption at rest
+- Point-in-time recovery: recommended for production
+- GSI name: `record_type-updated_at-index`
+- GSI partition key: `record_type` string
+- GSI sort key: `updated_at` string
+- GSI projection: all attributes
 
 ## Welcome Message Templates
 
@@ -154,7 +169,7 @@ The `/admin` route is intentionally not linked from public navigation, but hidde
 - Server-side authorization checks on the admin page.
 - Disabled send flags until each sending phase is approved.
 
-The current admin console is draft/preview only. It lets an approved admin compose and preview a beta update in the SuppVis style, but it does not send email, does not query all subscribers, and does not create bulk-send capability.
+The current admin console supports campaign draft persistence, recent draft loading, server-rendered HTML/plain-text previews, and a disabled one-recipient test-send route. It does not query all subscribers and does not create bulk-send capability.
 
 Recommended Microsoft Entra setup:
 
@@ -169,12 +184,15 @@ Recommended Microsoft Entra setup:
 
 Future campaign sending should be added in separate phases:
 
-1. Campaign draft persistence and audit logs.
-2. One-recipient test send only.
-3. Queued batch sending with recipient suppression.
-4. Delivery/bounce/complaint reporting by campaign.
+1. Create `suppvis-prod-email-campaigns` and add `DYNAMODB_EMAIL_CAMPAIGNS_TABLE`.
+2. Verify draft create/update/list/preview in `/admin`.
+3. Enable one-recipient test send only by setting both `ADMIN_EMAIL_CAMPAIGNS_ENABLED=true` and `ADMIN_EMAIL_TEST_SEND_ENABLED=true`.
+4. Add campaign delivery/bounce/complaint reporting by campaign.
+5. Build queued batch sending with recipient suppression.
 
 Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
+
+Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional CTA label/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
 
 ## Unsubscribe And SMS Opt-Out Foundation
 
