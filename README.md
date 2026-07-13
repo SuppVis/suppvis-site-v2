@@ -10,6 +10,7 @@ Next.js marketing site for SuppVis.
 - npm
 - Tailwind CSS v4 via PostCSS
 - Vercel serverless API routes
+- Auth.js with Microsoft Entra ID for the future admin console
 - AWS SDK v3 for DynamoDB persistence and disabled future SES email sending
 
 ## Local Setup
@@ -64,6 +65,17 @@ AWS/DynamoDB:
 Admin dry-run audit:
 
 - `ADMIN_BROADCAST_TOKEN_HASH`
+
+Admin console auth:
+
+- `AUTH_SECRET` - Auth.js secret used to encrypt session tokens. Generate with `npx auth secret`.
+- `AUTH_MICROSOFT_ENTRA_ID_ID` - Microsoft Entra app registration client ID.
+- `AUTH_MICROSOFT_ENTRA_ID_SECRET` - Microsoft Entra app registration client secret.
+- `AUTH_MICROSOFT_ENTRA_ID_ISSUER` - single-tenant issuer, `https://login.microsoftonline.com/<tenant-id>/v2.0`.
+- `ADMIN_ALLOWED_EMAILS` - comma-separated `@suppvis.health` admin emails allowed into `/admin`.
+- `ADMIN_EMAIL_CAMPAIGNS_ENABLED` - keep `false` until campaign persistence is approved.
+- `ADMIN_EMAIL_TEST_SEND_ENABLED` - keep `false` until one-recipient test sending is approved.
+- `ADMIN_EMAIL_BULK_SEND_ENABLED` - keep `false` until queued batch sending and audit controls are approved.
 
 Welcome templates:
 
@@ -131,6 +143,38 @@ Real welcome sends must remain disabled until:
 - The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
 
 Do not enable bulk sends or broadcast sends from these helpers. They are one-recipient transactional paths only.
+
+## Admin Email Campaign Console
+
+The `/admin` route is intentionally not linked from public navigation, but hidden URLs are not a security boundary. Admin access is enforced by:
+
+- Microsoft Entra ID login through Auth.js.
+- A single-tenant Microsoft Entra issuer for the SuppVis Microsoft 365 tenant.
+- A server-side `ADMIN_ALLOWED_EMAILS` allowlist.
+- Server-side authorization checks on the admin page.
+- Disabled send flags until each sending phase is approved.
+
+The current admin console is draft/preview only. It lets an approved admin compose and preview a beta update in the SuppVis style, but it does not send email, does not query all subscribers, and does not create bulk-send capability.
+
+Recommended Microsoft Entra setup:
+
+1. Create named Microsoft 365 accounts for every admin. Do not use shared accounts.
+2. Require MFA for those accounts in Microsoft 365.
+3. In Microsoft Entra admin center, create an App Registration for the SuppVis admin console.
+4. Use a single-tenant registration.
+5. Add the redirect URI `https://www.suppvis.health/api/auth/callback/microsoft-entra-id`.
+6. For local testing, optionally add `http://localhost:3000/api/auth/callback/microsoft-entra-id`.
+7. Add the app registration values to Vercel as sensitive Production env vars.
+8. Put only named admin emails in `ADMIN_ALLOWED_EMAILS`.
+
+Future campaign sending should be added in separate phases:
+
+1. Campaign draft persistence and audit logs.
+2. One-recipient test send only.
+3. Queued batch sending with recipient suppression.
+4. Delivery/bounce/complaint reporting by campaign.
+
+Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
 
 ## Unsubscribe And SMS Opt-Out Foundation
 
