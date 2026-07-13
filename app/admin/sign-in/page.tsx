@@ -27,13 +27,16 @@ export default async function AdminSignInPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const session = await auth();
-  const access = getAdminAccess(session);
   const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
   const authConfigured = isMicrosoftAuthConfigured();
 
-  if (access.ok) {
-    redirect(callbackUrl);
+  if (authConfigured) {
+    const session = await auth();
+    const access = getAdminAccess(session);
+
+    if (access.ok) {
+      redirect(callbackUrl);
+    }
   }
 
   async function signInAction() {

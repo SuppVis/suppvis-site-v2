@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import {
   getAdminAccess,
+  isMicrosoftAuthConfigured,
   maskAdminEmail,
 } from "@/app/lib/server/admin-access";
 import AdminCampaignDraft from "./AdminCampaignDraft";
@@ -52,6 +53,15 @@ function AdminBlocked({
 }
 
 export default async function AdminPage() {
+  if (!isMicrosoftAuthConfigured()) {
+    return (
+      <AdminBlocked
+        title="Admin auth is not configured"
+        message="Microsoft Entra admin login is not active yet. Add the Auth.js and Microsoft Entra environment variables before using this page."
+      />
+    );
+  }
+
   const session = await auth();
   const access = getAdminAccess(session);
 
@@ -60,15 +70,6 @@ export default async function AdminPage() {
   }
 
   if (!access.ok) {
-    if (access.reason === "not_configured") {
-      return (
-        <AdminBlocked
-          title="Admin auth is not configured"
-          message="Microsoft Entra admin login is not active yet. Add the Auth.js and Microsoft Entra environment variables before using this page."
-        />
-      );
-    }
-
     return (
       <AdminBlocked
         title="You do not have admin access"
