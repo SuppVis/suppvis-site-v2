@@ -6,6 +6,7 @@ import {
 } from "@/app/lib/server/admin-session";
 import {
   areAdminCampaignsEnabled,
+  classifyAdminCampaignSendError,
   isAdminEmailTestSendEnabled,
   sendAdminCampaignTestEmail,
 } from "@/app/lib/server/email/admin-campaign";
@@ -13,6 +14,7 @@ import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import { renderAdminCampaignEmail } from "@/app/lib/server/messages/admin-campaign";
 import {
   getEmailCampaign,
+  markEmailCampaignTestFailed,
   markEmailCampaignTestReady,
   markEmailCampaignTestSent,
 } from "@/app/lib/server/persistence";
@@ -65,6 +67,12 @@ export async function POST(
         adminIdentifier: admin.identifier,
         campaignId: id,
         status: "feature_flags_disabled",
+      }).catch((auditError) => {
+        console.error("[admin-email] blocked test audit failed", {
+          campaignId: id,
+          errorName:
+            auditError instanceof Error ? auditError.name : "UnknownError",
+        });
       });
 
       return NextResponse.json({
@@ -99,12 +107,58 @@ export async function POST(
       heading: campaign.heading,
       subject: campaign.subject,
     });
-    const result = await sendAdminCampaignTestEmail({
-      adminIdentifier: admin.identifier,
-      campaignId: id,
-      content: rendered,
-      recipientEmail: adminEmail,
-    });
+    let result: Awaited<ReturnType<typeof sendAdminCampaignTestEmail>>;
+
+    try {
+      result = await sendAdminCampaignTestEmail({
+        adminIdentifier: admin.identifier,
+        campaignId: id,
+        content: rendered,
+        recipientEmail: adminEmail,
+      });
+    } catch (error) {
+      const sendError = classifyAdminCampaignSendError(error);
+
+      console.error("[admin-email] test send failed", {
+        campaignId: id,
+        errorCode: sendError.code,
+        errorName: sendError.logCode,
+      });
+
+      await markEmailCampaignTestFailed({
+        errorCode: sendError.code,
+        expectedVersion: reserved.version,
+        id,
+        now: new Date().toISOString(),
+        updated_by: admin.identifier,
+      }).catch((updateError) => {
+        console.error("[admin-email] test failure tracking failed", {
+          campaignId: id,
+          errorName:
+            updateError instanceof Error ? updateError.name : "UnknownError",
+        });
+      });
+
+      await recordAdminCampaignAudit({
+        action: "test_send_failed",
+        adminIdentifier: admin.identifier,
+        campaignId: id,
+        status: sendError.code,
+      }).catch((auditError) => {
+        console.error("[admin-email] test failure audit failed", {
+          campaignId: id,
+          errorName:
+            auditError instanceof Error ? auditError.name : "UnknownError",
+        });
+      });
+
+      throw new PublicApiError(
+        sendError.status,
+        sendError.code,
+        sendError.message,
+      );
+    }
+
     const updated = await markEmailCampaignTestSent({
       id,
       expectedVersion: reserved.version,
@@ -127,6 +181,11 @@ export async function POST(
       adminIdentifier: admin.identifier,
       campaignId: id,
       status: "tested",
+    }).catch((auditError) => {
+      console.error("[admin-email] test send audit failed", {
+        campaignId: id,
+        errorName: auditError instanceof Error ? auditError.name : "UnknownError",
+      });
     });
 
     return NextResponse.json({

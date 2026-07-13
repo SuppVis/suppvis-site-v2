@@ -31,6 +31,7 @@ export default async function AdminSignInPage({
 }) {
   const callbackUrl = safeCallbackUrl(searchParams?.callbackUrl);
   const authConfigured = isMicrosoftAuthConfigured();
+  const hasAuthError = Boolean(searchParams?.error);
 
   if (authConfigured) {
     const session = await auth();
@@ -49,45 +50,31 @@ export default async function AdminSignInPage({
   return (
     <main className="min-h-screen bg-bg-primary px-5 py-10 text-text-primary">
       <section className="mx-auto max-w-xl rounded-[8px] border border-white/10 bg-[#0D1117] p-8 shadow-2xl shadow-black/30">
-        <div className="mb-8 flex items-center gap-3">
+        <div className="mb-8 flex items-center justify-between gap-3">
+          <div>
+            <h1 className="font-headline text-4xl font-extrabold">Admin</h1>
+            <p className="mt-3 text-sm text-text-secondary">
+              Authorized access only.
+            </p>
+          </div>
           <img
             src="/favicon.svg"
             alt=""
-            className="h-11 w-11 rounded-full border border-accent/30 bg-accent/10 p-1"
+            className="h-12 w-12 rounded-full border border-accent/30 bg-accent/10 p-1"
           />
-          <div>
-            <p className="font-headline text-2xl font-extrabold">SuppVis</p>
-            <p className="text-sm text-text-muted">Admin access</p>
-          </div>
         </div>
 
-        <h1 className="font-headline text-4xl font-extrabold">
-          Sign in with Microsoft
-        </h1>
-        <p className="mt-4 leading-7 text-text-secondary">
-          Admin access requires a SuppVis Microsoft 365 account and an explicit
-          server-side admin allowlist entry. The admin page is not linked from
-          public navigation.
-        </p>
-
-        {authConfigured ? (
+        {authConfigured && !hasAuthError ? (
           <form action={signInAction} className="mt-7">
             <button className="w-full rounded-full bg-accent px-5 py-3 text-sm font-bold text-[#03100E] transition hover:bg-accent-hover">
-              Continue with Microsoft 365
+              Continue
             </button>
           </form>
         ) : (
           <div className="mt-7 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-4 text-sm leading-6 text-yellow-100">
-            Microsoft Entra auth is not configured yet. Add the required Auth.js
-            and Microsoft Entra environment variables before signing in.
+            Access unavailable.
           </div>
         )}
-
-        <div className="mt-7 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
-          Recommended setup: single-tenant Microsoft Entra app, MFA required in
-          Microsoft 365, and only named `@suppvis.health` admins in
-          `ADMIN_ALLOWED_EMAILS`.
-        </div>
       </section>
     </main>
   );

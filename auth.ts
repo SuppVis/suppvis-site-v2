@@ -12,6 +12,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: {
     strategy: "jwt",
+    maxAge: 5 * 60,
   },
   pages: {
     signIn: "/admin/sign-in",
@@ -20,6 +21,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: microsoftAuthConfigured
     ? [
         MicrosoftEntraID({
+          authorization: {
+            params: {
+              max_age: "0",
+              prompt: "login",
+            },
+          },
           clientId: process.env.AUTH_MICROSOFT_ENTRA_ID_ID,
           clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
           issuer: process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER,

@@ -289,6 +289,8 @@ export type EmailCampaignRecord = {
   sent_at: string | null;
   test_recipient: string | null;
   test_message_id?: string | null;
+  last_test_send_failed_at?: string | null;
+  last_test_send_error_code?: string | null;
 };
 
 export type EmailCampaignSummary = Pick<
@@ -386,6 +388,10 @@ function emailCampaignFromAttributes(
     sent_at: nullableStringAttribute(attributes?.sent_at) || null,
     test_recipient: nullableStringAttribute(attributes?.test_recipient) || null,
     test_message_id: nullableStringAttribute(attributes?.test_message_id) || null,
+    last_test_send_failed_at:
+      nullableStringAttribute(attributes?.last_test_send_failed_at) || null,
+    last_test_send_error_code:
+      nullableStringAttribute(attributes?.last_test_send_error_code) || null,
   };
 }
 
@@ -1108,6 +1114,45 @@ export async function markEmailCampaignTestSent(input: {
       ":draft": "draft",
       ":testReady": "test_ready",
       ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignTestFailed(input: {
+  errorCode: string;
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_test_failed",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "test_ready",
+      last_test_send_failed_at: input.now,
+      last_test_send_error_code: input.errorCode,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND #status = :testReady",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":testReady": "test_ready",
     },
   });
 

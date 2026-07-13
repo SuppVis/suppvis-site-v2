@@ -45,7 +45,7 @@ function formatFromEmailAddress(email: string) {
 }
 
 function safeSesTagValue(value: string) {
-  return value.replace(/[^\w@.+=:/-]/g, "_").slice(0, 256);
+  return value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 256);
 }
 
 function sentResult(output: SendEmailCommandOutput) {
@@ -65,6 +65,47 @@ export function isAdminEmailTestSendEnabled() {
 
 export function isAdminEmailBulkSendEnabled() {
   return process.env.ADMIN_EMAIL_BULK_SEND_ENABLED === "true";
+}
+
+export function classifyAdminCampaignSendError(error: unknown) {
+  const errorName = error instanceof Error ? error.name : "UnknownError";
+
+  if (error instanceof ServerConfigError) {
+    return {
+      code: "admin_email_config_error",
+      logCode: errorName,
+      message:
+        "Email sending is not fully configured. Check server settings and try again.",
+      status: 503,
+    };
+  }
+
+  if (errorName === "MessageRejected") {
+    return {
+      code: "admin_email_rejected",
+      logCode: errorName,
+      message: "SES rejected the test message. Review the draft and try again.",
+      status: 502,
+    };
+  }
+
+  if (errorName === "BadRequestException") {
+    return {
+      code: "admin_email_invalid_request",
+      logCode: errorName,
+      message:
+        "SES rejected the test-send request. The draft is still retryable.",
+      status: 502,
+    };
+  }
+
+  return {
+    code: "admin_email_send_failed",
+    logCode: errorName,
+    message:
+      "The test email could not be sent right now. The draft is still retryable.",
+    status: 502,
+  };
 }
 
 export async function sendAdminCampaignTestEmail(input: {

@@ -6,6 +6,7 @@ export type AdminCampaignAuditAction =
   | "draft_updated"
   | "preview_generated"
   | "test_send_blocked"
+  | "test_send_failed"
   | "test_send_sent";
 
 export async function recordAdminCampaignAudit(input: {
