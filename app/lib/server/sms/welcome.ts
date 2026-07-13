@@ -1,6 +1,6 @@
 import {
+  getSmsConfirmationTemplate,
   isWelcomeSmsEnabled,
-  WELCOME_SMS_TEMPLATE,
 } from "../messages/welcome";
 import {
   canSendSmsToSubscriber,
@@ -9,10 +9,17 @@ import {
   type SmsSubscriberRecord,
 } from "../persistence";
 import { buildSmsStatusCallbackUrl, sendTwilioSms } from "./twilio";
+import { getSmsConsentCategory } from "@/app/lib/smsConsent";
 
 type SmsSubscriber = Pick<
   SmsSubscriberRecord,
-  "id" | "phone_number_e164" | "status" | "welcome_sms_message_sid"
+  | "id"
+  | "phone_number_e164"
+  | "sms_global_opt_out"
+  | "sms_informational_consent"
+  | "sms_marketing_consent"
+  | "status"
+  | "welcome_sms_message_sid"
 >;
 
 export type WelcomeSmsSendResult =
@@ -28,6 +35,7 @@ export type WelcomeSmsSendResult =
         | "already_sent"
         | "duplicate_beta_application"
         | "invalid_phone"
+        | "missing_sms_consent"
         | "missing_subscriber"
         | "subscriber_suppressed";
     }
@@ -123,6 +131,24 @@ export async function sendWelcomeSms(input: {
     };
   }
 
+  const consentCategory = getSmsConsentCategory({
+    informational: input.subscriber.sms_informational_consent,
+    marketing: input.subscriber.sms_marketing_consent,
+  });
+
+  if (!consentCategory) {
+    console.info("[sms] welcome send skipped", {
+      ...subscriberLogContext(input.subscriber),
+      reason: "missing_sms_consent",
+    });
+
+    return {
+      ok: true,
+      status: "skipped",
+      reason: "missing_sms_consent",
+    };
+  }
+
   if (!isValidE164(input.subscriber.phone_number_e164)) {
     console.info("[sms] welcome send skipped", {
       ...subscriberLogContext(input.subscriber),
@@ -136,7 +162,7 @@ export async function sendWelcomeSms(input: {
     };
   }
 
-  if (!canSendSmsToSubscriber(input.subscriber)) {
+  if (!canSendSmsToSubscriber(input.subscriber, consentCategory)) {
     console.info("[sms] welcome send skipped", {
       ...subscriberLogContext(input.subscriber),
       reason: "subscriber_suppressed",
@@ -164,12 +190,18 @@ export async function sendWelcomeSms(input: {
   }
 
   try {
+    const messageType =
+      consentCategory === "informational"
+        ? "sms_informational_confirmation"
+        : consentCategory === "marketing"
+          ? "sms_marketing_confirmation"
+          : "sms_mixed_confirmation";
     const statusCallbackUrl = buildSmsStatusCallbackUrl({
-      messageType: "welcome_beta_sms",
+      messageType,
       subscriberId: input.subscriber.id,
     });
     const sendResult = await sendTwilioSms({
-      body: WELCOME_SMS_TEMPLATE,
+      body: getSmsConfirmationTemplate(consentCategory),
       statusCallbackUrl,
       to: input.subscriber.phone_number_e164,
     });
@@ -178,7 +210,7 @@ export async function sendWelcomeSms(input: {
     await recordSmsSendAccepted({
       id: input.subscriber.id,
       messageSid: sendResult.messageSid,
-      messageType: "welcome_beta_sms",
+      messageType,
       now,
     });
 

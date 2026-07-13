@@ -1,5 +1,6 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import { z } from "zod";
+import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 
 const emailSchema = z
   .string()
@@ -39,6 +40,16 @@ export const betaApplicationSchema = z
     lastName: nameSchema,
     email: emailSchema,
     phone: phoneSchema,
+    smsInformationalConsent: z.boolean().optional().default(false),
+    smsMarketingConsent: z.boolean().optional().default(false),
+    smsConsentVersion: z
+      .string()
+      .trim()
+      .max(40)
+      .optional()
+      .default(SMS_CONSENT_VERSION),
+    // Legacy cached clients may still submit this combined field. Preserve the
+    // value for audit, but never infer either new consent category from it.
     smsOptIn: z.boolean().optional().default(false),
     sourcePage: sourceSchema,
     botField: honeypotSchema,
@@ -55,14 +66,16 @@ export const betaApplicationSchema = z
       });
     }
 
-    if (data.smsOptIn && !hasPhone) {
+    if (
+      (data.smsInformationalConsent || data.smsMarketingConsent) &&
+      !hasPhone
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["phone"],
         message: "Enter a phone number to opt into texts.",
       });
     }
-
   });
 
 export const emailSubscriberSchema = z.object({
@@ -78,7 +91,15 @@ export const smsSubscriberSchema = z
       .trim()
       .min(1, "Phone number is required.")
       .max(40, "Phone number is too long."),
-    smsConsent: z.boolean(),
+    smsInformationalConsent: z.boolean().optional().default(false),
+    smsMarketingConsent: z.boolean().optional().default(false),
+    smsConsentVersion: z
+      .string()
+      .trim()
+      .max(40)
+      .optional()
+      .default(SMS_CONSENT_VERSION),
+    smsConsent: z.boolean().optional().default(false),
     consentSource: sourceSchema,
     botField: honeypotSchema,
   })
@@ -92,11 +113,11 @@ export const smsSubscriberSchema = z
       });
     }
 
-    if (!data.smsConsent) {
+    if (!data.smsInformationalConsent && !data.smsMarketingConsent) {
       ctx.addIssue({
         code: "custom",
-        path: ["smsConsent"],
-        message: "SMS consent is required.",
+        path: ["smsInformationalConsent"],
+        message: "Select at least one SMS category.",
       });
     }
   });

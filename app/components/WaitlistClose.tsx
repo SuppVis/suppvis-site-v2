@@ -2,13 +2,19 @@
 
 import { useState, FormEvent, ChangeEvent } from "react";
 import { useScrollReveal } from "../hooks/useScrollReveal";
+import {
+  SMS_CONSENT_VERSION,
+  SMS_INFORMATIONAL_CONSENT_COPY,
+  SMS_MARKETING_CONSENT_COPY,
+} from "../lib/smsConsent";
 
 type FormValues = {
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
-  smsOptIn: boolean;
+  smsInformationalConsent: boolean;
+  smsMarketingConsent: boolean;
 };
 
 const initialFormValues: FormValues = {
@@ -16,7 +22,8 @@ const initialFormValues: FormValues = {
   lastName: "",
   email: "",
   phone: "",
-  smsOptIn: false,
+  smsInformationalConsent: false,
+  smsMarketingConsent: false,
 };
 
 function isValidEmail(email: string) {
@@ -48,7 +55,7 @@ export default function WaitlistClose() {
     "You’re in. We’ll send beta testing access details soon.",
   );
   const [successSupport, setSuccessSupport] = useState(
-    "If you opted into texts, we may text you about beta access, product updates, feature announcements, and SuppVis news.",
+    "If you opted into texts, we'll only message you for the SMS categories you selected.",
   );
   const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
@@ -58,7 +65,8 @@ export default function WaitlistClose() {
     Boolean(formValues.firstName.trim()) &&
     Boolean(formValues.lastName.trim()) &&
     isValidEmail(formValues.email) &&
-    (!formValues.smsOptIn || hasPhone);
+    (!(formValues.smsInformationalConsent || formValues.smsMarketingConsent) ||
+      hasPhone);
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
@@ -69,7 +77,8 @@ export default function WaitlistClose() {
         return {
           ...current,
           phone: nextValue,
-          smsOptIn: false,
+          smsInformationalConsent: false,
+          smsMarketingConsent: false,
         };
       }
 
@@ -102,7 +111,11 @@ export default function WaitlistClose() {
       return;
     }
 
-    if (formValues.smsOptIn && !phone) {
+    if (
+      (formValues.smsInformationalConsent ||
+        formValues.smsMarketingConsent) &&
+      !phone
+    ) {
       setError("Enter a phone number to opt into texts.");
       return;
     }
@@ -121,7 +134,9 @@ export default function WaitlistClose() {
           lastName,
           email,
           phone,
-          smsOptIn: formValues.smsOptIn,
+          smsInformationalConsent: formValues.smsInformationalConsent,
+          smsMarketingConsent: formValues.smsMarketingConsent,
+          smsConsentVersion: SMS_CONSENT_VERSION,
           sourcePage: `${window.location.pathname}${window.location.hash || "#waitlist"}`,
           botField: data.get("botField"),
         }),
@@ -151,7 +166,7 @@ export default function WaitlistClose() {
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
           : result?.duplicate
             ? "You do not need to submit again."
-            : "If you opted into texts, we may text you about beta access, product updates, feature announcements, and SuppVis news.",
+            : "If you opted into texts, we'll only message you for the SMS categories you selected.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));
       setSubmitted(true);
@@ -279,38 +294,21 @@ export default function WaitlistClose() {
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
             </div>
-            <div className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
-              <input
-                id="smsOptIn"
-                type="checkbox"
-                name="smsOptIn"
-                checked={formValues.smsOptIn}
+            <div className="space-y-3">
+              <SmsConsentCheckbox
+                id="smsInformationalConsent"
+                name="smsInformationalConsent"
+                checked={formValues.smsInformationalConsent}
                 onChange={handleInputChange}
-                aria-describedby="sms-consent-copy"
-                className="mt-1 h-4 w-4 shrink-0 accent-accent"
+                label={SMS_INFORMATIONAL_CONSENT_COPY}
               />
-              <label id="sms-consent-copy" htmlFor="smsOptIn">
-                I agree to receive recurring promotional text messages from
-                SuppVis about beta access, product updates, feature
-                announcements, and SuppVis news. Message frequency varies.
-                Message and data rates may apply. Reply STOP to unsubscribe or
-                HELP for help. Consent is not required to join the SuppVis beta
-                waitlist or use SuppVis services. See our{" "}
-                <a
-                  href="/terms"
-                  className="text-accent hover:text-accent-hover transition-colors"
-                >
-                  Terms of Service
-                </a>{" "}
-                and{" "}
-                <a
-                  href="/privacy"
-                  className="text-accent hover:text-accent-hover transition-colors"
-                >
-                  Privacy Policy
-                </a>
-                .
-              </label>
+              <SmsConsentCheckbox
+                id="smsMarketingConsent"
+                name="smsMarketingConsent"
+                checked={formValues.smsMarketingConsent}
+                onChange={handleInputChange}
+                label={SMS_MARKETING_CONSENT_COPY}
+              />
             </div>
             {error && (
               <p className="text-error text-sm text-center" role="alert">
@@ -338,5 +336,61 @@ export default function WaitlistClose() {
         </div>
       </div>
     </section>
+  );
+}
+
+function SmsConsentCheckbox({
+  checked,
+  id,
+  label,
+  name,
+  onChange,
+}: {
+  checked: boolean;
+  id: string;
+  label: string;
+  name: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const termsText = "Terms of Service";
+  const privacyText = "Privacy Policy";
+  const termsIndex = label.indexOf(termsText);
+  const privacyIndex = label.indexOf(privacyText);
+  const beforeTerms = label.slice(0, termsIndex);
+  const betweenLinks = label.slice(
+    termsIndex + termsText.length,
+    privacyIndex,
+  );
+  const afterPrivacy = label.slice(privacyIndex + privacyText.length);
+
+  return (
+    <div className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
+      <input
+        id={id}
+        type="checkbox"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        aria-describedby={`${id}-copy`}
+        className="mt-1 h-4 w-4 shrink-0 accent-accent"
+      />
+      <label id={`${id}-copy`} htmlFor={id}>
+        {beforeTerms}
+        <a
+          href="/terms"
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          Terms of Service
+        </a>
+        {betweenLinks}
+        <a
+          href="/privacy"
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          Privacy Policy
+        </a>
+        {afterPrivacy}
+      </label>
+    </div>
   );
 }

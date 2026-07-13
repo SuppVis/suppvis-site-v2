@@ -18,7 +18,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-text-muted text-sm mb-12">
-            Effective date: July 10, 2026
+            Effective date: July 13, 2026
           </p>
 
           <div className="space-y-10 text-[15px] text-text-secondary leading-[1.75]">
@@ -643,7 +643,6 @@ export default function TermsPage() {
               </address>
             </section>
 
-            {/* Section 18 */}
             <section>
               <h2 className="font-headline font-bold text-xl text-text-primary mb-4">
                 18. SMS Messaging Terms
@@ -653,18 +652,43 @@ export default function TermsPage() {
                   <strong className="text-text-primary">
                     Program Description.
                   </strong>{" "}
-                  If you voluntarily provide your mobile phone number and
-                  separately opt in to receive SMS messages from SuppVis, we may
-                  send you recurring promotional text messages regarding beta
-                  access, product and feature updates, platform announcements,
-                  SuppVis news, and related information about SuppVis services.
+                  SuppVis offers two separate categories of recurring SMS
+                  messaging:
                 </p>
                 <p>
-                  <strong className="text-text-primary">Consent.</strong>{" "}
+                  <strong className="text-text-primary">
+                    Informational messages:
+                  </strong>{" "}
+                  beta waitlist status updates, beta access notifications,
+                  account or service notifications, and customer support
+                  updates.
+                </p>
+                <p>
+                  <strong className="text-text-primary">
+                    Marketing and promotional messages:
+                  </strong>{" "}
+                  product and feature announcements, SuppVis news, beta program
+                  invitations, special offers, promotions, and related
+                  information about SuppVis services.
+                </p>
+                <p>
+                  <strong className="text-text-primary">
+                    Separate Consent.
+                  </strong>{" "}
+                  Consent for informational SMS messages and consent for
+                  marketing and promotional SMS messages are collected
+                  separately. Each category has its own optional, unchecked
+                  consent checkbox. You may consent to either category, both
+                  categories, or neither category.
+                </p>
+                <p>
+                  <strong className="text-text-primary">
+                    Voluntary Consent.
+                  </strong>{" "}
                   Consent to receive SMS messages is voluntary and is not
                   required as a condition of joining the SuppVis beta waitlist,
-                  purchasing any product or service, creating an account, or
-                  otherwise using SuppVis services.
+                  creating an account, making a purchase, or otherwise using
+                  SuppVis services.
                 </p>
                 <p>
                   <strong className="text-text-primary">
@@ -687,10 +711,10 @@ export default function TermsPage() {
                   <strong className="text-text-primary">Help.</strong> For
                   assistance, reply HELP or contact us at{" "}
                   <a
-                    href="mailto:support@suppvis.health"
+                    href="mailto:hello@suppvis.health"
                     className="text-accent hover:text-accent-hover transition-colors"
                   >
-                    support@suppvis.health
+                    hello@suppvis.health
                   </a>
                   .
                 </p>

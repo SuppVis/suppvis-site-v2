@@ -14,6 +14,10 @@ export type BetaApplicationRecord = {
   phone_raw?: string;
   phone_e164?: string;
   sms_opt_in: boolean;
+  legacy_sms_consent?: boolean;
+  sms_informational_consent: boolean;
+  sms_marketing_consent: boolean;
+  sms_consent_version: string;
   status: "new";
   source_page: string;
   created_at: string;
@@ -52,6 +56,10 @@ export type EmailTrackingMessageType =
 
 function stringAttribute(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function booleanAttribute(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function emailSubscriberStatusAttribute(value: unknown) {
@@ -116,15 +124,25 @@ export type SmsSubscriberStatus =
   | "invalid"
   | "opt_out_provider";
 
-export type SmsTrackingMessageType = "welcome_beta_sms";
+export type SmsTrackingMessageType =
+  | "sms_informational_confirmation"
+  | "sms_marketing_confirmation"
+  | "sms_mixed_confirmation";
 
 export type SmsSubscriberRecord = {
   id: string;
   phone_number_raw: string;
   phone_number_e164: string;
   status: SmsSubscriberStatus;
+  sms_informational_consent: boolean;
+  sms_informational_consent_at: string | null;
+  sms_marketing_consent: boolean;
+  sms_marketing_consent_at: string | null;
   sms_consent_timestamp: string;
   sms_consent_source: string;
+  sms_consent_version: string;
+  sms_global_opt_out: boolean;
+  sms_global_opt_out_at: string | null;
   opt_out_timestamp: string | null;
   opt_out_source?: string | null;
   last_opt_out_keyword?: string | null;
@@ -155,12 +173,33 @@ function smsSubscriberFromAttributes(
       stringAttribute(attributes?.phone_number_e164) ||
       fallback.phone_number_e164,
     status: smsSubscriberStatusAttribute(attributes?.status) || fallback.status,
+    sms_informational_consent:
+      booleanAttribute(attributes?.sms_informational_consent) ??
+      fallback.sms_informational_consent,
+    sms_informational_consent_at:
+      stringAttribute(attributes?.sms_informational_consent_at) ||
+      fallback.sms_informational_consent_at,
+    sms_marketing_consent:
+      booleanAttribute(attributes?.sms_marketing_consent) ??
+      fallback.sms_marketing_consent,
+    sms_marketing_consent_at:
+      stringAttribute(attributes?.sms_marketing_consent_at) ||
+      fallback.sms_marketing_consent_at,
     sms_consent_timestamp:
       stringAttribute(attributes?.sms_consent_timestamp) ||
       fallback.sms_consent_timestamp,
     sms_consent_source:
       stringAttribute(attributes?.sms_consent_source) ||
       fallback.sms_consent_source,
+    sms_consent_version:
+      stringAttribute(attributes?.sms_consent_version) ||
+      fallback.sms_consent_version,
+    sms_global_opt_out:
+      booleanAttribute(attributes?.sms_global_opt_out) ??
+      fallback.sms_global_opt_out,
+    sms_global_opt_out_at:
+      stringAttribute(attributes?.sms_global_opt_out_at) ||
+      fallback.sms_global_opt_out_at,
     opt_out_timestamp:
       stringAttribute(attributes?.opt_out_timestamp) ||
       fallback.opt_out_timestamp,
@@ -228,6 +267,10 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
       phone_raw: record.phone_raw,
       phone_e164: record.phone_e164,
       sms_opt_in: record.sms_opt_in,
+      legacy_sms_consent: record.legacy_sms_consent,
+      sms_informational_consent: record.sms_informational_consent,
+      sms_marketing_consent: record.sms_marketing_consent,
+      sms_consent_version: record.sms_consent_version,
       source_page: record.source_page,
       updated_at: record.updated_at,
     },
@@ -275,8 +318,18 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
     set: {
       phone_number_raw: record.phone_number_raw,
       phone_number_e164: record.phone_number_e164,
+      sms_informational_consent: record.sms_informational_consent,
+      sms_informational_consent_at: record.sms_informational_consent_at,
+      sms_marketing_consent: record.sms_marketing_consent,
+      sms_marketing_consent_at: record.sms_marketing_consent_at,
       sms_consent_timestamp: record.sms_consent_timestamp,
       sms_consent_source: record.sms_consent_source,
+      sms_consent_version: record.sms_consent_version,
+      sms_global_opt_out: record.sms_global_opt_out,
+      sms_global_opt_out_at: record.sms_global_opt_out_at,
+      opt_out_timestamp: record.opt_out_timestamp,
+      opt_out_source: record.opt_out_source,
+      last_opt_out_keyword: record.last_opt_out_keyword,
       resubscribed_at: record.resubscribed_at,
       updated_at: record.updated_at,
     },
@@ -518,6 +571,9 @@ export async function recordSmsSendFailure(input: {
     operation: "record_sms_send_failure",
     set: {
       status,
+      sms_global_opt_out: status === "opt_out_provider" ? true : undefined,
+      sms_global_opt_out_at:
+        status === "opt_out_provider" ? input.now : undefined,
       last_sms_status: "failed",
       last_sms_error_code: input.errorCode,
       last_sms_error_message_safe: input.errorMessageSafe,
@@ -552,6 +608,8 @@ export async function recordSmsProviderStatus(input: {
     operation: "record_sms_provider_status",
     set: {
       status,
+      sms_global_opt_out: isProviderOptOut ? true : undefined,
+      sms_global_opt_out_at: isProviderOptOut ? input.now : undefined,
       opt_out_timestamp: isProviderOptOut ? input.now : undefined,
       opt_out_source: isProviderOptOut ? "twilio_provider" : undefined,
       last_sms_message_sid: input.messageSid,
@@ -579,19 +637,25 @@ export async function markSmsResubscribeIfUnsubscribed(input: {
     operation: "mark_sms_resubscribe",
     set: {
       status: "pending_verification",
+      sms_global_opt_out: false,
+      sms_global_opt_out_at: null,
       opt_out_timestamp: null,
       opt_out_source: null,
       last_opt_out_keyword: null,
       resubscribed_at: input.now,
       updated_at: input.now,
     },
-    conditionExpression: "attribute_exists(#id) AND #status = :unsubscribed",
+    conditionExpression:
+      "attribute_exists(#id) AND (#status = :unsubscribed OR #status = :providerOptOut OR #globalOptOut = :true)",
     conditionAttributeNames: {
       "#id": "id",
       "#status": "status",
+      "#globalOptOut": "sms_global_opt_out",
     },
     conditionAttributeValues: {
       ":unsubscribed": "unsubscribed",
+      ":providerOptOut": "opt_out_provider",
+      ":true": true,
     },
   });
 }
@@ -610,6 +674,8 @@ export async function optOutSmsSubscriber(input: {
       phone_number_raw: input.phone_number_e164,
       phone_number_e164: input.phone_number_e164,
       status: "unsubscribed",
+      sms_global_opt_out: true,
+      sms_global_opt_out_at: input.now,
       opt_out_timestamp: input.now,
       opt_out_source: "sms_stop",
       last_opt_out_keyword: input.keyword,
@@ -617,6 +683,8 @@ export async function optOutSmsSubscriber(input: {
     },
     setIfNotExists: {
       id: input.id,
+      sms_informational_consent: false,
+      sms_marketing_consent: false,
       created_at: input.now,
     },
   });
@@ -636,8 +704,8 @@ export async function resubscribeSmsSubscriberFromKeyword(input: {
       phone_number_raw: input.phone_number_e164,
       phone_number_e164: input.phone_number_e164,
       status: "pending_verification",
-      sms_consent_timestamp: input.now,
-      sms_consent_source: "sms_start",
+      sms_global_opt_out: false,
+      sms_global_opt_out_at: null,
       opt_out_timestamp: null,
       opt_out_source: null,
       last_opt_out_keyword: input.keyword,
@@ -646,6 +714,8 @@ export async function resubscribeSmsSubscriberFromKeyword(input: {
     },
     setIfNotExists: {
       id: input.id,
+      sms_informational_consent: false,
+      sms_marketing_consent: false,
       created_at: input.now,
     },
   });
@@ -655,7 +725,34 @@ export function canSendEmailToSubscriber(record: { status?: string }) {
   return record.status === "subscribed";
 }
 
-export function canSendSmsToSubscriber(record: { status?: string }) {
+export function canSendSmsToSubscriber(
+  record: {
+    sms_global_opt_out?: boolean;
+    sms_informational_consent?: boolean;
+    sms_marketing_consent?: boolean;
+    status?: string;
+  },
+  category: "informational" | "marketing" | "both",
+) {
+  if (record.sms_global_opt_out) {
+    return false;
+  }
+
+  if (category === "informational" && !record.sms_informational_consent) {
+    return false;
+  }
+
+  if (category === "marketing" && !record.sms_marketing_consent) {
+    return false;
+  }
+
+  if (
+    category === "both" &&
+    (!record.sms_informational_consent || !record.sms_marketing_consent)
+  ) {
+    return false;
+  }
+
   return (
     record.status === "subscribed" ||
     record.status === "pending_verification"

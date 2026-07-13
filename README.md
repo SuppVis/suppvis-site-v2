@@ -108,9 +108,9 @@ Tables:
 
 The current code writes these record shapes:
 
-- Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `status`, `source_page`, `created_at`, `updated_at`
+- Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `legacy_sms_consent`, `sms_informational_consent`, `sms_marketing_consent`, `sms_consent_version`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
-- SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_consent_timestamp`, `sms_consent_source`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
+- SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_informational_consent`, `sms_informational_consent_at`, `sms_marketing_consent`, `sms_marketing_consent_at`, `sms_consent_timestamp`, `sms_consent_source`, `sms_consent_version`, `sms_global_opt_out`, `sms_global_opt_out_at`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
 
 ## Welcome Message Templates
@@ -210,13 +210,13 @@ Do not do yet:
 
 ## Future Twilio SMS Setup
 
-Use a Twilio Messaging Service for beta welcome SMS and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and an explicitly approved internal test are ready.
+Use a Twilio Messaging Service for beta SMS confirmation messages and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and an explicitly approved internal test are ready.
 
 Recommended setup:
 
 - Create or use a Twilio account owned by SuppVis.
 - Create a Messaging Service for SuppVis beta/waitlist messages.
-- Register the SMS program as a MARKETING campaign if messages include beta access, product updates, feature announcements, or SuppVis news.
+- Register the SMS program as `LOW VOLUME MIXED` if Twilio offers it for the SuppVis Brand; otherwise use `MIXED`. The public form collects informational and marketing consent separately.
 - Complete required brand/campaign or toll-free verification before real sends.
 - Configure the inbound message webhook on the Messaging Service:
   - URL: `https://www.suppvis.health/api/webhooks/twilio/sms`
@@ -241,26 +241,44 @@ Compliance information likely needed:
 
 - Legal business name and contact details.
 - Website URL: `https://www.suppvis.health`.
-- Message use case: recurring promotional beta access announcements, product and feature updates, platform news, and related SuppVis information for users who explicitly opt into texts.
-- Sample messages, including welcome copy and STOP language.
-- Opt-in flow description: website beta form with optional phone field and separate optional SMS marketing consent checkbox, unchecked by default.
+- Message use case: mixed recurring informational and marketing messages for users who explicitly opt into the matching SMS category.
+- Sample messages for both informational and marketing categories, including STOP/HELP language.
+- Opt-in flow description: website beta form with optional phone field and two separate optional SMS consent checkboxes, both unchecked by default.
 - Opt-out flow description: users can reply STOP; app syncs opt-out state into DynamoDB.
 - Privacy policy and terms URLs.
 
-SMS consent checkbox copy:
+SMS informational consent checkbox copy:
 
-> I agree to receive recurring promotional text messages from SuppVis about beta access, product updates, feature announcements, and SuppVis news. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
+> I agree to receive recurring informational text messages from SuppVis about my beta waitlist status, beta access, account or service notifications, and customer support updates. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
 
-Current recommended future SMS welcome copy:
+SMS marketing consent checkbox copy:
 
-> SuppVis: Welcome to the beta. We're two brothers building SuppVis to show what your supplements are doing - backed by research, not hype. Access: https://testflight.apple.com/join/nTASgewZ Complete onboarding to unlock everything. Thanks for being early with us. Tanner & Connor. Reply STOP to unsubscribe. Msg&data rates may apply.
+> I agree to receive recurring marketing and promotional text messages from SuppVis about product and feature announcements, SuppVis news, beta program invitations, special offers, and promotions. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
+
+Prepared SMS confirmation copy:
+
+- Informational only: `SuppVis: You're subscribed to recurring informational texts about beta waitlist status, beta access, account/service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
+- Marketing only: `SuppVis: You're subscribed to recurring marketing texts about product and feature announcements, SuppVis news, beta invitations, special offers, and promotions. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
+- Both selected: `SuppVis: You're subscribed to recurring informational and marketing texts from SuppVis. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
+
+Twilio campaign notes:
+
+- Select only website/web form as the opt-in method unless another method is truly implemented.
+- Leave opt-in keywords blank unless keyword enrollment is actually supported.
+- Use embedded links = yes if sample messages include `https://www.suppvis.health`.
+- Use phone numbers in message content = no.
+- Use direct lending = no.
+- Use age-gated content = no.
 
 STOP/START behavior:
 
 - Twilio Messaging Service or Advanced Opt-Out can block provider-level sends to opted-out numbers.
 - The app webhook also syncs STOP keywords into DynamoDB with `status = unsubscribed`, `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`.
-- START/UNSTOP can reactivate the local record as `pending_verification`; explicit website SMS consent can also resubscribe a previously opted-out phone number.
-- Future sending code must suppress any SMS subscriber with `status = unsubscribed` and should also respect Twilio/provider-level opt-out state.
+- START/UNSTOP can clear the local global opt-out state as `pending_verification`, but it does not invent informational or marketing consent categories.
+- Explicit website SMS consent can resubscribe a previously opted-out phone number for the specific categories checked.
+- Future sending code must suppress any SMS subscriber with `status = unsubscribed`, `status = opt_out_provider`, or `sms_global_opt_out = true`.
+- Informational sends must only select records with `sms_informational_consent = true`.
+- Marketing sends must only select records with `sms_marketing_consent = true`.
 
 Do not do yet:
 

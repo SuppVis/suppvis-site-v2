@@ -1,4 +1,5 @@
 import { normalizeDisplayName } from "../validation";
+import type { SmsConsentCategory } from "@/app/lib/smsConsent";
 
 export const TESTFLIGHT_BETA_URL =
   "https://testflight.apple.com/join/nTASgewZ";
@@ -29,8 +30,26 @@ export const FOUNDER_CONTACT_OUTREACH_EMAIL_PREVIEW_TEXT =
 export const WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER =
   "You're receiving this because you joined the SuppVis beta waitlist. You can unsubscribe at any time.";
 
-export const WELCOME_SMS_TEMPLATE =
-  "SuppVis: Welcome to the beta.\n\nWe're two brothers building SuppVis to show what your supplements are doing - backed by research, not hype.\n\nAccess: https://testflight.apple.com/join/nTASgewZ\n\nComplete onboarding when you get in - that's what unlocks everything.\n\nThanks for being early with us.\n\nTanner & Connor\n\nReply STOP to unsubscribe or HELP for help. Msg & data rates may apply.";
+export const SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE =
+  "SuppVis: You're subscribed to recurring informational texts about beta waitlist status, beta access, account/service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.";
+
+export const SMS_MARKETING_CONFIRMATION_TEMPLATE =
+  "SuppVis: You're subscribed to recurring marketing texts about product and feature announcements, SuppVis news, beta invitations, special offers, and promotions. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.";
+
+export const SMS_MIXED_CONFIRMATION_TEMPLATE =
+  "SuppVis: You're subscribed to recurring informational and marketing texts from SuppVis. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.";
+
+export function getSmsConfirmationTemplate(category: SmsConsentCategory) {
+  if (category === "informational") {
+    return SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE;
+  }
+
+  if (category === "marketing") {
+    return SMS_MARKETING_CONFIRMATION_TEMPLATE;
+  }
+
+  return SMS_MIXED_CONFIRMATION_TEMPLATE;
+}
 
 export const WELCOME_EMAIL_ENABLED_ENV = "WELCOME_EMAIL_ENABLED";
 export const UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV =

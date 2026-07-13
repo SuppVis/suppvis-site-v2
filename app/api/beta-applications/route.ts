@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import {
   createUrlSafeToken,
   stableId,
@@ -139,6 +140,9 @@ export async function POST(request: NextRequest) {
     const phoneE164 = phoneRaw
       ? normalizePhoneToE164(phoneRaw) || undefined
       : undefined;
+    const smsInformationalConsent = submission.smsInformationalConsent;
+    const smsMarketingConsent = submission.smsMarketingConsent;
+    const hasSmsConsent = smsInformationalConsent || smsMarketingConsent;
     const betaId = stableId("beta", normalizedEmail);
     const emailSubscriberId = stableId("email", normalizedEmail);
     const requiredTables: string[] = [
@@ -146,7 +150,7 @@ export async function POST(request: NextRequest) {
       DYNAMO_TABLE_ENVS.emailSubscribers,
     ];
 
-    if (submission.smsOptIn) {
+    if (hasSmsConsent) {
       requiredTables.push(DYNAMO_TABLE_ENVS.smsSubscribers);
     }
 
@@ -160,7 +164,11 @@ export async function POST(request: NextRequest) {
       normalized_email: normalizedEmail,
       phone_raw: phoneRaw,
       phone_e164: phoneE164,
-      sms_opt_in: submission.smsOptIn,
+      sms_opt_in: hasSmsConsent,
+      legacy_sms_consent: submission.smsOptIn,
+      sms_informational_consent: smsInformationalConsent,
+      sms_marketing_consent: smsMarketingConsent,
+      sms_consent_version: SMS_CONSENT_VERSION,
       status: "new",
       source_page: submission.sourcePage,
       created_at: now,
@@ -188,7 +196,7 @@ export async function POST(request: NextRequest) {
     let smsSubscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null =
       null;
 
-    if (submission.smsOptIn && phoneRaw && phoneE164) {
+    if (hasSmsConsent && phoneRaw && phoneE164) {
       const smsSubscriberId = stableId("sms", phoneE164);
 
       await markSmsResubscribeIfUnsubscribed({
@@ -201,8 +209,15 @@ export async function POST(request: NextRequest) {
         phone_number_raw: phoneRaw,
         phone_number_e164: phoneE164,
         status: "pending_verification",
+        sms_informational_consent: smsInformationalConsent,
+        sms_informational_consent_at: smsInformationalConsent ? now : null,
+        sms_marketing_consent: smsMarketingConsent,
+        sms_marketing_consent_at: smsMarketingConsent ? now : null,
         sms_consent_timestamp: now,
         sms_consent_source: `${submission.sourcePage}:beta_application`,
+        sms_consent_version: SMS_CONSENT_VERSION,
+        sms_global_opt_out: false,
+        sms_global_opt_out_at: null,
         opt_out_timestamp: null,
         opt_out_source: null,
         last_opt_out_keyword: null,

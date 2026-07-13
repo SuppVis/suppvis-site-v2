@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import { stableId } from "@/app/lib/server/crypto";
 import { handleApiError } from "@/app/lib/server/errors";
 import {
@@ -63,8 +64,17 @@ export async function POST(request: NextRequest) {
       phone_number_raw: submission.phone.trim(),
       phone_number_e164: phoneE164,
       status: "pending_verification",
+      sms_informational_consent: submission.smsInformationalConsent,
+      sms_informational_consent_at: submission.smsInformationalConsent
+        ? now
+        : null,
+      sms_marketing_consent: submission.smsMarketingConsent,
+      sms_marketing_consent_at: submission.smsMarketingConsent ? now : null,
       sms_consent_timestamp: now,
       sms_consent_source: submission.consentSource,
+      sms_consent_version: SMS_CONSENT_VERSION,
+      sms_global_opt_out: false,
+      sms_global_opt_out_at: null,
       opt_out_timestamp: null,
       opt_out_source: null,
       last_opt_out_keyword: null,

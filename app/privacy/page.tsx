@@ -18,7 +18,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-text-muted text-sm mb-12">
-            Effective date: July 9th, 2026
+            Effective date: July 13, 2026
           </p>
 
           <div className="space-y-10 text-[15px] text-text-secondary leading-[1.75]">
@@ -144,13 +144,39 @@ export default function PrivacyPage() {
                   <strong className="text-text-primary">
                     SMS/Text Messaging.
                   </strong>{" "}
-                  If you provide your mobile number and opt in, SuppVis may send
-                  you text messages about beta access, product updates, and
-                  SuppVis news. Message frequency varies. Message and data rates
-                  may apply. You can opt out at any time by replying STOP, or
-                  reply HELP for help. We do not sell, rent, or share your mobile
-                  phone number or your SMS consent/opt-in information with any
-                  third parties or affiliates for their own marketing purposes.
+                  If you provide your mobile number, you may separately choose
+                  to receive one or both of the following categories of recurring
+                  SMS messages from SuppVis:
+                </p>
+                <p className="mt-3">
+                  <strong className="text-text-primary">
+                    Informational messages:
+                  </strong>{" "}
+                  beta waitlist status updates, beta access notifications,
+                  account or service notifications, and customer support
+                  updates.
+                </p>
+                <p className="mt-3">
+                  <strong className="text-text-primary">
+                    Marketing and promotional messages:
+                  </strong>{" "}
+                  product and feature announcements, SuppVis news, beta program
+                  invitations, special offers, and promotions.
+                </p>
+                <p className="mt-3">
+                  Each category of SMS messaging requires separate consent
+                  through its own optional, unchecked consent checkbox. You may
+                  select either, both, or neither. Consent to receive marketing
+                  SMS is not required to join the SuppVis beta waitlist, create
+                  an account, make a purchase, or otherwise use SuppVis
+                  services. Message frequency varies. Message and data rates may
+                  apply. You may opt out of SMS messages at any time by replying
+                  STOP, or reply HELP for help. We do not sell, rent, or share
+                  your mobile phone number or SMS consent/opt-in information
+                  with third parties or affiliates for their own marketing or
+                  promotional purposes.
+                </p>
+                <p className="mt-3">
                   Mobile opt-in data is excluded from the anonymized
                   data-sharing and any other sharing arrangements described in
                   this policy.
