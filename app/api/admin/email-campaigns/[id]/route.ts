@@ -74,7 +74,7 @@ export async function GET(
       throw new PublicApiError(
         404,
         "campaign_not_found",
-        "Campaign draft was not found.",
+        "Email draft was not found.",
       );
     }
 

@@ -53,7 +53,7 @@ export async function POST(
       throw new PublicApiError(
         404,
         "campaign_not_found",
-        "Campaign draft was not found.",
+        "Email draft was not found.",
       );
     }
 
@@ -61,7 +61,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_tested",
-        "Send a test email before approving this campaign.",
+        "Send a test email before approving this email.",
       );
     }
 
@@ -76,7 +76,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_conflict",
-        "This campaign changed in another session. Reload it and try again.",
+        "This email changed in another session. Reload it and try again.",
       );
     }
 

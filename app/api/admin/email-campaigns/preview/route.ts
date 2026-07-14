@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       ctaLabel: submission.ctaLabel,
       ctaUrl: submission.ctaUrl,
       heading: submission.heading,
+      messageType: submission.messageType,
       subject: submission.subject,
     });
 

@@ -55,7 +55,7 @@ export async function POST(
       throw new PublicApiError(
         404,
         "campaign_not_found",
-        "Campaign draft was not found.",
+        "Email draft was not found.",
       );
     }
 
@@ -80,7 +80,7 @@ export async function POST(
         status: "disabled",
         code: "test_send_disabled",
         message:
-          "Test sending is disabled until ADMIN_EMAIL_CAMPAIGNS_ENABLED and ADMIN_EMAIL_TEST_SEND_ENABLED are true.",
+          "Test email sending is disabled.",
       });
     }
 
@@ -105,6 +105,7 @@ export async function POST(
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
       heading: campaign.heading,
+      messageType: campaign.message_type,
       subject: campaign.subject,
     });
     let result: Awaited<ReturnType<typeof sendAdminCampaignTestEmail>>;

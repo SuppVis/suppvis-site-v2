@@ -272,6 +272,8 @@ export type EmailCampaignStatus =
 export type EmailCampaignMessageType =
   | "beta_update"
   | "testflight_update"
+  | "product_update"
+  | "important_notice"
   | "feedback_request";
 
 export type EmailCampaignRecord = {
@@ -427,6 +429,8 @@ function recipientEligibilityAttribute(value: unknown) {
 function emailCampaignMessageTypeAttribute(value: unknown) {
   return value === "beta_update" ||
     value === "testflight_update" ||
+    value === "product_update" ||
+    value === "important_notice" ||
     value === "feedback_request"
     ? value
     : undefined;

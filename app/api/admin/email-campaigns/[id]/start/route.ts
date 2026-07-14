@@ -60,7 +60,7 @@ export async function POST(
       throw new PublicApiError(
         404,
         "campaign_not_found",
-        "Campaign draft was not found.",
+        "Email draft was not found.",
       );
     }
 
@@ -87,7 +87,7 @@ export async function POST(
         status: "disabled",
         code: "production_send_disabled",
         message:
-          "Production campaign sending is blocked until the infrastructure readiness gate is enabled.",
+          "Sending is not available yet because the email delivery system is still being prepared.",
       });
     }
 
@@ -95,7 +95,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_approved",
-        "Approve this campaign before starting the production send.",
+        "Approve this email before sending it.",
       );
     }
 
@@ -116,7 +116,7 @@ export async function POST(
       throw new PublicApiError(
         503,
         "campaign_queue_not_configured",
-        "Production campaign queueing is not fully configured.",
+        "Email delivery is not fully configured.",
       );
     }
 
@@ -132,7 +132,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_conflict",
-        "This campaign changed in another session. Reload it and try again.",
+        "This email changed in another session. Reload it and try again.",
       );
     }
 
@@ -214,7 +214,7 @@ export async function POST(
       throw new PublicApiError(
         503,
         "campaign_queueing_failed",
-        "Campaign queueing failed. Review logs before retrying.",
+        "Email delivery could not be started. Review logs before retrying.",
       );
     }
 

@@ -94,7 +94,8 @@ def suppress_subscriber(subscriber_id, status, timestamp, field_name):
 
 
 def handle_campaign_event(payload):
-    event_type = payload.get("eventType") or payload.get("notificationType")
+    raw_event_type = payload.get("eventType") or payload.get("notificationType")
+    event_type = str(raw_event_type or "").upper()
     mail = payload.get("mail") or {}
     message_id = mail.get("messageId")
     tags = mail.get("tags") or {}

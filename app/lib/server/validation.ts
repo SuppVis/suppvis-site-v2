@@ -133,7 +133,9 @@ export const broadcastAuditSchema = z.object({
 export const adminEmailCampaignMessageTypes = [
   "beta_update",
   "testflight_update",
+  "product_update",
   "feedback_request",
+  "important_notice",
 ] as const;
 
 export const adminEmailCampaignStatuses = [

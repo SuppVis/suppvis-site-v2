@@ -92,6 +92,16 @@ def render_email(campaign, subscriber):
     cta_url = str(campaign.get("cta_url") or "").strip()
     app_base_url = os.environ["APP_BASE_URL"].rstrip("/")
     brand_icon_url = html.escape(f"{app_base_url}/favicon.svg")
+    message_type_labels = {
+        "beta_update": "BETA ANNOUNCEMENT",
+        "feedback_request": "FEEDBACK REQUEST",
+        "important_notice": "IMPORTANT NOTICE",
+        "product_update": "PRODUCT UPDATE",
+        "testflight_update": "TESTFLIGHT UPDATE",
+    }
+    display_label = message_type_labels.get(
+        str(campaign.get("message_type") or ""), "BETA ANNOUNCEMENT"
+    )
     unsub_url = unsubscribe_url(subscriber)
     body_html = "\n".join(paragraph_html(part) for part in paragraphs(body))
 
@@ -139,7 +149,7 @@ def render_email(campaign, subscriber):
                   <tr>
                     <td style="text-align:left;vertical-align:middle;">
                       <div style="font-size:24px;line-height:1;font-weight:800;letter-spacing:0;color:#F0F4F8;">SuppVis</div>
-                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">Beta update</div>
+                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">{html.escape(display_label)}</div>
                     </td>
                     <td align="right" style="vertical-align:middle;">
                       <div style="display:inline-block;width:42px;height:42px;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);overflow:hidden;">
@@ -152,7 +162,7 @@ def render_email(campaign, subscriber):
             </tr>
             <tr>
               <td style="background:#0D1117;border:1px solid rgba(20,184,166,0.22);border-radius:18px;padding:34px 28px;box-shadow:0 18px 50px rgba(0,0,0,0.28);">
-                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">Beta update</p>
+                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">{html.escape(display_label)}</p>
                 <h1 style="margin:0 0 22px 0;color:#F0F4F8;font-size:28px;line-height:1.15;font-weight:800;">{html.escape(heading)}</h1>
                 {body_html}
               </td>

@@ -4,6 +4,7 @@ export type AdminCampaignRenderInput = {
   ctaLabel?: string;
   ctaUrl?: string;
   heading: string;
+  messageType?: string;
   subject: string;
   unsubscribeUrl?: string;
 };
@@ -16,6 +17,18 @@ export type AdminCampaignRenderedEmail = {
 
 const UNSUBSCRIBE_PLACEHOLDER =
   "Unsubscribe link will be inserted per recipient before a production send.";
+
+const MESSAGE_TYPE_LABELS: Record<string, string> = {
+  beta_update: "BETA ANNOUNCEMENT",
+  feedback_request: "FEEDBACK REQUEST",
+  important_notice: "IMPORTANT NOTICE",
+  product_update: "PRODUCT UPDATE",
+  testflight_update: "TESTFLIGHT UPDATE",
+};
+
+export function adminCampaignMessageTypeDisplayLabel(messageType?: string) {
+  return MESSAGE_TYPE_LABELS[messageType || ""] || "BETA ANNOUNCEMENT";
+}
 
 function escapeHtml(value: string) {
   return value
@@ -85,10 +98,12 @@ export function renderAdminCampaignEmail({
   ctaLabel,
   ctaUrl,
   heading,
+  messageType,
   subject,
   unsubscribeUrl,
 }: AdminCampaignRenderInput): AdminCampaignRenderedEmail {
   const brandIconUrl = escapeHtml(buildPublicAssetUrl("/favicon.svg", appBaseUrl));
+  const displayLabel = adminCampaignMessageTypeDisplayLabel(messageType);
   const previewText = bodyParagraphs(body)[0]?.slice(0, 180) || heading;
   const bodyHtml = [
     ...bodyParagraphs(body).map(paragraphHtml),
@@ -132,7 +147,7 @@ export function renderAdminCampaignEmail({
                   <tr>
                     <td style="text-align:left;vertical-align:middle;">
                       <div style="font-size:24px;line-height:1;font-weight:800;letter-spacing:0;color:#F0F4F8;">SuppVis</div>
-                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">Beta update</div>
+                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">${escapeHtml(displayLabel)}</div>
                     </td>
                     <td align="right" style="vertical-align:middle;">
                       <div style="display:inline-block;width:42px;height:42px;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);overflow:hidden;">
@@ -145,7 +160,7 @@ export function renderAdminCampaignEmail({
             </tr>
             <tr>
               <td style="background:#0D1117;border:1px solid rgba(20,184,166,0.22);border-radius:18px;padding:34px 28px;box-shadow:0 18px 50px rgba(0,0,0,0.28);">
-                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">Beta update</p>
+                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">${escapeHtml(displayLabel)}</p>
                 <h1 style="margin:0 0 22px 0;color:#F0F4F8;font-size:28px;line-height:1.15;font-weight:800;">${escapeHtml(heading)}</h1>
                 ${bodyHtml}
               </td>

@@ -7,7 +7,12 @@ const DEFAULT_BODY =
 
 type CampaignDraft = {
   id: string;
-  messageType: "beta_update" | "testflight_update" | "feedback_request";
+  messageType:
+    | "beta_update"
+    | "testflight_update"
+    | "product_update"
+    | "feedback_request"
+    | "important_notice";
   subject: string;
   heading: string;
   body: string;
@@ -27,6 +32,28 @@ type CampaignDraft = {
   deliveredCount?: number;
   failedCount?: number;
   skippedCount?: number;
+};
+
+type ProgressSummary = {
+  campaignStatus: string;
+  completedAt?: string | null;
+  counts: {
+    bounced: number;
+    complained: number;
+    delayed: number;
+    delivered: number;
+    failed: number;
+    queued: number;
+    rejected: number;
+    sending: number;
+    sent: number;
+    skipped: number;
+    total: number;
+  };
+  eligible: number;
+  excluded: number;
+  isActive: boolean;
+  updatedAt: string;
 };
 
 type AudienceSummary = {
@@ -102,7 +129,21 @@ function statusLabel(status?: string) {
     return "Unsaved";
   }
 
-  return status.replace(/_/g, " ");
+  const labels: Record<string, string> = {
+    approved: "Approved",
+    canceled: "Canceled",
+    completed: "Email sent",
+    completed_with_failures: "Email completed with issues",
+    draft: "Draft",
+    failed: "Issue found",
+    queueing: "Preparing send",
+    queued: "Sending",
+    sending: "Sending",
+    test_ready: "Test ready",
+    tested: "Tested",
+  };
+
+  return labels[status] || status.replace(/_/g, " ");
 }
 
 function messageTypeLabel(messageType?: string) {
@@ -110,11 +151,19 @@ function messageTypeLabel(messageType?: string) {
     return "TestFlight update";
   }
 
+  if (messageType === "product_update") {
+    return "Product update";
+  }
+
   if (messageType === "feedback_request") {
     return "Feedback request";
   }
 
-  return "Beta update";
+  if (messageType === "important_notice") {
+    return "Important notice";
+  }
+
+  return "Beta announcement";
 }
 
 function canDeleteDraft(campaign: CampaignDraft) {
@@ -191,6 +240,7 @@ export default function AdminCampaignDraft({
   } | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewMode, setPreviewMode] = useState<"html" | "text">("html");
+  const [progress, setProgress] = useState<ProgressSummary | null>(null);
   const [startPhrase, setStartPhrase] = useState("");
   const [testSendConfirmed, setTestSendConfirmed] = useState(false);
   const [testSendMessageId, setTestSendMessageId] = useState<string | null>(null);
@@ -201,6 +251,13 @@ export default function AdminCampaignDraft({
   const canApprove = campaign?.status === "tested";
   const canStart = campaign?.status === "approved";
   const canDeleteCurrent = campaign ? canDeleteDraft(campaign) : false;
+  const isSendStarted =
+    campaign?.status === "queueing" ||
+    campaign?.status === "queued" ||
+    campaign?.status === "sending" ||
+    campaign?.status === "completed" ||
+    campaign?.status === "completed_with_failures" ||
+    campaign?.status === "failed";
 
   async function refreshDrafts() {
     setBusyAction((current) => current || "refresh");
@@ -213,6 +270,16 @@ export default function AdminCampaignDraft({
     } finally {
       setBusyAction((current) => (current === "refresh" ? null : current));
     }
+  }
+
+  async function fetchProgress(campaignId: string) {
+    const response = await fetch(
+      `/api/admin/email-campaigns/${campaignId}/progress`,
+      { cache: "no-store" },
+    );
+    const payload = await parseJsonResponse(response);
+    setProgress(payload.progress);
+    return payload.progress as ProgressSummary;
   }
 
   useEffect(() => {
@@ -229,7 +296,39 @@ export default function AdminCampaignDraft({
     setTestSendMessageId(null);
     setAudience(null);
     setStartPhrase("");
+    setProgress(null);
   }, [campaign?.id, campaign?.version]);
+
+  useEffect(() => {
+    if (!campaign || !isSendStarted) {
+      return;
+    }
+
+    let canceled = false;
+
+    fetchProgress(campaign.id).catch(() => undefined);
+
+    if (
+      campaign.status !== "queueing" &&
+      campaign.status !== "queued" &&
+      campaign.status !== "sending"
+    ) {
+      return () => {
+        canceled = true;
+      };
+    }
+
+    const interval = window.setInterval(() => {
+      if (!canceled) {
+        fetchProgress(campaign.id).catch(() => undefined);
+      }
+    }, 5000);
+
+    return () => {
+      canceled = true;
+      window.clearInterval(interval);
+    };
+  }, [campaign?.id, campaign?.status, isSendStarted]);
 
   function updateField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -331,7 +430,7 @@ export default function AdminCampaignDraft({
     if (!canDeleteDraft(target)) {
       setMessage({
         tone: "error",
-        text: "This campaign can no longer be deleted.",
+        text: "This draft can no longer be deleted.",
       });
       return;
     }
@@ -440,7 +539,7 @@ export default function AdminCampaignDraft({
       } else {
         setMessage({
           tone: "info",
-          text: payload.message || "Test send is disabled.",
+          text: payload.message || "Test email sending is disabled.",
         });
       }
 
@@ -481,17 +580,34 @@ export default function AdminCampaignDraft({
       );
       const payload = await parseJsonResponse(response);
       updateCampaignFromPartial(payload.campaign);
-      setMessage({ tone: "success", text: "Campaign approved." });
+      const nextAudience = await calculateAudienceForCampaign(campaign.id);
+      setMessage({
+        tone: "success",
+        text: `Email approved. ${nextAudience.eligibleCount} eligible subscribers counted.`,
+      });
       await refreshDrafts();
     } catch (error) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "Could not approve campaign.",
+          error instanceof Error ? error.message : "Could not approve email.",
       });
     } finally {
       setBusyAction(null);
     }
+  }
+
+  async function calculateAudienceForCampaign(campaignId: string) {
+    const response = await fetch(
+      `/api/admin/email-campaigns/${campaignId}/audience`,
+      {
+        method: "POST",
+      },
+    );
+    const payload = await parseJsonResponse(response);
+    setAudience(payload.audience);
+    setStartPhrase("");
+    return payload.audience as AudienceSummary;
   }
 
   async function calculateAudience() {
@@ -503,18 +619,10 @@ export default function AdminCampaignDraft({
     setMessage(null);
 
     try {
-      const response = await fetch(
-        `/api/admin/email-campaigns/${campaign.id}/audience`,
-        {
-          method: "POST",
-        },
-      );
-      const payload = await parseJsonResponse(response);
-      setAudience(payload.audience);
-      setStartPhrase("");
+      const nextAudience = await calculateAudienceForCampaign(campaign.id);
       setMessage({
         tone: "success",
-        text: `${payload.audience.eligibleCount} eligible subscribers counted.`,
+        text: `${nextAudience.eligibleCount} eligible subscribers counted.`,
       });
     } catch (error) {
       setMessage({
@@ -554,24 +662,27 @@ export default function AdminCampaignDraft({
       if (payload.status === "disabled") {
         setMessage({
           tone: "info",
-          text: payload.message || "Production sending is disabled.",
+          text:
+            payload.message ||
+            "Sending is not available yet because the email delivery system is still being prepared.",
         });
       } else {
         setMessage({
           tone: "success",
-          text: "Campaign queued for delivery.",
+          text: "Email queued for delivery.",
         });
       }
 
       if (payload.campaign) {
         updateCampaignFromPartial(payload.campaign);
+        fetchProgress(payload.campaign.id).catch(() => undefined);
       }
       await refreshDrafts();
     } catch (error) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "Could not start campaign.",
+          error instanceof Error ? error.message : "Could not send email.",
       });
     } finally {
       setBusyAction(null);
@@ -585,6 +696,93 @@ export default function AdminCampaignDraft({
         ? "border-red-400/25 bg-red-400/10 text-red-100"
         : "border-white/10 bg-[#080D12] text-text-secondary";
 
+  const workflowSteps = [
+    {
+      label: "Draft saved",
+      state: campaign ? "completed" : "ready",
+      detail: campaign ? "Saved in DynamoDB." : "Start by saving this draft.",
+    },
+    {
+      label: "Preview generated",
+      state: preview ? "completed" : campaign ? "ready" : "blocked",
+      detail: preview
+        ? "HTML and text preview are ready."
+        : campaign
+          ? "Generate the exact email preview."
+          : "Save the draft first.",
+    },
+    {
+      label: "Test email sent",
+      state: campaign?.testedAt ? "completed" : preview ? "ready" : "blocked",
+      detail: campaign?.testedAt
+        ? `Sent to ${adminEmail}.`
+        : preview
+          ? "Send one test to yourself."
+          : "Preview the email first.",
+    },
+    {
+      label: "Email approved",
+      state:
+        campaign?.status === "approved" || isSendStarted
+          ? "completed"
+          : campaign?.status === "tested"
+            ? "ready"
+            : "blocked",
+      detail:
+        campaign?.status === "approved" || isSendStarted
+          ? "Approved for recipient review."
+          : campaign?.status === "tested"
+            ? "Approve after reviewing your test."
+            : "Send a test email first.",
+    },
+    {
+      label: audience
+        ? `${audience.eligibleCount} eligible subscribers confirmed`
+        : "Recipients reviewed",
+      state: audience ? "completed" : campaign?.status === "approved" ? "ready" : "blocked",
+      detail: audience
+        ? `${audience.excludedCount} excluded or suppressed.`
+        : campaign?.status === "approved"
+          ? "Refresh the count before sending."
+          : "Approve the email first.",
+    },
+    {
+      label:
+        campaign?.status === "completed"
+          ? "Email sent"
+          : campaign?.status === "completed_with_failures"
+            ? "Email completed with issues"
+            : "Ready to send",
+      state:
+        campaign?.status === "completed" ||
+        campaign?.status === "completed_with_failures"
+          ? "completed"
+          : campaign?.status === "queueing" ||
+              campaign?.status === "queued" ||
+              campaign?.status === "sending"
+            ? "completed"
+            : audience && bulkInfraReady
+              ? "ready"
+              : "blocked",
+      detail:
+        campaign?.status === "queueing" ||
+        campaign?.status === "queued" ||
+        campaign?.status === "sending"
+          ? "The worker continues independently."
+          : audience && bulkInfraReady
+            ? "Type the confirmation phrase to send."
+            : !bulkInfraReady
+              ? "Sending is not available while setup is being prepared."
+              : "Review recipients first.",
+    },
+  ] as const;
+
+  const stepTone = {
+    blocked: "border-white/10 bg-white/[0.03] text-text-muted",
+    completed: "border-accent/25 bg-accent/10 text-teal-50",
+    ready: "border-blue-300/25 bg-blue-400/10 text-blue-50",
+  };
+
   return (
     <section className="grid gap-5 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/20">
@@ -597,13 +795,35 @@ export default function AdminCampaignDraft({
               Beta update email
             </h2>
             <p className="mt-2 text-sm leading-6 text-text-secondary">
-              Save a draft, preview it, send one admin test, then approve before
-              any production queueing.
+              Save a draft, preview it, send one admin test, then approve and
+              review recipients before sending.
             </p>
           </div>
           <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-semibold capitalize text-accent">
             {status}
           </span>
+        </div>
+
+        <div className="mb-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+            Workflow
+          </p>
+          <ol className="mt-3 grid gap-2">
+            {workflowSteps.map((step, index) => (
+              <li
+                key={step.label}
+                className={`rounded-[8px] border px-3 py-2 text-sm ${stepTone[step.state]}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold">
+                    Step {index + 1}: {step.label}
+                  </span>
+                  <span className="text-xs capitalize">{step.state}</span>
+                </div>
+                <p className="mt-1 text-xs leading-5 opacity-85">{step.detail}</p>
+              </li>
+            ))}
+          </ol>
         </div>
 
         <div className="space-y-4">
@@ -619,12 +839,14 @@ export default function AdminCampaignDraft({
                   event.target.value as FormValues["messageType"],
                 )
               }
-              disabled={campaign?.status === "queueing" || campaign?.status === "queued" || campaign?.status === "sending"}
+              disabled={isSendStarted}
               className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="beta_update">Beta update</option>
+              <option value="beta_update">Beta announcement</option>
               <option value="testflight_update">TestFlight update</option>
+              <option value="product_update">Product update</option>
               <option value="feedback_request">Feedback request</option>
+              <option value="important_notice">Important notice</option>
             </select>
           </label>
 
@@ -699,7 +921,7 @@ export default function AdminCampaignDraft({
           <button
             type="button"
             onClick={hasCampaign ? saveDraft : createDraft}
-            disabled={isBusy || !canDeleteCurrent && hasCampaign}
+            disabled={isBusy || (!canDeleteCurrent && hasCampaign)}
             className={primaryButtonClass("teal")}
           >
             {busyAction === "save"
@@ -722,7 +944,7 @@ export default function AdminCampaignDraft({
             disabled={!campaign || !testSendEnabled || !testSendConfirmed || isBusy}
             className={primaryButtonClass("amber")}
           >
-            {busyAction === "test" ? "Sending test..." : "Test send"}
+            {busyAction === "test" ? "Sending test..." : "Send test to myself"}
           </button>
         </div>
 
@@ -757,15 +979,19 @@ export default function AdminCampaignDraft({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-                Production controls
+                Subscriber email
               </p>
               <p className="mt-2 text-sm leading-6 text-text-secondary">
-                Approve only after a successful test. Production send requires a
-                fresh count and exact typed confirmation.
+                Review the final email and recipient count before sending. You
+                will be asked to type a confirmation phrase.
               </p>
             </div>
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
-              {bulkInfraReady ? "Queue ready" : "Queue blocked"}
+              {bulkInfraReady
+                ? isSendStarted
+                  ? status
+                  : "Ready to send"
+                : "Setup incomplete"}
             </span>
           </div>
 
@@ -776,7 +1002,7 @@ export default function AdminCampaignDraft({
               disabled={!campaign || !canApprove || isBusy}
               className={primaryButtonClass("blue")}
             >
-              {busyAction === "approve" ? "Approving..." : "Approve campaign"}
+              {busyAction === "approve" ? "Approving..." : "Approve email"}
             </button>
             <button
               type="button"
@@ -784,7 +1010,7 @@ export default function AdminCampaignDraft({
               disabled={!campaign || isBusy || (campaign.status !== "tested" && campaign.status !== "approved")}
               className={primaryButtonClass("dark")}
             >
-              {busyAction === "audience" ? "Counting..." : "Count recipients"}
+              {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
             </button>
           </div>
 
@@ -801,7 +1027,7 @@ export default function AdminCampaignDraft({
               </p>
               <label className="mt-4 block">
                 <span className="font-semibold text-text-primary">
-                  Type this phrase to start:
+                  Type this phrase to send:
                 </span>
                 <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
                   {audience.confirmationPhrase}
@@ -825,14 +1051,62 @@ export default function AdminCampaignDraft({
                 }
                 className={`mt-4 ${primaryButtonClass("amber")}`}
               >
-                {busyAction === "start" ? "Starting campaign..." : "Start campaign"}
+                {busyAction === "start" ? "Sending..." : "Send email"}
               </button>
               {!bulkInfraReady ? (
                 <p className="mt-3 text-xs leading-5 text-yellow-100">
-                  Subscriber sending is blocked by the infrastructure readiness
-                  gate. Counting and approval are safe; queueing is not live.
+                  Sending is not available yet because the email delivery system
+                  is still being prepared.
                 </p>
               ) : null}
+            </div>
+          ) : null}
+
+          {progress ? (
+            <div className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm leading-6 text-text-secondary">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-semibold text-text-primary">
+                  {statusLabel(progress.campaignStatus)}
+                </p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    campaign && fetchProgress(campaign.id).catch(() => undefined)
+                  }
+                  className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent"
+                >
+                  Refresh progress
+                </button>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-5">
+                {[
+                  ["Eligible", progress.eligible],
+                  ["Queued", progress.counts.queued],
+                  ["Sending", progress.counts.sending],
+                  ["Accepted by SES", progress.counts.sent],
+                  ["Delivered", progress.counts.delivered],
+                  ["Delayed", progress.counts.delayed],
+                  ["Skipped", progress.counts.skipped],
+                  ["Failed", progress.counts.failed],
+                  ["Bounced", progress.counts.bounced],
+                  ["Complained", progress.counts.complained],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="rounded-[8px] border border-white/10 bg-[#080D12] p-3"
+                  >
+                    <dt className="text-text-muted">{label}</dt>
+                    <dd className="mt-1 text-lg font-bold text-text-primary">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-3 text-xs leading-5 text-text-muted">
+                Queued means ready for the worker. Accepted by SES means AWS
+                accepted the message. Delivered means SES reports delivery to
+                the recipient mail server.
+              </p>
             </div>
           ) : null}
         </div>

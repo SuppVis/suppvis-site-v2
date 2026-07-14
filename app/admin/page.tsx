@@ -96,10 +96,10 @@ export default async function AdminPage() {
               </span>
             </div>
             <h1 className="font-headline text-4xl font-extrabold tracking-tight">
-              Beta email campaigns
+              Beta emails
             </h1>
             <p className="mt-3 max-w-2xl leading-7 text-text-secondary">
-              Create, preview, test, and safely queue branded beta emails.
+              Create, preview, test, and safely send branded beta updates.
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm text-text-secondary">
@@ -117,12 +117,12 @@ export default async function AdminPage() {
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           {[
             ["Draft", "Create copy and preview it in SuppVis styling."],
-            ["Test send", "One message to your signed-in admin inbox."],
+            ["Test email", "One message to your signed-in admin inbox."],
             [
-              "Campaign send",
+              "Subscriber email",
               process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
-                ? "Queueing gate is enabled."
-                : "Blocked until the readiness gate is enabled.",
+                ? "Ready after approval and recipient review."
+                : "Sending is not available while setup is being prepared.",
             ],
           ].map(([title, body]) => (
             <div

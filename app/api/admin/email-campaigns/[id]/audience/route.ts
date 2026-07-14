@@ -33,7 +33,7 @@ export async function POST(
       throw new PublicApiError(
         404,
         "campaign_not_found",
-        "Campaign draft was not found.",
+        "Email draft was not found.",
       );
     }
 
@@ -46,7 +46,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_ready",
-        "Send a test email before calculating the production audience.",
+        "Send a test email before reviewing recipients.",
       );
     }
 
