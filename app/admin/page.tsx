@@ -58,8 +58,8 @@ export default async function AdminPage() {
   if (!isMicrosoftAuthConfigured()) {
     return (
       <AdminBlocked
-        title="Admin auth is not configured"
-        message="Microsoft Entra admin login is not active yet. Add the Auth.js and Microsoft Entra environment variables before using this page."
+        title="Access unavailable"
+        message="Authorized access only."
       />
     );
   }
@@ -74,10 +74,8 @@ export default async function AdminPage() {
   if (!access.ok) {
     return (
       <AdminBlocked
-        title="You do not have admin access"
-        message={`Signed in as ${maskAdminEmail(
-          access.email,
-        )}. This account is not on the SuppVis admin allowlist.`}
+        title="Access unavailable"
+        message="Authorized access only."
       />
     );
   }
@@ -101,8 +99,7 @@ export default async function AdminPage() {
               Beta email campaigns
             </h1>
             <p className="mt-3 max-w-2xl leading-7 text-text-secondary">
-              Protected by Microsoft Entra login plus a server-side admin
-              allowlist. This phase supports drafting and preview only.
+              Create, preview, test, and safely queue branded beta emails.
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm text-text-secondary">
@@ -120,8 +117,13 @@ export default async function AdminPage() {
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           {[
             ["Draft", "Create copy and preview it in SuppVis styling."],
-            ["Test send", "Disabled until explicitly approved."],
-            ["Campaign send", "Disabled until queued sending is built."],
+            ["Test send", "One message to your signed-in admin inbox."],
+            [
+              "Campaign send",
+              process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
+                ? "Queueing gate is enabled."
+                : "Blocked until the readiness gate is enabled.",
+            ],
           ].map(([title, body]) => (
             <div
               key={title}
@@ -140,6 +142,13 @@ export default async function AdminPage() {
         testSendEnabled={
           process.env.ADMIN_EMAIL_CAMPAIGNS_ENABLED === "true" &&
           process.env.ADMIN_EMAIL_TEST_SEND_ENABLED === "true"
+        }
+        bulkSendEnabled={
+          process.env.ADMIN_EMAIL_CAMPAIGNS_ENABLED === "true" &&
+          process.env.ADMIN_EMAIL_BULK_SEND_ENABLED === "true"
+        }
+        bulkInfraReady={
+          process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
         }
         />
       </div>

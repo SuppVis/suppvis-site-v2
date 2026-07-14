@@ -12,6 +12,7 @@ export const DYNAMO_TABLE_ENVS = {
   betaApplications: "DYNAMODB_BETA_APPLICATIONS_TABLE",
   emailSubscribers: "DYNAMODB_EMAIL_SUBSCRIBERS_TABLE",
   emailCampaigns: "DYNAMODB_EMAIL_CAMPAIGNS_TABLE",
+  emailCampaignRecipients: "DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE",
   smsSubscribers: "DYNAMODB_SMS_SUBSCRIBERS_TABLE",
   broadcastAuditLogs: "DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE",
 } as const;
@@ -44,8 +45,11 @@ type QueryInput = {
   tableEnvName: string;
   indexName?: string;
   keyConditionExpression: string;
+  filterExpression?: string;
+  projectionExpression?: string;
   expressionAttributeNames?: Record<string, string>;
   expressionAttributeValues?: DynamoRecord;
+  exclusiveStartKey?: DynamoRecord;
   limit?: number;
   scanIndexForward?: boolean;
   operation: string;
@@ -288,6 +292,11 @@ export async function getDynamoItem(input: {
 }
 
 export async function queryDynamoItems(input: QueryInput) {
+  const result = await queryDynamoItemsPage(input);
+  return result.items;
+}
+
+export async function queryDynamoItemsPage(input: QueryInput) {
   const tableName = getRequiredTableName(input.tableEnvName);
 
   try {
@@ -296,14 +305,20 @@ export async function queryDynamoItems(input: QueryInput) {
         TableName: tableName,
         IndexName: input.indexName,
         KeyConditionExpression: input.keyConditionExpression,
+        FilterExpression: input.filterExpression,
+        ProjectionExpression: input.projectionExpression,
         ExpressionAttributeNames: input.expressionAttributeNames,
         ExpressionAttributeValues: input.expressionAttributeValues,
+        ExclusiveStartKey: input.exclusiveStartKey,
         Limit: input.limit,
         ScanIndexForward: input.scanIndexForward,
       }),
     );
 
-    return (result.Items || []) as DynamoRecord[];
+    return {
+      items: (result.Items || []) as DynamoRecord[],
+      lastEvaluatedKey: result.LastEvaluatedKey as DynamoRecord | undefined,
+    };
   } catch (error) {
     console.error("[dynamodb] query failed", {
       operation: input.operation,

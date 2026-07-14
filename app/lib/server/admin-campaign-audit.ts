@@ -4,10 +4,18 @@ import { saveBroadcastAudit } from "./persistence";
 export type AdminCampaignAuditAction =
   | "draft_created"
   | "draft_updated"
+  | "draft_deleted"
   | "preview_generated"
+  | "recipient_count_generated"
   | "test_send_blocked"
   | "test_send_failed"
-  | "test_send_sent";
+  | "test_send_sent"
+  | "campaign_approved"
+  | "production_send_blocked"
+  | "queueing_started"
+  | "queueing_failed"
+  | "campaign_queued"
+  | "campaign_canceled";
 
 export async function recordAdminCampaignAudit(input: {
   action: AdminCampaignAuditAction;

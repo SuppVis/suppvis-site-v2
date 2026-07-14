@@ -3,6 +3,7 @@ import {
   getDynamoItem,
   putDynamoItem,
   queryDynamoItems,
+  queryDynamoItemsPage,
   updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
@@ -260,9 +261,13 @@ export type EmailCampaignStatus =
   | "test_ready"
   | "tested"
   | "approved"
+  | "queueing"
+  | "queued"
   | "sending"
   | "completed"
-  | "canceled";
+  | "completed_with_failures"
+  | "canceled"
+  | "failed";
 
 export type EmailCampaignMessageType =
   | "beta_update"
@@ -286,11 +291,74 @@ export type EmailCampaignRecord = {
   version: number;
   tested_at: string | null;
   approved_at: string | null;
+  approved_by?: string | null;
+  queueing_started_at?: string | null;
+  queued_at?: string | null;
+  queued_by?: string | null;
   sent_at: string | null;
+  completed_at?: string | null;
+  canceled_at?: string | null;
+  failed_at?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  recipient_count?: number;
+  eligible_count?: number;
+  excluded_count?: number;
+  queued_count?: number;
+  sent_count?: number;
+  delivered_count?: number;
+  delivery_delay_count?: number;
+  bounced_count?: number;
+  complained_count?: number;
+  rejected_count?: number;
+  failed_count?: number;
+  skipped_count?: number;
   test_recipient: string | null;
   test_message_id?: string | null;
   last_test_send_failed_at?: string | null;
   last_test_send_error_code?: string | null;
+};
+
+export type EmailCampaignRecipientStatus =
+  | "queueing"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "delivered"
+  | "delivery_delayed"
+  | "bounced"
+  | "complained"
+  | "rejected"
+  | "skipped"
+  | "failed";
+
+export type EmailCampaignRecipientRecord = {
+  campaign_id: string;
+  subscriber_id: string;
+  record_type: "email_campaign_recipient";
+  status: EmailCampaignRecipientStatus;
+  eligibility_decision: "eligible" | "excluded";
+  skip_reason?: string;
+  ses_message_id?: string;
+  queued_at?: string;
+  send_attempted_at?: string;
+  sent_at?: string;
+  delivered_at?: string;
+  delivery_delay_at?: string;
+  bounced_at?: string;
+  complained_at?: string;
+  rejected_at?: string;
+  failed_at?: string;
+  retry_count: number;
+  safe_failure_code?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CampaignAudienceCount = {
+  eligibleCount: number;
+  excludedCount: number;
+  duplicateCount: number;
 };
 
 export type EmailCampaignSummary = Pick<
@@ -306,7 +374,14 @@ export type EmailCampaignSummary = Pick<
   | "updated_at"
   | "version"
   | "tested_at"
+  | "approved_at"
   | "test_recipient"
+  | "recipient_count"
+  | "queued_count"
+  | "sent_count"
+  | "delivered_count"
+  | "failed_count"
+  | "skipped_count"
 >;
 
 function numberAttribute(value: unknown) {
@@ -318,11 +393,35 @@ function emailCampaignStatusAttribute(value: unknown) {
     value === "test_ready" ||
     value === "tested" ||
     value === "approved" ||
+    value === "queueing" ||
+    value === "queued" ||
     value === "sending" ||
     value === "completed" ||
-    value === "canceled"
+    value === "completed_with_failures" ||
+    value === "canceled" ||
+    value === "failed"
     ? value
     : undefined;
+}
+
+function emailCampaignRecipientStatusAttribute(value: unknown) {
+  return value === "queueing" ||
+    value === "queued" ||
+    value === "sending" ||
+    value === "sent" ||
+    value === "delivered" ||
+    value === "delivery_delayed" ||
+    value === "bounced" ||
+    value === "complained" ||
+    value === "rejected" ||
+    value === "skipped" ||
+    value === "failed"
+    ? value
+    : undefined;
+}
+
+function recipientEligibilityAttribute(value: unknown) {
+  return value === "eligible" || value === "excluded" ? value : undefined;
 }
 
 function emailCampaignMessageTypeAttribute(value: unknown) {
@@ -385,13 +484,82 @@ function emailCampaignFromAttributes(
     version,
     tested_at: nullableStringAttribute(attributes?.tested_at) || null,
     approved_at: nullableStringAttribute(attributes?.approved_at) || null,
+    approved_by: nullableStringAttribute(attributes?.approved_by) || null,
+    queueing_started_at:
+      nullableStringAttribute(attributes?.queueing_started_at) || null,
+    queued_at: nullableStringAttribute(attributes?.queued_at) || null,
+    queued_by: nullableStringAttribute(attributes?.queued_by) || null,
     sent_at: nullableStringAttribute(attributes?.sent_at) || null,
+    completed_at: nullableStringAttribute(attributes?.completed_at) || null,
+    canceled_at: nullableStringAttribute(attributes?.canceled_at) || null,
+    failed_at: nullableStringAttribute(attributes?.failed_at) || null,
+    deleted_at: nullableStringAttribute(attributes?.deleted_at) || null,
+    deleted_by: nullableStringAttribute(attributes?.deleted_by) || null,
+    recipient_count: numberAttribute(attributes?.recipient_count),
+    eligible_count: numberAttribute(attributes?.eligible_count),
+    excluded_count: numberAttribute(attributes?.excluded_count),
+    queued_count: numberAttribute(attributes?.queued_count),
+    sent_count: numberAttribute(attributes?.sent_count),
+    delivered_count: numberAttribute(attributes?.delivered_count),
+    delivery_delay_count: numberAttribute(attributes?.delivery_delay_count),
+    bounced_count: numberAttribute(attributes?.bounced_count),
+    complained_count: numberAttribute(attributes?.complained_count),
+    rejected_count: numberAttribute(attributes?.rejected_count),
+    failed_count: numberAttribute(attributes?.failed_count),
+    skipped_count: numberAttribute(attributes?.skipped_count),
     test_recipient: nullableStringAttribute(attributes?.test_recipient) || null,
     test_message_id: nullableStringAttribute(attributes?.test_message_id) || null,
     last_test_send_failed_at:
       nullableStringAttribute(attributes?.last_test_send_failed_at) || null,
     last_test_send_error_code:
       nullableStringAttribute(attributes?.last_test_send_error_code) || null,
+  };
+}
+
+function emailCampaignRecipientFromAttributes(
+  attributes: Record<string, unknown> | undefined,
+): EmailCampaignRecipientRecord | null {
+  const campaignId = stringAttribute(attributes?.campaign_id);
+  const subscriberId = stringAttribute(attributes?.subscriber_id);
+  const status = emailCampaignRecipientStatusAttribute(attributes?.status);
+  const eligibilityDecision = recipientEligibilityAttribute(
+    attributes?.eligibility_decision,
+  );
+  const createdAt = stringAttribute(attributes?.created_at);
+  const updatedAt = stringAttribute(attributes?.updated_at);
+
+  if (
+    !campaignId ||
+    !subscriberId ||
+    !status ||
+    !eligibilityDecision ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null;
+  }
+
+  return {
+    campaign_id: campaignId,
+    subscriber_id: subscriberId,
+    record_type: "email_campaign_recipient",
+    status,
+    eligibility_decision: eligibilityDecision,
+    skip_reason: stringAttribute(attributes?.skip_reason),
+    ses_message_id: stringAttribute(attributes?.ses_message_id),
+    queued_at: stringAttribute(attributes?.queued_at),
+    send_attempted_at: stringAttribute(attributes?.send_attempted_at),
+    sent_at: stringAttribute(attributes?.sent_at),
+    delivered_at: stringAttribute(attributes?.delivered_at),
+    delivery_delay_at: stringAttribute(attributes?.delivery_delay_at),
+    bounced_at: stringAttribute(attributes?.bounced_at),
+    complained_at: stringAttribute(attributes?.complained_at),
+    rejected_at: stringAttribute(attributes?.rejected_at),
+    failed_at: stringAttribute(attributes?.failed_at),
+    retry_count: numberAttribute(attributes?.retry_count) || 0,
+    safe_failure_code: stringAttribute(attributes?.safe_failure_code),
+    created_at: createdAt,
+    updated_at: updatedAt,
   };
 }
 
@@ -408,7 +576,14 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     updated_at: record.updated_at,
     version: record.version,
     tested_at: record.tested_at,
+    approved_at: record.approved_at,
     test_recipient: record.test_recipient,
+    recipient_count: record.recipient_count,
+    queued_count: record.queued_count,
+    sent_count: record.sent_count,
+    delivered_count: record.delivered_count,
+    failed_count: record.failed_count,
+    skipped_count: record.skipped_count,
   };
 }
 
@@ -978,7 +1153,7 @@ export async function listRecentEmailCampaignDrafts(limit = 20) {
     expressionAttributeValues: {
       ":recordType": "email_campaign",
     },
-    limit,
+    limit: Math.max(limit * 3, 30),
     scanIndexForward: false,
     operation: "list_recent_email_campaigns",
   });
@@ -986,6 +1161,8 @@ export async function listRecentEmailCampaignDrafts(limit = 20) {
   return items
     .map((item) => emailCampaignFromAttributes(item))
     .filter((record): record is EmailCampaignRecord => Boolean(record))
+    .filter((record) => !record.deleted_at)
+    .slice(0, limit)
     .map(emailCampaignSummary);
 }
 
@@ -1159,4 +1336,381 @@ export async function markEmailCampaignTestFailed(input: {
   return result.wrote
     ? emailCampaignFromAttributes(result.attributes)
     : null;
+}
+
+export async function archiveEmailCampaignDraft(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  deleted_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "archive_email_campaign_draft",
+    returnValues: "ALL_NEW",
+    set: {
+      deleted_at: input.now,
+      deleted_by: input.deleted_by,
+      updated_by: input.deleted_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function approveEmailCampaign(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  approved_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "approve_email_campaign",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "approved",
+      approved_at: input.now,
+      approved_by: input.approved_by,
+      updated_by: input.approved_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND #status = :tested",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignQueueing(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  queued_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_queueing",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "queueing",
+      queueing_started_at: input.now,
+      queued_by: input.queued_by,
+      updated_by: input.queued_by,
+      updated_at: input.now,
+      version: nextVersion,
+      recipient_count: 0,
+      eligible_count: 0,
+      excluded_count: 0,
+      queued_count: 0,
+      sent_count: 0,
+      delivered_count: 0,
+      delivery_delay_count: 0,
+      bounced_count: 0,
+      complained_count: 0,
+      rejected_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND #status = :approved",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":approved": "approved",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignQueued(input: {
+  id: string;
+  now: string;
+  updated_by: string;
+  eligibleCount: number;
+  excludedCount: number;
+  queuedCount: number;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_queued",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "queued",
+      queued_at: input.now,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      recipient_count: input.eligibleCount + input.excludedCount,
+      eligible_count: input.eligibleCount,
+      excluded_count: input.excludedCount,
+      queued_count: input.queuedCount,
+      skipped_count: input.excludedCount,
+    },
+    conditionExpression: "attribute_exists(#id) AND #status = :queueing",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":queueing": "queueing",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignQueueFailed(input: {
+  id: string;
+  now: string;
+  updated_by: string;
+  failureCode: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_queue_failed",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "failed",
+      failed_at: input.now,
+      last_queue_failure_code: input.failureCode,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+    },
+    conditionExpression: "attribute_exists(#id) AND #status = :queueing",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":queueing": "queueing",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function createEmailCampaignRecipient(input: {
+  campaignId: string;
+  subscriberId: string;
+  now: string;
+  status: EmailCampaignRecipientStatus;
+  eligibilityDecision: "eligible" | "excluded";
+  skipReason?: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaignRecipients,
+    key: {
+      campaign_id: input.campaignId,
+      subscriber_id: input.subscriberId,
+    },
+    operation: "create_email_campaign_recipient",
+    returnValues: "ALL_NEW",
+    set: {
+      record_type: "email_campaign_recipient",
+      status: input.status,
+      eligibility_decision: input.eligibilityDecision,
+      skip_reason: input.skipReason,
+      retry_count: 0,
+      created_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_not_exists(#campaignId) AND attribute_not_exists(#subscriberId)",
+    conditionAttributeNames: {
+      "#campaignId": "campaign_id",
+      "#subscriberId": "subscriber_id",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignRecipientFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignRecipientQueued(input: {
+  campaignId: string;
+  subscriberId: string;
+  now: string;
+  sqsMessageId?: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaignRecipients,
+    key: {
+      campaign_id: input.campaignId,
+      subscriber_id: input.subscriberId,
+    },
+    operation: "mark_email_campaign_recipient_queued",
+    returnValues: "ALL_NEW",
+    set: {
+      status: "queued",
+      queued_at: input.now,
+      sqs_message_id: input.sqsMessageId,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#campaignId) AND attribute_exists(#subscriberId) AND #status = :queueing",
+    conditionAttributeNames: {
+      "#campaignId": "campaign_id",
+      "#subscriberId": "subscriber_id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":queueing": "queueing",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignRecipientFromAttributes(result.attributes)
+    : null;
+}
+
+export async function listEmailCampaignRecipients(campaignId: string) {
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  const recipients: EmailCampaignRecipientRecord[] = [];
+
+  do {
+    const page = await queryDynamoItemsPage({
+      tableEnvName: DYNAMO_TABLE_ENVS.emailCampaignRecipients,
+      keyConditionExpression: "#campaignId = :campaignId",
+      expressionAttributeNames: {
+        "#campaignId": "campaign_id",
+      },
+      expressionAttributeValues: {
+        ":campaignId": campaignId,
+      },
+      exclusiveStartKey,
+      operation: "list_email_campaign_recipients",
+    });
+
+    for (const item of page.items) {
+      const recipient = emailCampaignRecipientFromAttributes(item);
+      if (recipient) {
+        recipients.push(recipient);
+      }
+    }
+
+    exclusiveStartKey = page.lastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return recipients;
+}
+
+function emailSubscriberFromCampaignAttributes(
+  attributes: Record<string, unknown> | undefined,
+) {
+  const id = stringAttribute(attributes?.id);
+  const email = stringAttribute(attributes?.email);
+  const normalizedEmail = stringAttribute(attributes?.normalized_email);
+  const status = emailSubscriberStatusAttribute(attributes?.status);
+  const consentTimestamp = stringAttribute(attributes?.consent_timestamp);
+  const consentSource = stringAttribute(attributes?.consent_source);
+  const createdAt = stringAttribute(attributes?.created_at);
+  const updatedAt = stringAttribute(attributes?.updated_at);
+  const unsubscribeToken = stringAttribute(attributes?.unsubscribe_token);
+
+  if (
+    !id ||
+    !normalizedEmail ||
+    !status
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    email: email || normalizedEmail,
+    normalized_email: normalizedEmail,
+    status,
+    consent_timestamp: consentTimestamp || "",
+    consent_source: consentSource || "",
+    created_at: createdAt || "",
+    updated_at: updatedAt || "",
+    unsubscribe_token: unsubscribeToken || "",
+  };
+}
+
+export async function listEmailSubscribersByStatus(statuses: EmailSubscriberRecord["status"][]) {
+  const subscribers: EmailSubscriberRecord[] = [];
+
+  for (const status of statuses) {
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+
+    do {
+      const page = await queryDynamoItemsPage({
+        tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+        indexName: "status-updated_at-index",
+        keyConditionExpression: "#status = :status",
+        expressionAttributeNames: {
+          "#status": "status",
+        },
+        expressionAttributeValues: {
+          ":status": status,
+        },
+        exclusiveStartKey,
+        operation: "list_email_subscribers_by_status",
+      });
+
+      for (const item of page.items) {
+        const subscriber = emailSubscriberFromCampaignAttributes(item);
+        if (subscriber) {
+          subscribers.push(subscriber as EmailSubscriberRecord);
+        }
+      }
+
+      exclusiveStartKey = page.lastEvaluatedKey;
+    } while (exclusiveStartKey);
+  }
+
+  return subscribers;
 }

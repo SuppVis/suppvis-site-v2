@@ -5,6 +5,7 @@ export type AdminCampaignRenderInput = {
   ctaUrl?: string;
   heading: string;
   subject: string;
+  unsubscribeUrl?: string;
 };
 
 export type AdminCampaignRenderedEmail = {
@@ -62,14 +63,18 @@ function rawLinkHtml(href: string) {
   return `<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(href)}</p>`;
 }
 
-function adminFooterHtml() {
+function adminFooterHtml(unsubscribeUrl?: string) {
+  const unsubscribeMarkup = unsubscribeUrl
+    ? `<a href="${escapeHtml(unsubscribeUrl)}" style="color:#14B8A6;text-decoration:underline;">Unsubscribe</a>`
+    : `<span style="color:#14B8A6;text-decoration:underline;">${escapeHtml(
+        UNSUBSCRIBE_PLACEHOLDER,
+      )}</span>`;
+
   return `<tr>
               <td style="padding:18px 8px 0 8px;text-align:center;color:#5A7089;font-size:12px;line-height:1.6;">
                 You are receiving this because you joined the SuppVis beta.
                 <br />
-                <span style="color:#14B8A6;text-decoration:underline;">${escapeHtml(
-                  UNSUBSCRIBE_PLACEHOLDER,
-                )}</span>
+                ${unsubscribeMarkup}
               </td>
             </tr>`;
 }
@@ -81,6 +86,7 @@ export function renderAdminCampaignEmail({
   ctaUrl,
   heading,
   subject,
+  unsubscribeUrl,
 }: AdminCampaignRenderInput): AdminCampaignRenderedEmail {
   const brandIconUrl = escapeHtml(buildPublicAssetUrl("/favicon.svg", appBaseUrl));
   const previewText = bodyParagraphs(body)[0]?.slice(0, 180) || heading;
@@ -99,7 +105,7 @@ export function renderAdminCampaignEmail({
     ctaLabel && ctaUrl ? `${ctaLabel}: ${ctaUrl}` : "",
     "",
     "You are receiving this because you joined the SuppVis beta.",
-    UNSUBSCRIBE_PLACEHOLDER,
+    unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : UNSUBSCRIBE_PLACEHOLDER,
   ].filter((part) => part !== undefined);
 
   return {
@@ -144,7 +150,7 @@ export function renderAdminCampaignEmail({
                 ${bodyHtml}
               </td>
             </tr>
-            ${adminFooterHtml()}
+            ${adminFooterHtml(unsubscribeUrl)}
           </table>
         </td>
       </tr>

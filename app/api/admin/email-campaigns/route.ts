@@ -36,6 +36,14 @@ function campaignResponse(record: EmailCampaignRecord) {
     approvedAt: record.approved_at,
     sentAt: record.sent_at,
     testRecipient: record.test_recipient,
+    recipientCount: record.recipient_count || 0,
+    eligibleCount: record.eligible_count || 0,
+    excludedCount: record.excluded_count || 0,
+    queuedCount: record.queued_count || 0,
+    sentCount: record.sent_count || 0,
+    deliveredCount: record.delivered_count || 0,
+    failedCount: record.failed_count || 0,
+    skippedCount: record.skipped_count || 0,
   };
 }
 
@@ -69,7 +77,14 @@ export async function GET(request: NextRequest) {
         updatedAt: draft.updated_at,
         version: draft.version,
         testedAt: draft.tested_at,
+        approvedAt: draft.approved_at,
         testRecipient: draft.test_recipient,
+        recipientCount: draft.recipient_count || 0,
+        queuedCount: draft.queued_count || 0,
+        sentCount: draft.sent_count || 0,
+        deliveredCount: draft.delivered_count || 0,
+        failedCount: draft.failed_count || 0,
+        skippedCount: draft.skipped_count || 0,
       })),
     });
   } catch (error) {

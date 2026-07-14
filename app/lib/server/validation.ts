@@ -141,9 +141,13 @@ export const adminEmailCampaignStatuses = [
   "test_ready",
   "tested",
   "approved",
+  "queueing",
+  "queued",
   "sending",
   "completed",
+  "completed_with_failures",
   "canceled",
+  "failed",
 ] as const;
 
 const optionalTrimmedString = (max: number) =>
@@ -174,7 +178,7 @@ export const adminCampaignContentSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["ctaLabel"],
-        message: "Add a CTA label or remove the CTA URL.",
+        message: "Add link text or remove the link URL.",
       });
     }
 
@@ -182,7 +186,7 @@ export const adminCampaignContentSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["ctaUrl"],
-        message: "Add a CTA URL or remove the CTA label.",
+        message: "Add a link URL or remove the link text.",
       });
     }
   });
@@ -201,6 +205,14 @@ export const adminCampaignIdSchema = z
 export const adminCampaignPreviewSchema = adminCampaignContentSchema;
 
 export const adminCampaignTestSendSchema = z.object({}).strict();
+
+export const adminCampaignVersionSchema = z.object({
+  expectedVersion: z.number().int().min(1).max(1_000_000),
+}).strict();
+
+export const adminCampaignStartSchema = adminCampaignVersionSchema.extend({
+  confirmationPhrase: z.string().trim().min(1).max(80),
+});
 
 export const emailUnsubscribeSchema = z.object({
   subscriberId: z

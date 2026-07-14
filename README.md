@@ -60,6 +60,7 @@ AWS/DynamoDB:
 - `DYNAMODB_BETA_APPLICATIONS_TABLE`
 - `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE`
 - `DYNAMODB_EMAIL_CAMPAIGNS_TABLE`
+- `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE`
 - `DYNAMODB_SMS_SUBSCRIBERS_TABLE`
 - `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE`
 
@@ -77,6 +78,8 @@ Admin console auth:
 - `ADMIN_EMAIL_CAMPAIGNS_ENABLED` - keep `false` until campaign persistence is approved.
 - `ADMIN_EMAIL_TEST_SEND_ENABLED` - keep `false` until one-recipient test sending is approved.
 - `ADMIN_EMAIL_BULK_SEND_ENABLED` - keep `false` until queued batch sending and audit controls are approved.
+- `ADMIN_EMAIL_BULK_SEND_INFRA_READY` - extra default-off readiness gate for subscriber campaign queueing; keep `false` until the queue, worker, IAM, and live tests are explicitly approved.
+- `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` - SQS queue URL used only after the readiness gate is enabled.
 
 Welcome templates:
 
@@ -117,6 +120,7 @@ Tables:
 - `suppvis-prod-beta-applications`
 - `suppvis-prod-email-subscribers`
 - `suppvis-prod-email-campaigns`
+- `suppvis-prod-email-campaign-recipients`
 - `suppvis-prod-sms-subscribers`
 - `suppvis-prod-broadcast-audit-logs`
 
@@ -124,7 +128,8 @@ The current code writes these record shapes:
 
 - Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `legacy_sms_consent`, `sms_informational_consent`, `sms_marketing_consent`, `sms_consent_version`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
-- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`
+- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`, optional approval/queue timestamps, soft-delete fields, and aggregate send counters
+- Email campaign recipients: `campaign_id`, `subscriber_id`, `record_type`, `status`, `eligibility_decision`, optional `skip_reason`, optional `ses_message_id`, queue/send/delivery/failure timestamps, `retry_count`, optional safe failure classification, `created_at`, `updated_at`
 - SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_informational_consent`, `sms_informational_consent_at`, `sms_marketing_consent`, `sms_marketing_consent_at`, `sms_consent_timestamp`, `sms_consent_source`, `sms_consent_version`, `sms_global_opt_out`, `sms_global_opt_out_at`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
 
@@ -137,6 +142,24 @@ Email campaign table settings:
 - Point-in-time recovery: recommended for production
 - GSI name: `record_type-updated_at-index`
 - GSI partition key: `record_type` string
+- GSI sort key: `updated_at` string
+- GSI projection: all attributes
+
+Email campaign recipient table settings:
+
+- Table name: `suppvis-prod-email-campaign-recipients`
+- Partition key: `campaign_id` string
+- Sort key: `subscriber_id` string
+- Billing mode: on-demand
+- Encryption: AWS-managed encryption at rest
+- Point-in-time recovery: enabled for production
+- Deletion protection: enabled for production
+
+Email subscriber campaign index:
+
+- Existing table: `suppvis-prod-email-subscribers`
+- GSI name: `status-updated_at-index`
+- GSI partition key: `status` string
 - GSI sort key: `updated_at` string
 - GSI projection: all attributes
 
@@ -169,7 +192,7 @@ The `/admin` route is intentionally not linked from public navigation, but hidde
 - Server-side authorization checks on the admin page.
 - Disabled send flags until each sending phase is approved.
 
-The current admin console supports campaign draft persistence, recent draft loading, server-rendered HTML/plain-text previews, and a disabled one-recipient test-send route. It does not query all subscribers and does not create bulk-send capability.
+The current admin console supports campaign draft persistence, recent draft loading, server-rendered HTML/plain-text previews, one-recipient admin test sends, approval, recipient counting, draft archiving, and a queued production-send route that remains blocked unless `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true`.
 
 Recommended Microsoft Entra setup:
 
@@ -182,17 +205,21 @@ Recommended Microsoft Entra setup:
 7. Add the app registration values to Vercel as sensitive Production env vars.
 8. Put only named admin emails in `ADMIN_ALLOWED_EMAILS`.
 
-Future campaign sending should be added in separate phases:
+Queued production campaign sending uses:
 
-1. Create `suppvis-prod-email-campaigns` and add `DYNAMODB_EMAIL_CAMPAIGNS_TABLE`.
-2. Verify draft create/update/list/preview in `/admin`.
-3. Enable one-recipient test send only by setting both `ADMIN_EMAIL_CAMPAIGNS_ENABLED=true` and `ADMIN_EMAIL_TEST_SEND_ENABLED=true`.
-4. Add campaign delivery/bounce/complaint reporting by campaign.
-5. Build queued batch sending with recipient suppression.
+1. The admin API to approve a tested campaign and calculate the eligible audience count server-side.
+2. A typed confirmation phrase, such as `SEND TO 123 SUBSCRIBERS`.
+3. A per-recipient DynamoDB tracking record in `suppvis-prod-email-campaign-recipients`.
+4. One SQS message per eligible recipient.
+5. `suppvis-email-campaign-send-worker` Lambda to re-check subscriber eligibility immediately before sending through SES.
+6. SES tags with `campaign_id`, `subscriber_id`, and `message_type=admin_campaign`.
+7. `suppvis-ses-campaign-event-processor` Lambda to record SEND, DELIVERY, DELIVERY_DELAY, BOUNCE, COMPLAINT, and REJECT events on campaign-recipient records.
+
+`ADMIN_EMAIL_BULK_SEND_ENABLED=true` is not enough by itself. Subscriber campaign queueing also requires `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true` and a configured `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL`.
 
 Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
 
-Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional CTA label/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
+Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional link text/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
 
 ## Unsubscribe And SMS Opt-Out Foundation
 

@@ -11,6 +11,7 @@
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1079.0",
     "@aws-sdk/client-sesv2": "^3.1081.0",
+    "@aws-sdk/client-sqs": "^3.1086.0",
     "@aws-sdk/lib-dynamodb": "^3.1079.0",
     "libphonenumber-js": "^1.13.8",
     "next": "14.2.29",
@@ -23,6 +24,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@aws-sdk/client-iam": "^3.1086.0",
+    "@aws-sdk/client-lambda": "^3.1086.0",
+    "@aws-sdk/client-sns": "^3.1086.0",
     "@tailwindcss/postcss": "^4.1.4",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",

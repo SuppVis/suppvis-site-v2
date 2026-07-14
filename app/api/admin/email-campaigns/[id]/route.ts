@@ -3,6 +3,7 @@ import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit"
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
+  archiveEmailCampaignDraft,
   getEmailCampaign,
   updateEmailCampaignDraft,
   type EmailCampaignRecord,
@@ -13,6 +14,7 @@ import {
 } from "@/app/lib/server/request";
 import {
   adminCampaignIdSchema,
+  adminCampaignVersionSchema,
   updateAdminCampaignSchema,
 } from "@/app/lib/server/validation";
 
@@ -38,6 +40,14 @@ function campaignResponse(record: EmailCampaignRecord) {
     approvedAt: record.approved_at,
     sentAt: record.sent_at,
     testRecipient: record.test_recipient,
+    recipientCount: record.recipient_count || 0,
+    eligibleCount: record.eligible_count || 0,
+    excludedCount: record.excluded_count || 0,
+    queuedCount: record.queued_count || 0,
+    sentCount: record.sent_count || 0,
+    deliveredCount: record.delivered_count || 0,
+    failedCount: record.failed_count || 0,
+    skippedCount: record.skipped_count || 0,
   };
 }
 
@@ -129,6 +139,56 @@ export async function PATCH(
     return NextResponse.json({
       ok: true,
       campaign: campaignResponse(updated),
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const rateLimited = enforceRateLimit(request, {
+      scope: "admin-email-campaign-delete",
+      limit: 20,
+      windowMs: 60_000,
+    });
+
+    if (rateLimited) {
+      return rateLimited;
+    }
+
+    const admin = await requireAdminSession();
+    const id = adminCampaignIdSchema.parse(params.id);
+    const body = await readJsonBody(request);
+    const submission = adminCampaignVersionSchema.parse(body);
+    const archived = await archiveEmailCampaignDraft({
+      id,
+      expectedVersion: submission.expectedVersion,
+      now: new Date().toISOString(),
+      deleted_by: admin.identifier,
+    });
+
+    if (!archived) {
+      throw new PublicApiError(
+        409,
+        "campaign_conflict",
+        "This draft can no longer be deleted. Reload it and try again.",
+      );
+    }
+
+    await recordAdminCampaignAudit({
+      action: "draft_deleted",
+      adminIdentifier: admin.identifier,
+      campaignId: id,
+      status: archived.status,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      campaign: campaignResponse(archived),
     });
   } catch (error) {
     return handleApiError(error);
