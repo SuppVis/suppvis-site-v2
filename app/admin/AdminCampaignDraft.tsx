@@ -339,6 +339,25 @@ export default function AdminCampaignDraft({
     setCampaign((current) => (current ? { ...current, ...partial } : current));
   }
 
+  function startAnotherEmail() {
+    if (isBusy) {
+      return;
+    }
+
+    setAudience(null);
+    setCampaign(null);
+    setForm(initialForm);
+    setMessage({
+      tone: "info",
+      text: "Ready for a new email. Save the draft to begin.",
+    });
+    setPreview(null);
+    setProgress(null);
+    setStartPhrase("");
+    setTestSendConfirmed(false);
+    setTestSendMessageId(null);
+  }
+
   async function createDraft() {
     setBusyAction("save");
     setMessage(null);
@@ -784,7 +803,48 @@ export default function AdminCampaignDraft({
   };
 
   return (
-    <section className="grid gap-5 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
+    <>
+      <section className="mb-5 rounded-[8px] border border-white/10 bg-[#0D1117] p-4 shadow-2xl shadow-black/20">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+              Workflow
+            </p>
+            <h2 className="mt-2 font-headline text-xl font-bold text-text-primary">
+              Draft, test, approve, then send
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={startAnotherEmail}
+            disabled={isBusy}
+            className={primaryButtonClass("dark")}
+          >
+            Send another email
+          </button>
+        </div>
+        <ol className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          {workflowSteps.map((step, index) => (
+            <li
+              key={step.label}
+              className={`min-h-[118px] rounded-[8px] border p-3 text-sm ${stepTone[step.state]}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-current/30 text-xs font-bold">
+                  {index + 1}
+                </span>
+                <span className="font-semibold leading-5">{step.label}</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 opacity-85">{step.detail}</p>
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">
+                {step.state}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/20">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -799,31 +859,19 @@ export default function AdminCampaignDraft({
               review recipients before sending.
             </p>
           </div>
-          <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-semibold capitalize text-accent">
-            {status}
-          </span>
-        </div>
-
-        <div className="mb-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-            Workflow
-          </p>
-          <ol className="mt-3 grid gap-2">
-            {workflowSteps.map((step, index) => (
-              <li
-                key={step.label}
-                className={`rounded-[8px] border px-3 py-2 text-sm ${stepTone[step.state]}`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold">
-                    Step {index + 1}: {step.label}
-                  </span>
-                  <span className="text-xs capitalize">{step.state}</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 opacity-85">{step.detail}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-semibold capitalize text-accent">
+              {status}
+            </span>
+            <button
+              type="button"
+              onClick={startAnotherEmail}
+              disabled={isBusy}
+              className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              New email
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -858,7 +906,8 @@ export default function AdminCampaignDraft({
               value={form.subject}
               onChange={(event) => updateField("subject", event.target.value)}
               maxLength={120}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+              disabled={isSendStarted}
+              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
 
@@ -870,7 +919,8 @@ export default function AdminCampaignDraft({
               value={form.heading}
               onChange={(event) => updateField("heading", event.target.value)}
               maxLength={160}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+              disabled={isSendStarted}
+              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
 
@@ -881,7 +931,8 @@ export default function AdminCampaignDraft({
               onChange={(event) => updateField("body", event.target.value)}
               rows={10}
               maxLength={5000}
-              className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent"
+              disabled={isSendStarted}
+              className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
             />
           </label>
 
@@ -894,7 +945,8 @@ export default function AdminCampaignDraft({
                 value={form.ctaLabel}
                 onChange={(event) => updateField("ctaLabel", event.target.value)}
                 maxLength={64}
-                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+                disabled={isSendStarted}
+                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
                 The words shown on the email button, such as "Open TestFlight."
@@ -908,7 +960,8 @@ export default function AdminCampaignDraft({
                 value={form.ctaUrl}
                 onChange={(event) => updateField("ctaUrl", event.target.value)}
                 maxLength={300}
-                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+                disabled={isSendStarted}
+                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
                 The secure web address opened by the button.
@@ -1269,6 +1322,7 @@ export default function AdminCampaignDraft({
           </div>
         </div>
       </div>
-    </section>
+      </section>
+    </>
   );
 }

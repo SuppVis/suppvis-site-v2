@@ -114,6 +114,43 @@ export default async function AdminPage() {
           </div>
         </header>
 
+        <section className="mb-5 rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/20">
+          <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+                Email workspace
+              </p>
+              <h2 className="mt-2 font-headline text-2xl font-bold text-text-primary">
+                Compose one beta update at a time
+              </h2>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-text-secondary">
+                Drafts are saved before sending, previews use the same branded
+                renderer as the final email, and subscriber sends are queued
+                with unsubscribe and suppression checks for each recipient.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              {[
+                ["Audience", "Subscribed beta email records"],
+                ["Safety", "Test to yourself before approval"],
+                ["Tracking", "Queued, accepted, and delivered states"],
+              ].map(([label, body]) => (
+                <div
+                  key={label}
+                  className="rounded-[8px] border border-white/10 bg-[#080D12] p-3"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-text-primary">
+                    {body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           {[
             ["Draft", "Create copy and preview it in SuppVis styling."],
