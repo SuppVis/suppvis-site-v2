@@ -191,7 +191,7 @@ function primaryButtonClass(tone: "teal" | "blue" | "amber" | "red" | "dark") {
     "inline-flex min-h-11 items-center justify-center rounded-full px-5 py-3 text-sm font-bold",
     "transition duration-150 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]",
-    "disabled:cursor-not-allowed disabled:translate-y-0 disabled:scale-100 disabled:bg-white/10 disabled:text-text-muted",
+    "disabled:pointer-events-none disabled:cursor-not-allowed disabled:translate-y-0 disabled:scale-100 disabled:bg-white/10 disabled:text-text-muted disabled:opacity-55 disabled:shadow-none",
     toneClass,
   ].join(" ");
 }
@@ -867,7 +867,7 @@ export default function AdminCampaignDraft({
               type="button"
               onClick={startAnotherEmail}
               disabled={isBusy}
-              className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-8 items-center justify-center rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition duration-150 ease-out hover:-translate-y-0.5 hover:border-accent/60 hover:text-accent active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117] disabled:pointer-events-none disabled:cursor-not-allowed disabled:translate-y-0 disabled:scale-100 disabled:border-white/10 disabled:text-text-muted disabled:opacity-55"
             >
               New email
             </button>
