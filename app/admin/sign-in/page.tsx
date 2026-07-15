@@ -84,47 +84,32 @@ export default async function AdminSignInPage({
               </div>
             )}
 
-            <Link
-              href="/"
-              className="mt-5 inline-flex min-h-10 items-center justify-center rounded-full border border-white/10 px-4 py-2 text-sm font-semibold text-text-secondary transition duration-150 ease-out hover:-translate-y-0.5 hover:border-accent/50 hover:text-accent active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]"
-            >
-              Return to website
-            </Link>
           </div>
 
           <aside className="rounded-[8px] border border-white/10 bg-[#080D12] p-8 shadow-2xl shadow-black/20">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-              Workspace
+              Public website
             </p>
             <h2 className="mt-2 font-headline text-3xl font-bold">
-              Keep beta updates organized
+              Looking for SuppVis?
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
-              A focused place for writing SuppVis beta emails, checking the
-              final preview, and reviewing delivery progress after a send.
+              If you were trying to visit the SuppVis website, join the beta,
+              or read about the product, use the link below to return to the
+              public site.
             </p>
 
-            <div className="mt-6 space-y-3">
-              {[
-                ["Write", "Draft one update at a time with structured fields."],
-                ["Review", "Preview the branded email before it leaves the team."],
-                ["Send", "Start subscriber delivery only after the full checklist."],
-              ].map(([label, body]) => (
-                <div
-                  key={label}
-                  className="flex gap-3 border-t border-white/10 pt-3 first:border-t-0 first:pt-0"
-                >
-                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-accent shadow-[0_0_16px_rgba(34,211,186,0.45)]" />
-                  <div>
-                    <p className="text-sm font-bold text-text-primary">
-                      {label}
-                    </p>
-                    <p className="mt-1 text-sm leading-5 text-text-secondary">
-                      {body}
-                    </p>
-                  </div>
-                </div>
-              ))}
+            <div className="mt-6 rounded-[8px] border border-accent/20 bg-accent/10 p-4">
+              <p className="text-sm leading-6 text-text-secondary">
+                This page is for a small administrative workflow. If that is
+                not what you need, head back to the main SuppVis experience.
+              </p>
+              <Link
+                href="/"
+                className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full bg-accent px-5 py-3 text-sm font-bold text-[#03100E] transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-accent-hover active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080D12]"
+              >
+                Return to website
+              </Link>
             </div>
           </aside>
         </section>
