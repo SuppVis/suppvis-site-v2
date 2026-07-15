@@ -50,29 +50,29 @@ export default async function AdminSignInPage({
 
   return (
     <main className="min-h-screen bg-bg-primary px-5 py-10 text-text-primary">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-3xl items-center">
+      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-2xl items-center">
         <section className="w-full space-y-4">
-          <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-8 shadow-2xl shadow-black/30">
+          <div className="mx-auto w-full max-w-xl rounded-[8px] border border-white/10 bg-[#0D1117] p-6 shadow-2xl shadow-black/30 sm:p-7">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
                   SuppVis
                 </p>
-                <h1 className="mt-2 font-headline text-4xl font-extrabold">
+                <h1 className="mt-2 font-headline text-3xl font-extrabold sm:text-4xl">
                   Admin
                 </h1>
                 <p className="mt-3 text-sm text-text-secondary">
                   Authorized access only.
                 </p>
-                <p className="mt-4 max-w-xl text-sm leading-6 text-text-secondary">
-                  Continue only if you are here to work on SuppVis team
-                  workflows. Otherwise, return to the public website below.
+                <p className="mt-4 max-w-md text-sm leading-6 text-text-secondary">
+                  Continue only if you are here for SuppVis team workflows.
+                  Otherwise, return to the public website below.
                 </p>
               </div>
               <img
                 src="/favicon.svg"
                 alt=""
-                className="h-14 w-14 rounded-full border border-accent/30 bg-accent/10 p-1 shadow-[0_0_28px_rgba(34,211,186,0.18)]"
+                className="h-12 w-12 rounded-full border border-accent/30 bg-accent/10 p-1 shadow-[0_0_28px_rgba(34,211,186,0.18)] sm:h-14 sm:w-14"
               />
             </div>
 
@@ -89,7 +89,7 @@ export default async function AdminSignInPage({
             )}
           </div>
 
-          <aside className="ml-auto w-full max-w-2xl rounded-[8px] border border-white/10 bg-[#080D12] p-6 shadow-2xl shadow-black/20">
+          <aside className="mx-auto w-full rounded-[8px] border border-white/10 bg-[#080D12] p-6 shadow-2xl shadow-black/20 sm:p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
               Public website
             </p>
