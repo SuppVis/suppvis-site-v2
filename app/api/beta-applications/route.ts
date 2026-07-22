@@ -21,6 +21,7 @@ import {
   saveBetaApplication,
   saveEmailSubscriber,
   saveSmsSubscriber,
+  updateBetaApplicationSmsContact,
 } from "@/app/lib/server/persistence";
 import {
   enforceRateLimit,
@@ -94,6 +95,7 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
 }
 
 async function sendBetaWelcomeSmsIfEnabled(input: {
+  firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null;
 }) {
@@ -103,6 +105,7 @@ async function sendBetaWelcomeSmsIfEnabled(input: {
 
   try {
     await sendWelcomeSms({
+      firstName: input.firstName,
       shouldSendWelcomeSms: input.shouldSendWelcomeSms,
       subscriber: input.subscriber,
     });
@@ -174,6 +177,24 @@ export async function POST(request: NextRequest) {
       created_at: now,
       updated_at: now,
     });
+    let betaSmsContactUpdated = false;
+
+    if (!betaCreated && phoneRaw && phoneE164) {
+      const betaSmsContactResult = await updateBetaApplicationSmsContact({
+        id: betaId,
+        phone_raw: phoneRaw,
+        phone_e164: phoneE164,
+        sms_opt_in: hasSmsConsent,
+        legacy_sms_consent: submission.smsOptIn,
+        sms_informational_consent: smsInformationalConsent,
+        sms_marketing_consent: smsMarketingConsent,
+        sms_consent_version: SMS_CONSENT_VERSION,
+        source_page: submission.sourcePage,
+        updated_at: now,
+      });
+
+      betaSmsContactUpdated = betaSmsContactResult.wrote;
+    }
 
     const emailResubscribeResult = await markEmailResubscribeIfUnsubscribed({
       id: emailSubscriberId,
@@ -236,7 +257,14 @@ export async function POST(request: NextRequest) {
     });
 
     await sendBetaWelcomeSmsIfEnabled({
-      shouldSendWelcomeSms: betaCreated,
+      firstName,
+      shouldSendWelcomeSms:
+        betaCreated ||
+        Boolean(
+          betaSmsContactUpdated &&
+            smsSubscriber &&
+            !smsSubscriber.welcome_sms_message_sid,
+        ),
       subscriber: smsSubscriber,
     });
 
@@ -250,6 +278,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (!betaCreated) {
+      if (betaSmsContactUpdated) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          phoneUpdated: true,
+          smsUpdated: hasSmsConsent,
+          message: hasSmsConsent
+            ? "Your phone number is saved for SuppVis beta text updates."
+            : "Your phone number is saved on your SuppVis beta signup.",
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         duplicate: true,

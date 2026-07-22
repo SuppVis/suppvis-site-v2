@@ -157,6 +157,10 @@ export default function WaitlistClose() {
       setSuccessSupport(
         result?.resubscribed
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
+          : result?.phoneUpdated
+            ? result?.smsUpdated
+              ? "We'll only text you about SuppVis beta access and account updates. Reply STOP anytime."
+              : "SMS consent stays off unless you check the text-message box."
           : result?.duplicate
             ? "You do not need to submit again."
             : "If you opted into texts, we'll only message you about your SuppVis beta access and account updates.",

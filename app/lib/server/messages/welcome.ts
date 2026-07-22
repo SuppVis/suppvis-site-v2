@@ -31,11 +31,19 @@ export const WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER =
   "You're receiving this because you joined the SuppVis beta waitlist. You can unsubscribe at any time.";
 
 export const SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE =
-  "SuppVis: You're opted in to recurring beta access and account-related texts, including waitlist status, onboarding, service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.";
+  `SuppVis: Welcome to the beta, {{first_name}}! Your account is ready. Open the app to complete onboarding and build your personalized supplement fingerprint: ${TESTFLIGHT_BETA_URL} Reply STOP to opt out or HELP for help.`;
 
-export function getSmsConfirmationTemplate(category: SmsConsentCategory) {
+export function getSmsConfirmationTemplate(
+  category: SmsConsentCategory,
+  input: { firstName?: string } = {},
+) {
   void category;
-  return SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE;
+  const firstName = normalizeFirstName(input.firstName || "");
+
+  return SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE.replace(
+    "{{first_name}}",
+    firstName,
+  );
 }
 
 export const WELCOME_EMAIL_ENABLED_ENV = "WELCOME_EMAIL_ENABLED";

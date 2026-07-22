@@ -342,9 +342,9 @@ SMS beta/account consent checkbox copy:
 
 Marketing/news SMS is intentionally not part of the current beta SMS campaign. Add a separate public consent flow and campaign later before sending SuppVis news, promotional offers, discounts, sales messages, or broader marketing updates by SMS.
 
-Prepared SMS confirmation copy:
+Prepared SMS welcome copy:
 
-- Beta/account confirmation: `SuppVis: You're opted in to recurring beta access and account-related texts, including waitlist status, onboarding, service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
+- Beta/account welcome: `SuppVis: Welcome to the beta, [FirstName]! Your account is ready. Open the app to complete onboarding and build your personalized supplement fingerprint: https://testflight.apple.com/join/nTASgewZ Reply STOP to opt out or HELP for help.`
 
 Twilio campaign notes:
 

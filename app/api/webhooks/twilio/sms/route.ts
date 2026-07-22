@@ -11,6 +11,7 @@ import {
 import {
   getSmsKeyword,
   isTwilioSignatureRequired,
+  SMS_HELP_KEYWORDS,
   SMS_START_KEYWORDS,
   SMS_STOP_KEYWORDS,
   validateTwilioSignature,
@@ -102,6 +103,14 @@ export async function POST(request: NextRequest) {
         phone_number_e164: phoneE164,
         keyword,
         now,
+      });
+
+      return twimlResponse();
+    }
+
+    if (SMS_HELP_KEYWORDS.has(keyword)) {
+      console.info("[twilio] sms help keyword received", {
+        subscriberId,
       });
 
       return twimlResponse();

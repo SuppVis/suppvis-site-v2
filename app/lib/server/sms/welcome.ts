@@ -83,6 +83,7 @@ function isValidE164(phone: string | undefined) {
 }
 
 export async function sendWelcomeSms(input: {
+  firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: SmsSubscriber | null | undefined;
 }): Promise<WelcomeSmsSendResult> {
@@ -196,7 +197,9 @@ export async function sendWelcomeSms(input: {
       subscriberId: input.subscriber.id,
     });
     const sendResult = await sendTwilioSms({
-      body: getSmsConfirmationTemplate(consentCategory),
+      body: getSmsConfirmationTemplate(consentCategory, {
+        firstName: input.firstName,
+      }),
       statusCallbackUrl,
       to: input.subscriber.phone_number_e164,
     });

@@ -622,6 +622,40 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
   return result.wrote;
 }
 
+export async function updateBetaApplicationSmsContact(input: {
+  id: string;
+  phone_raw: string;
+  phone_e164: string;
+  sms_opt_in: boolean;
+  legacy_sms_consent?: boolean;
+  sms_informational_consent: boolean;
+  sms_marketing_consent: boolean;
+  sms_consent_version: string;
+  source_page: string;
+  updated_at: string;
+}) {
+  return updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.betaApplications,
+    key: { id: input.id },
+    operation: "update_beta_application_sms_contact",
+    set: {
+      phone_raw: input.phone_raw,
+      phone_e164: input.phone_e164,
+      sms_opt_in: input.sms_opt_in,
+      legacy_sms_consent: input.legacy_sms_consent,
+      sms_informational_consent: input.sms_informational_consent,
+      sms_marketing_consent: input.sms_marketing_consent,
+      sms_consent_version: input.sms_consent_version,
+      source_page: input.source_page,
+      updated_at: input.updated_at,
+    },
+    conditionExpression: "attribute_exists(#id)",
+    conditionAttributeNames: {
+      "#id": "id",
+    },
+  });
+}
+
 export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
   const result = await upsertDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,

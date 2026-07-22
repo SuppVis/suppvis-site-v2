@@ -5,6 +5,8 @@ type TwilioParams = Record<string, string>;
 export const SMS_STOP_KEYWORDS = new Set([
   "STOP",
   "STOPALL",
+  "OPTOUT",
+  "REVOKE",
   "UNSUBSCRIBE",
   "CANCEL",
   "END",
@@ -12,6 +14,7 @@ export const SMS_STOP_KEYWORDS = new Set([
 ]);
 
 export const SMS_START_KEYWORDS = new Set(["START", "UNSTOP"]);
+export const SMS_HELP_KEYWORDS = new Set(["HELP", "INFO"]);
 
 export function getSmsKeyword(body: string) {
   return body.trim().split(/\s+/)[0]?.toUpperCase() || "";
