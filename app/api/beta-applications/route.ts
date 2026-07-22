@@ -51,6 +51,7 @@ function logWelcomeEmailResult(input: {
 }
 
 async function sendBetaWelcomeEmailIfEnabled(input: {
+  includeSmsOptInPrompt?: boolean;
   shouldSendWelcomeEmail: boolean;
   sendReason: "new_beta_application" | "email_resubscribed";
   subscriber: Awaited<ReturnType<typeof saveEmailSubscriber>>;
@@ -79,6 +80,7 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
     const result = await sendEmail({
       subscriber: input.subscriber,
       firstName: input.firstName,
+      includeSmsOptInPrompt: input.includeSmsOptInPrompt,
     });
     const resultReason =
       "reason" in result && result.reason ? result.reason : input.sendReason;
@@ -248,6 +250,7 @@ export async function POST(request: NextRequest) {
     }
 
     await sendBetaWelcomeEmailIfEnabled({
+      includeSmsOptInPrompt: betaCreated && !phoneE164,
       shouldSendWelcomeEmail: betaCreated || emailWasResubscribed,
       sendReason: emailWasResubscribed
         ? "email_resubscribed"

@@ -42,6 +42,7 @@ type EmailSubscriber = {
 type SubscriberEmailInput = {
   subscriber: EmailSubscriber | null | undefined;
   firstName?: string;
+  includeSmsOptInPrompt?: boolean;
 };
 
 type EmailContent = {
@@ -403,11 +404,14 @@ export async function sendWelcomeEmail(
       html: buildWelcomeEmailHtml({
         appBaseUrl,
         firstName: input.firstName || "there",
+        includeSmsOptInPrompt: input.includeSmsOptInPrompt,
         unsubscribeUrl,
       }),
       subject: WELCOME_EMAIL_SUBJECT,
       text: buildWelcomeEmailText({
+        appBaseUrl,
         firstName: input.firstName || "there",
+        includeSmsOptInPrompt: input.includeSmsOptInPrompt,
         unsubscribeUrl,
       }),
     }),

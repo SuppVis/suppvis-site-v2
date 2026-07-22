@@ -55,6 +55,7 @@ export const WELCOME_SMS_ENABLED_ENV = "WELCOME_SMS_ENABLED";
 
 type WelcomeTemplateInput = {
   firstName: string;
+  includeSmsOptInPrompt?: boolean;
   unsubscribeUrl?: string;
   appBaseUrl?: string;
 };
@@ -138,10 +139,6 @@ function buttonHtml(href: string, label: string) {
 
 function rawLinkHtml(href: string) {
   return `<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(href)}</p>`;
-}
-
-function websiteUrl(appBaseUrl?: string) {
-  return buildPublicAssetUrl("/", appBaseUrl);
 }
 
 function waitlistUrl(appBaseUrl?: string) {
@@ -239,12 +236,39 @@ function unsubscribeFooterHtml(unsubscribeUrl: string) {
             </tr>`;
 }
 
+function smsOptInPromptText(appBaseUrl?: string) {
+  const signupUrl = waitlistUrl(appBaseUrl);
+
+  return `Want beta text updates too?
+
+You can add your phone number on SuppVis to receive beta access instructions, onboarding updates, and account-related texts. Use the same email address you used for this signup.
+
+Add your phone number:
+${signupUrl}`;
+}
+
+function smsOptInPromptHtml(appBaseUrl?: string) {
+  const signupUrl = waitlistUrl(appBaseUrl);
+
+  return `<div style="margin:26px 0 6px 0;padding:22px;border:1px solid rgba(20,184,166,0.28);border-radius:16px;background:rgba(20,184,166,0.08);">
+                  <p style="margin:0 0 8px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">Optional beta texts</p>
+                  <p style="margin:0 0 14px 0;color:#D9E2EA;font-size:16px;line-height:1.55;font-weight:700;">Want beta text updates too?</p>
+                  <p style="margin:0 0 18px 0;color:#9BAFBF;font-size:15px;line-height:1.6;">Add your phone number to receive SuppVis beta access instructions, onboarding updates, and account-related texts. Use the same email address you used for this signup.</p>
+                  ${buttonHtml(signupUrl, "Add phone number")}
+                </div>`;
+}
+
 export function buildWelcomeEmailText({
+  appBaseUrl,
   firstName,
+  includeSmsOptInPrompt = false,
   unsubscribeUrl = "{{unsubscribe_url}}",
 }: WelcomeTemplateInput) {
   const name = normalizeFirstName(firstName);
   const feedback = feedbackEmail();
+  const smsPrompt = includeSmsOptInPrompt
+    ? `\n\n---\n\n${smsOptInPromptText(appBaseUrl)}`
+    : "";
 
   return `Hi ${name},
 
@@ -269,16 +293,17 @@ We're genuinely glad you're here.
 
 Tanner and Connor
 
-SuppVis
+SuppVis${smsPrompt}
 
 ${WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER}
 Unsubscribe: ${unsubscribeUrl}`;
 }
 
 export function buildWelcomeEmailHtml({
-  firstName,
-  unsubscribeUrl = "{{unsubscribe_url}}",
   appBaseUrl,
+  firstName,
+  includeSmsOptInPrompt = false,
+  unsubscribeUrl = "{{unsubscribe_url}}",
 }: WelcomeTemplateInput) {
   const name = normalizeFirstName(firstName);
   const unsubscribeHref = unsubscribeUrl;
@@ -308,6 +333,7 @@ export function buildWelcomeEmailHtml({
     ),
     paragraphHtml("We're genuinely glad you're here."),
     `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Tanner and Connor<br />SuppVis</p>`,
+    includeSmsOptInPrompt ? smsOptInPromptHtml(appBaseUrl) : "",
   ].join("\n                ");
 
   return buildBrandedEmailHtml({
