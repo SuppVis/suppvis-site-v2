@@ -31,7 +31,9 @@ export const WELCOME_EMAIL_UNSUBSCRIBE_PLACEHOLDER =
   "You're receiving this because you joined the SuppVis beta waitlist. You can unsubscribe at any time.";
 
 export const SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE =
-  `SuppVis: Welcome to the beta, {{first_name}}! Your account is ready. Open the app to complete onboarding and build your personalized supplement fingerprint: ${TESTFLIGHT_BETA_URL} Reply STOP to opt out or HELP for help.`;
+  `SuppVis: Welcome to the beta, {{first_name}}! Your account is ready. Open the app to complete onboarding and build your personalized supplement fingerprint: ${TESTFLIGHT_BETA_URL}
+
+Reply HELP for help or STOP to opt out. Msg & data rates may apply.`;
 
 export function getSmsConfirmationTemplate(
   category: SmsConsentCategory,
