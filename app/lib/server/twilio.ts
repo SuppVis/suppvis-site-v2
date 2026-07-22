@@ -4,6 +4,7 @@ type TwilioParams = Record<string, string>;
 
 export const SMS_STOP_KEYWORDS = new Set([
   "STOP",
+  "STOPALL",
   "UNSUBSCRIBE",
   "CANCEL",
   "END",
