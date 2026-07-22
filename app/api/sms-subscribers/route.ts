@@ -68,8 +68,8 @@ export async function POST(request: NextRequest) {
       sms_informational_consent_at: submission.smsInformationalConsent
         ? now
         : null,
-      sms_marketing_consent: submission.smsMarketingConsent,
-      sms_marketing_consent_at: submission.smsMarketingConsent ? now : null,
+      sms_marketing_consent: false,
+      sms_marketing_consent_at: null,
       sms_consent_timestamp: now,
       sms_consent_source: submission.consentSource,
       sms_consent_version: SMS_CONSENT_VERSION,

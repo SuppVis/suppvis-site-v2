@@ -190,12 +190,7 @@ export async function sendWelcomeSms(input: {
   }
 
   try {
-    const messageType =
-      consentCategory === "informational"
-        ? "sms_informational_confirmation"
-        : consentCategory === "marketing"
-          ? "sms_marketing_confirmation"
-          : "sms_mixed_confirmation";
+    const messageType = "sms_informational_confirmation";
     const statusCallbackUrl = buildSmsStatusCallbackUrl({
       messageType,
       subscriberId: input.subscriber.id,

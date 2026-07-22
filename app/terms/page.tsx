@@ -18,7 +18,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-text-muted text-sm mb-12">
-            Effective date: July 13, 2026
+            Effective date: July 21, 2026
           </p>
 
           <div className="space-y-10 text-[15px] text-text-secondary leading-[1.75]">
@@ -652,34 +652,26 @@ export default function TermsPage() {
                   <strong className="text-text-primary">
                     Program Description.
                   </strong>{" "}
-                  SuppVis offers two separate categories of recurring SMS
-                  messaging:
+                  SuppVis offers a recurring SMS program for customer care and
+                  account-related messages about the SuppVis beta program and
+                  your use of the platform.
                 </p>
                 <p>
                   <strong className="text-text-primary">
-                    Informational messages:
+                    Beta and account messages:
                   </strong>{" "}
-                  beta waitlist status updates, beta access notifications,
-                  account or service notifications, and customer support
-                  updates.
+                  Messages may include beta waitlist status updates, beta access
+                  instructions, onboarding assistance, account status updates,
+                  requested support responses, trial status notifications, and
+                  service-related notifications.
                 </p>
                 <p>
                   <strong className="text-text-primary">
-                    Marketing and promotional messages:
+                    Separate SMS Consent.
                   </strong>{" "}
-                  product and feature announcements, SuppVis news, beta program
-                  invitations, special offers, promotions, and related
-                  information about SuppVis services.
-                </p>
-                <p>
-                  <strong className="text-text-primary">
-                    Separate Consent.
-                  </strong>{" "}
-                  Consent for informational SMS messages and consent for
-                  marketing and promotional SMS messages are collected
-                  separately. Each category has its own optional, unchecked
-                  consent checkbox. You may consent to either category, both
-                  categories, or neither category.
+                  SMS consent is collected through its own optional, unchecked
+                  consent checkbox and is separate from acceptance of these
+                  Terms or the Privacy Policy.
                 </p>
                 <p>
                   <strong className="text-text-primary">

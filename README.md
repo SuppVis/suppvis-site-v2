@@ -305,7 +305,7 @@ Recommended setup:
 
 - Create or use a Twilio account owned by SuppVis.
 - Create a Messaging Service for SuppVis beta/waitlist messages.
-- Register the SMS program as `LOW VOLUME MIXED` if Twilio offers it for the SuppVis Brand; otherwise use `MIXED`. The public form collects informational and marketing consent separately.
+- Register the current beta SMS program as `CUSTOMER_CARE` or the closest Twilio customer-care/account-notification use case available. The public form currently collects one optional, unchecked SMS consent for beta access, onboarding, account status, requested support, and service-related notifications only. Do not include marketing, promotional offers, general company news, discounts, or sales messages in this campaign.
 - Complete required brand/campaign or toll-free verification before real sends.
 - Configure the inbound message webhook on the Messaging Service:
   - URL: `https://www.suppvis.health/api/webhooks/twilio/sms`
@@ -330,25 +330,21 @@ Compliance information likely needed:
 
 - Legal business name and contact details.
 - Website URL: `https://www.suppvis.health`.
-- Message use case: mixed recurring informational and marketing messages for users who explicitly opt into the matching SMS category.
-- Sample messages for both informational and marketing categories, including STOP/HELP language.
-- Opt-in flow description: website beta form with optional phone field and two separate optional SMS consent checkboxes, both unchecked by default.
+- Message use case: recurring customer care and account-related beta messages for users who explicitly opt in.
+- Sample messages for beta access, onboarding, account status, requested support, and service-related notifications, including STOP/HELP language.
+- Opt-in flow description: website beta form with optional phone field and one separate optional SMS consent checkbox, unchecked by default.
 - Opt-out flow description: users can reply STOP; app syncs opt-out state into DynamoDB.
 - Privacy policy and terms URLs.
 
-SMS informational consent checkbox copy:
+SMS beta/account consent checkbox copy:
 
-> I agree to receive recurring informational text messages from SuppVis about my beta waitlist status, beta access, account or service notifications, and customer support updates. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
+> I agree to receive recurring customer care and account-related text messages from SuppVis about my beta waitlist status, beta access instructions, onboarding assistance, account status updates, requested support responses, and service-related notifications. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is optional and is not required to join the SuppVis beta waitlist, create an account, or use SuppVis services. See our Terms of Service and Privacy Policy.
 
-SMS marketing consent checkbox copy:
-
-> I agree to receive recurring marketing and promotional text messages from SuppVis about product and feature announcements, SuppVis news, beta program invitations, special offers, and promotions. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not required to join the SuppVis beta waitlist or use SuppVis services. See our Terms of Service and Privacy Policy.
+Marketing/news SMS is intentionally not part of the current beta SMS campaign. Add a separate public consent flow and campaign later before sending SuppVis news, promotional offers, discounts, sales messages, or broader marketing updates by SMS.
 
 Prepared SMS confirmation copy:
 
-- Informational only: `SuppVis: You're subscribed to recurring informational texts about beta waitlist status, beta access, account/service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
-- Marketing only: `SuppVis: You're subscribed to recurring marketing texts about product and feature announcements, SuppVis news, beta invitations, special offers, and promotions. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
-- Both selected: `SuppVis: You're subscribed to recurring informational and marketing texts from SuppVis. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
+- Beta/account confirmation: `SuppVis: You're opted in to recurring beta access and account-related texts, including waitlist status, onboarding, service notices, and support updates. Msg frequency varies. Msg & data rates may apply. Reply HELP for help or STOP to opt out.`
 
 Twilio campaign notes:
 
@@ -363,11 +359,11 @@ STOP/START behavior:
 
 - Twilio Messaging Service or Advanced Opt-Out can block provider-level sends to opted-out numbers.
 - The app webhook also syncs STOP keywords into DynamoDB with `status = unsubscribed`, `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`.
-- START/UNSTOP can clear the local global opt-out state as `pending_verification`, but it does not invent informational or marketing consent categories.
-- Explicit website SMS consent can resubscribe a previously opted-out phone number for the specific categories checked.
+- START/UNSTOP can clear the local global opt-out state as `pending_verification`, but it does not invent consent without an existing subscriber record.
+- Explicit website SMS consent can resubscribe a previously opted-out phone number for the beta/account SMS program.
 - Future sending code must suppress any SMS subscriber with `status = unsubscribed`, `status = opt_out_provider`, or `sms_global_opt_out = true`.
-- Informational sends must only select records with `sms_informational_consent = true`.
-- Marketing sends must only select records with `sms_marketing_consent = true`.
+- Beta/account sends must only select records with `sms_informational_consent = true`.
+- Do not use `sms_marketing_consent` for the current beta SMS campaign.
 
 Do not do yet:
 

@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       ? normalizePhoneToE164(phoneRaw) || undefined
       : undefined;
     const smsInformationalConsent = submission.smsInformationalConsent;
-    const smsMarketingConsent = submission.smsMarketingConsent;
+    const smsMarketingConsent = false;
     const hasSmsConsent = smsInformationalConsent || smsMarketingConsent;
     const betaId = stableId("beta", normalizedEmail);
     const emailSubscriberId = stableId("email", normalizedEmail);

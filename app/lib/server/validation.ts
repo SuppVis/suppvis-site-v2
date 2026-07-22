@@ -113,11 +113,11 @@ export const smsSubscriberSchema = z
       });
     }
 
-    if (!data.smsInformationalConsent && !data.smsMarketingConsent) {
+    if (!data.smsInformationalConsent) {
       ctx.addIssue({
         code: "custom",
         path: ["smsInformationalConsent"],
-        message: "Select at least one SMS category.",
+        message: "Select beta SMS consent.",
       });
     }
   });

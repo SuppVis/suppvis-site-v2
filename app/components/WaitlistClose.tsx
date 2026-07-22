@@ -5,7 +5,6 @@ import { useScrollReveal } from "../hooks/useScrollReveal";
 import {
   SMS_CONSENT_VERSION,
   SMS_INFORMATIONAL_CONSENT_COPY,
-  SMS_MARKETING_CONSENT_COPY,
 } from "../lib/smsConsent";
 
 type FormValues = {
@@ -14,7 +13,6 @@ type FormValues = {
   email: string;
   phone: string;
   smsInformationalConsent: boolean;
-  smsMarketingConsent: boolean;
 };
 
 const initialFormValues: FormValues = {
@@ -23,7 +21,6 @@ const initialFormValues: FormValues = {
   email: "",
   phone: "",
   smsInformationalConsent: false,
-  smsMarketingConsent: false,
 };
 
 function isValidEmail(email: string) {
@@ -55,7 +52,7 @@ export default function WaitlistClose() {
     "You’re in. We’ll send beta testing access details soon.",
   );
   const [successSupport, setSuccessSupport] = useState(
-    "If you opted into texts, we'll only message you for the SMS categories you selected.",
+    "If you opted into texts, we'll only message you about your SuppVis beta access and account updates.",
   );
   const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
@@ -65,8 +62,7 @@ export default function WaitlistClose() {
     Boolean(formValues.firstName.trim()) &&
     Boolean(formValues.lastName.trim()) &&
     isValidEmail(formValues.email) &&
-    (!(formValues.smsInformationalConsent || formValues.smsMarketingConsent) ||
-      hasPhone);
+    (!formValues.smsInformationalConsent || hasPhone);
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
@@ -78,7 +74,6 @@ export default function WaitlistClose() {
           ...current,
           phone: nextValue,
           smsInformationalConsent: false,
-          smsMarketingConsent: false,
         };
       }
 
@@ -112,9 +107,7 @@ export default function WaitlistClose() {
     }
 
     if (
-      (formValues.smsInformationalConsent ||
-        formValues.smsMarketingConsent) &&
-      !phone
+      formValues.smsInformationalConsent && !phone
     ) {
       setError("Enter a phone number to opt into texts.");
       return;
@@ -135,7 +128,7 @@ export default function WaitlistClose() {
           email,
           phone,
           smsInformationalConsent: formValues.smsInformationalConsent,
-          smsMarketingConsent: formValues.smsMarketingConsent,
+          smsMarketingConsent: false,
           smsConsentVersion: SMS_CONSENT_VERSION,
           sourcePage: `${window.location.pathname}${window.location.hash || "#waitlist"}`,
           botField: data.get("botField"),
@@ -166,7 +159,7 @@ export default function WaitlistClose() {
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
           : result?.duplicate
             ? "You do not need to submit again."
-            : "If you opted into texts, we'll only message you for the SMS categories you selected.",
+            : "If you opted into texts, we'll only message you about your SuppVis beta access and account updates.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));
       setSubmitted(true);
@@ -301,13 +294,6 @@ export default function WaitlistClose() {
                 checked={formValues.smsInformationalConsent}
                 onChange={handleInputChange}
                 label={SMS_INFORMATIONAL_CONSENT_COPY}
-              />
-              <SmsConsentCheckbox
-                id="smsMarketingConsent"
-                name="smsMarketingConsent"
-                checked={formValues.smsMarketingConsent}
-                onChange={handleInputChange}
-                label={SMS_MARKETING_CONSENT_COPY}
               />
             </div>
             {error && (
