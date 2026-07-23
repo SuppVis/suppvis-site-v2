@@ -327,6 +327,11 @@ export type EmailCampaignRecord = {
   sms_saved_at?: string | null;
   sms_tested_at?: string | null;
   sms_test_recipient_id?: string | null;
+  sms_test_message_sid?: string | null;
+  sms_test_send_reserved_at?: string | null;
+  sms_test_send_reserved_by?: string | null;
+  last_sms_test_send_failed_at?: string | null;
+  last_sms_test_send_error_code?: string | null;
   sms_character_count?: number;
   sms_segment_count?: number;
   sms_encoding?: "GSM-7" | "Unicode";
@@ -406,6 +411,8 @@ export type EmailCampaignSummary = Pick<
   | "sms_enabled"
   | "sms_saved_at"
   | "sms_tested_at"
+  | "sms_test_recipient_id"
+  | "sms_test_message_sid"
   | "sms_character_count"
   | "sms_segment_count"
   | "sms_encoding"
@@ -556,6 +563,16 @@ function emailCampaignFromAttributes(
     sms_tested_at: nullableStringAttribute(attributes?.sms_tested_at) || null,
     sms_test_recipient_id:
       nullableStringAttribute(attributes?.sms_test_recipient_id) || null,
+    sms_test_message_sid:
+      nullableStringAttribute(attributes?.sms_test_message_sid) || null,
+    sms_test_send_reserved_at:
+      nullableStringAttribute(attributes?.sms_test_send_reserved_at) || null,
+    sms_test_send_reserved_by:
+      nullableStringAttribute(attributes?.sms_test_send_reserved_by) || null,
+    last_sms_test_send_failed_at:
+      nullableStringAttribute(attributes?.last_sms_test_send_failed_at) || null,
+    last_sms_test_send_error_code:
+      nullableStringAttribute(attributes?.last_sms_test_send_error_code) || null,
     sms_character_count: numberAttribute(attributes?.sms_character_count) || 0,
     sms_segment_count: numberAttribute(attributes?.sms_segment_count) || 0,
     sms_encoding:
@@ -642,6 +659,8 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     sms_enabled: record.sms_enabled,
     sms_saved_at: record.sms_saved_at,
     sms_tested_at: record.sms_tested_at,
+    sms_test_recipient_id: record.sms_test_recipient_id,
+    sms_test_message_sid: record.sms_test_message_sid,
     sms_character_count: record.sms_character_count,
     sms_segment_count: record.sms_segment_count,
     sms_encoding: record.sms_encoding,
@@ -1303,6 +1322,11 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       sms_saved_at: record.sms_saved_at || null,
       sms_tested_at: record.sms_tested_at || null,
       sms_test_recipient_id: record.sms_test_recipient_id || null,
+      sms_test_message_sid: record.sms_test_message_sid || null,
+      sms_test_send_reserved_at: record.sms_test_send_reserved_at || null,
+      sms_test_send_reserved_by: record.sms_test_send_reserved_by || null,
+      last_sms_test_send_failed_at: record.last_sms_test_send_failed_at || null,
+      last_sms_test_send_error_code: record.last_sms_test_send_error_code || null,
       sms_character_count: record.sms_character_count || 0,
       sms_segment_count: record.sms_segment_count || 0,
       sms_encoding: record.sms_encoding || "GSM-7",
@@ -1421,7 +1445,7 @@ export async function setEmailCampaignPinned(input: {
       version: nextVersion,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt)",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull)",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
@@ -1429,6 +1453,7 @@ export async function setEmailCampaignPinned(input: {
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
     },
   });
 
@@ -1636,6 +1661,131 @@ export async function markEmailCampaignTestFailed(input: {
     : null;
 }
 
+export async function reserveEmailCampaignSmsTest(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  test_recipient_id: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "reserve_email_campaign_sms_test",
+    returnValues: "ALL_NEW",
+    set: {
+      sms_test_send_reserved_at: input.now,
+      sms_test_send_reserved_by: input.updated_by,
+      sms_test_recipient_id: input.test_recipient_id,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignSmsTestSent(input: {
+  expectedVersion: number;
+  id: string;
+  messageSid?: string;
+  now: string;
+  test_recipient_id: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_sms_test_sent",
+    returnValues: "ALL_NEW",
+    set: {
+      sms_tested_at: input.now,
+      sms_test_recipient_id: input.test_recipient_id,
+      sms_test_message_sid: input.messageSid,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignSmsTestFailed(input: {
+  errorCode: string;
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_sms_test_failed",
+    returnValues: "ALL_NEW",
+    set: {
+      last_sms_test_send_failed_at: input.now,
+      last_sms_test_send_error_code: input.errorCode,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
 export async function archiveEmailCampaignDraft(input: {
   expectedVersion: number;
   id: string;
@@ -1656,7 +1806,7 @@ export async function archiveEmailCampaignDraft(input: {
       version: nextVersion,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
@@ -1665,6 +1815,7 @@ export async function archiveEmailCampaignDraft(input: {
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
       ":draft": "draft",
       ":testReady": "test_ready",
       ":tested": "tested",
@@ -1697,7 +1848,7 @@ export async function approveEmailCampaign(input: {
       version: nextVersion,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND #status = :tested",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND #status = :tested",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
@@ -1706,6 +1857,7 @@ export async function approveEmailCampaign(input: {
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
       ":tested": "tested",
     },
   });
@@ -1748,7 +1900,7 @@ export async function markEmailCampaignQueueing(input: {
       skipped_count: 0,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt) AND #status = :approved",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND #status = :approved",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
@@ -1757,6 +1909,7 @@ export async function markEmailCampaignQueueing(input: {
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
       ":approved": "approved",
     },
   });

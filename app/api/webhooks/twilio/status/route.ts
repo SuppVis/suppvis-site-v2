@@ -93,6 +93,17 @@ export async function POST(request: NextRequest) {
       parsed.data.SmsStatus ||
       "unknown"
     ).toLowerCase();
+    const messageType = request.nextUrl.searchParams.get("message_type");
+
+    if (messageType === "admin_campaign_sms_test") {
+      console.info("[twilio] admin sms test status callback received", {
+        messageSid: parsed.data.MessageSid,
+        providerStatus,
+      });
+
+      return emptyResponse();
+    }
+
     const now = new Date().toISOString();
     const result = await recordSmsProviderStatus({
       id: subscriberId,

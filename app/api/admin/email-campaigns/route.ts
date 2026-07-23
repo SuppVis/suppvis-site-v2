@@ -48,6 +48,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     smsDraftVersion: record.sms_draft_version || 0,
     smsSavedAt: record.sms_saved_at || null,
     smsTestedAt: record.sms_tested_at || null,
+    smsTestMessageSid: record.sms_test_message_sid || null,
     smsCharacterCount: record.sms_character_count || 0,
     smsSegmentCount: record.sms_segment_count || 0,
     smsEncoding: record.sms_encoding || "GSM-7",
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest) {
         smsEnabled: draft.sms_enabled || false,
         smsSavedAt: draft.sms_saved_at || null,
         smsTestedAt: draft.sms_tested_at || null,
+        smsTestMessageSid: draft.sms_test_message_sid || null,
         smsCharacterCount: draft.sms_character_count || 0,
         smsSegmentCount: draft.sms_segment_count || 0,
         smsEncoding: draft.sms_encoding || "GSM-7",
@@ -128,9 +130,7 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody(request);
     const submission = createAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
-    const smsPreview = submission.smsEnabled
-      ? renderAdminSmsAnnouncement(submission.smsBody)
-      : null;
+    const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
     const record: EmailCampaignRecord = {
       id: `email_campaign_${randomUUID()}`,
       record_type: "email_campaign",
@@ -150,18 +150,23 @@ export async function POST(request: NextRequest) {
       approved_at: null,
       sent_at: null,
       test_recipient: null,
-      sms_enabled: submission.smsEnabled,
-      sms_body: smsPreview?.editableBody || "",
-      sms_rendered_body: smsPreview?.body || "",
-      sms_draft_version: smsPreview ? 1 : 0,
-      sms_saved_at: smsPreview ? now : null,
+      sms_enabled: true,
+      sms_body: smsPreview.editableBody,
+      sms_rendered_body: smsPreview.body,
+      sms_draft_version: 1,
+      sms_saved_at: now,
       sms_tested_at: null,
       sms_test_recipient_id: null,
-      sms_character_count: smsPreview?.characterCount || 0,
-      sms_segment_count: smsPreview?.segmentCount || 0,
-      sms_encoding: smsPreview?.encoding || "GSM-7",
-      sms_updated_by: smsPreview ? admin.identifier : null,
-      sms_updated_at: smsPreview ? now : null,
+      sms_test_message_sid: null,
+      sms_test_send_reserved_at: null,
+      sms_test_send_reserved_by: null,
+      last_sms_test_send_failed_at: null,
+      last_sms_test_send_error_code: null,
+      sms_character_count: smsPreview.characterCount,
+      sms_segment_count: smsPreview.segmentCount,
+      sms_encoding: smsPreview.encoding,
+      sms_updated_by: admin.identifier,
+      sms_updated_at: now,
       is_pinned: false,
       pinned_at: null,
       pinned_by: null,
@@ -172,7 +177,7 @@ export async function POST(request: NextRequest) {
       action: "draft_created",
       adminIdentifier: admin.identifier,
       campaignId: record.id,
-      status: record.sms_enabled ? "draft email+text" : record.status,
+      status: "draft email+text",
     });
 
     return NextResponse.json({

@@ -172,6 +172,25 @@ const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
 );
 
 const adminCampaignSmsBodySchema = z.string().trim().max(260).optional().default("");
+const defaultAdminCampaignEmailBody =
+  "A new SuppVis beta update is ready. Open TestFlight to install the latest build, then reply with anything that feels confusing, broken, or surprisingly useful.";
+const defaultAdminCampaignSmsBody =
+  "Your beta update is ready. Open TestFlight to install the latest build: https://testflight.apple.com/join/nTASgewZ";
+
+function normalizedPlaceholderCandidate(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function isBlockedAdminPlaceholder(value: string) {
+  const normalized = normalizedPlaceholderCandidate(value);
+
+  return (
+    normalized === normalizedPlaceholderCandidate(defaultAdminCampaignEmailBody) ||
+    normalized === normalizedPlaceholderCandidate(defaultAdminCampaignSmsBody) ||
+    normalized.includes("test. ignore") ||
+    normalized.includes("test ignore")
+  );
+}
 
 function validateAdminSmsBody(
   smsEnabled: boolean,
@@ -220,7 +239,7 @@ export const adminCampaignContentSchema = z
     body: z.string().trim().min(1).max(5000),
     ctaLabel: optionalTrimmedString(64),
     ctaUrl: adminCampaignCtaUrlSchema,
-    smsEnabled: z.boolean().optional().default(false),
+    smsEnabled: z.boolean().optional().default(true),
     smsBody: adminCampaignSmsBodySchema,
   })
   .strict()
@@ -241,15 +260,56 @@ export const adminCampaignContentSchema = z
       });
     }
 
-    validateAdminSmsBody(data.smsEnabled, data.smsBody, ctx);
+    validateAdminSmsBody(true, data.smsBody, ctx);
   });
 
-export const createAdminCampaignSchema = adminCampaignContentSchema;
+function validateAdminCampaignNotPlaceholder(
+  data: z.infer<typeof adminCampaignContentSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (isBlockedAdminPlaceholder(data.subject)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["subject"],
+      message: "Replace the example subject before saving.",
+    });
+  }
+
+  if (isBlockedAdminPlaceholder(data.heading)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["heading"],
+      message: "Replace the example heading before saving.",
+    });
+  }
+
+  if (isBlockedAdminPlaceholder(data.body)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["body"],
+      message: "The email still contains example content. Replace it before saving.",
+    });
+  }
+
+  if (isBlockedAdminPlaceholder(data.smsBody)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["smsBody"],
+      message:
+        "The text message still contains example content. Replace it before saving.",
+    });
+  }
+}
+
+export const createAdminCampaignSchema = adminCampaignContentSchema.superRefine(
+  validateAdminCampaignNotPlaceholder,
+);
 
 export const updateAdminCampaignSchema = adminCampaignContentSchema.extend({
   expectedVersion: z.number().int().min(1).max(1_000_000),
 }).superRefine((data, ctx) => {
   validateAdminSmsBody(true, data.smsBody, ctx);
+  validateAdminCampaignNotPlaceholder(data, ctx);
 });
 
 export const adminCampaignIdSchema = z
@@ -274,6 +334,36 @@ export const adminCampaignTestSendSchema = z.object({}).strict();
 export const adminCampaignVersionSchema = z.object({
   expectedVersion: z.number().int().min(1).max(1_000_000),
 }).strict();
+
+export function normalizeAdminSmsTestPhoneToE164(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  const nationalDigits =
+    digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+
+  if (nationalDigits.length !== 10) {
+    return null;
+  }
+
+  const parsed = parsePhoneNumberFromString(nationalDigits, "US");
+
+  if (!parsed?.isValid() || parsed.country !== "US") {
+    return null;
+  }
+
+  return parsed.nationalNumber.length === 10 ? parsed.number : null;
+}
+
+export const adminCampaignSmsTestSendSchema = adminCampaignVersionSchema.extend({
+  phone: z
+    .string()
+    .trim()
+    .min(1, "Enter your phone number.")
+    .max(40, "Phone number is too long.")
+    .refine(
+      (value) => Boolean(normalizeAdminSmsTestPhoneToE164(value)),
+      "Enter a valid U.S. phone number.",
+    ),
+});
 
 export const adminCampaignPinSchema = adminCampaignVersionSchema.extend({
   pinned: z.boolean(),

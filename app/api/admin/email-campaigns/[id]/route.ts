@@ -52,6 +52,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     smsDraftVersion: record.sms_draft_version || 0,
     smsSavedAt: record.sms_saved_at || null,
     smsTestedAt: record.sms_tested_at || null,
+    smsTestMessageSid: record.sms_test_message_sid || null,
     smsCharacterCount: record.sms_character_count || 0,
     smsSegmentCount: record.sms_segment_count || 0,
     smsEncoding: record.sms_encoding || "GSM-7",

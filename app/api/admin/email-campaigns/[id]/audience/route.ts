@@ -39,6 +39,7 @@ export async function POST(
     }
 
     if (
+      campaign.status !== "tested" &&
       campaign.status !== "approved" &&
       campaign.status !== "queued" &&
       campaign.status !== "sending"
@@ -46,7 +47,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_ready",
-        "Approve this announcement before reviewing recipients.",
+        "Send the admin tests before reviewing recipients.",
       );
     }
 

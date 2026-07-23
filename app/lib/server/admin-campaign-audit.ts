@@ -9,6 +9,8 @@ export type AdminCampaignAuditAction =
   | "sms_preview_generated"
   | "recipient_count_generated"
   | "sms_test_send_blocked"
+  | "sms_test_send_failed"
+  | "sms_test_send_sent"
   | "test_send_blocked"
   | "test_send_failed"
   | "test_send_sent"
