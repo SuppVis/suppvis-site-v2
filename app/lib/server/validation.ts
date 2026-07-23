@@ -355,35 +355,7 @@ export const adminCampaignVersionSchema = z.object({
   expectedVersion: z.number().int().min(1).max(1_000_000),
 }).strict();
 
-export function normalizeAdminSmsTestPhoneToE164(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  const nationalDigits =
-    digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
-
-  if (nationalDigits.length !== 10) {
-    return null;
-  }
-
-  const parsed = parsePhoneNumberFromString(nationalDigits, "US");
-
-  if (!parsed?.isValid() || parsed.country !== "US") {
-    return null;
-  }
-
-  return parsed.nationalNumber.length === 10 ? parsed.number : null;
-}
-
-export const adminCampaignSmsTestSendSchema = adminCampaignVersionSchema.extend({
-  phone: z
-    .string()
-    .trim()
-    .min(1, "Enter your phone number.")
-    .max(40, "Phone number is too long.")
-    .refine(
-      (value) => Boolean(normalizeAdminSmsTestPhoneToE164(value)),
-      "Enter a valid U.S. phone number.",
-    ),
-});
+export const adminCampaignSmsTestSendSchema = adminCampaignVersionSchema;
 
 export const adminCampaignPinSchema = adminCampaignVersionSchema.extend({
   pinned: z.boolean(),

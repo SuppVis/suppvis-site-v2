@@ -59,19 +59,6 @@ export async function POST(
       );
     }
 
-    if (
-      !campaign.sms_enabled ||
-      !campaign.sms_saved_at ||
-      !campaign.sms_body ||
-      !campaign.sms_rendered_body
-    ) {
-      throw new PublicApiError(
-        409,
-        "sms_draft_not_saved",
-        "Save the email and text before sending admin tests.",
-      );
-    }
-
     const adminEmail = adminEmailFromIdentifier(admin.identifier);
 
     if (!areAdminCampaignsEnabled() || !isAdminEmailTestSendEnabled()) {

@@ -6,6 +6,7 @@ import {
   isMicrosoftAuthConfigured,
   maskAdminEmail,
 } from "@/app/lib/server/admin-access";
+import { getAdminSmsTestRecipientPreview } from "@/app/lib/server/sms/admin-test-recipients";
 import AdminCampaignDraft from "./AdminCampaignDraft";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,8 @@ export default async function AdminPage() {
       />
     );
   }
+
+  const smsTestRecipientPreview = getAdminSmsTestRecipientPreview(access.email);
 
   return (
     <main className="min-h-screen bg-bg-primary px-5 py-8 text-text-primary">
@@ -189,9 +192,12 @@ export default async function AdminPage() {
           process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
         }
         smsTestSendEnabled={
+          process.env.ADMIN_EMAIL_CAMPAIGNS_ENABLED === "true" &&
           process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
           process.env.ADMIN_SMS_TEST_SEND_ENABLED === "true"
         }
+        smsTestRecipientConfigError={smsTestRecipientPreview.configError}
+        smsTestRecipientMasked={smsTestRecipientPreview.maskedPhone}
         smsBulkSendEnabled={
           process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
           process.env.ADMIN_SMS_BULK_SEND_ENABLED === "true"

@@ -60,6 +60,9 @@ type CampaignDraft = {
   smsEligibleCount?: number;
   smsExcludedCount?: number;
   smsDuplicateCount?: number;
+  smsTestProviderStatus?: string | null;
+  smsTestRecipientMasked?: string | null;
+  smsTestStatus?: string | null;
   smsTestMessageSid?: string | null;
   isPinned?: boolean;
   pinnedAt?: string | null;
@@ -431,6 +434,8 @@ export default function AdminCampaignDraft({
   smsBulkInfraReady,
   smsBulkSendEnabled,
   smsTestSendEnabled,
+  smsTestRecipientConfigError,
+  smsTestRecipientMasked,
   testSendEnabled,
 }: {
   adminEmail: string;
@@ -439,6 +444,8 @@ export default function AdminCampaignDraft({
   smsBulkInfraReady: boolean;
   smsBulkSendEnabled: boolean;
   smsTestSendEnabled: boolean;
+  smsTestRecipientConfigError: boolean;
+  smsTestRecipientMasked: string | null;
   testSendEnabled: boolean;
 }) {
   const topRef = useRef<HTMLElement | null>(null);
@@ -451,6 +458,7 @@ export default function AdminCampaignDraft({
   const previewRef = useRef<HTMLDivElement | null>(null);
   const smsPreviewRef = useRef<HTMLDivElement | null>(null);
   const continueCueTimeoutRef = useRef<number | null>(null);
+  const newAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
@@ -461,6 +469,7 @@ export default function AdminCampaignDraft({
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
   const [emailTestModalOpen, setEmailTestModalOpen] = useState(false);
   const [emailTestModalConfirmed, setEmailTestModalConfirmed] = useState(false);
+  const [emailPreviewOutdated, setEmailPreviewOutdated] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<keyof FormValues, string>>
   >({});
@@ -473,10 +482,10 @@ export default function AdminCampaignDraft({
   const [previewMode, setPreviewMode] = useState<"html" | "text">("html");
   const [progress, setProgress] = useState<ProgressSummary | null>(null);
   const [smsPreview, setSmsPreview] = useState<SmsPreview | null>(null);
+  const [smsPreviewOutdated, setSmsPreviewOutdated] = useState(false);
   const [smsTestMessageSid, setSmsTestMessageSid] = useState<string | null>(null);
   const [smsTestModalConfirmed, setSmsTestModalConfirmed] = useState(false);
   const [smsTestModalOpen, setSmsTestModalOpen] = useState(false);
-  const [smsTestPhone, setSmsTestPhone] = useState("");
   const [smsTestRecipient, setSmsTestRecipient] = useState<string | null>(null);
   const [startPhrase, setStartPhrase] = useState("");
   const [testSendMessageId, setTestSendMessageId] = useState<string | null>(null);
@@ -550,18 +559,22 @@ export default function AdminCampaignDraft({
     campaign?.smsRenderedBody,
     campaign?.smsSegmentCount,
   ]);
-  const activeSmsPreview = smsPreview || persistedSmsPreview;
+  const activeSmsPreview = smsPreview;
+  const smsTestModalPreview =
+    smsPreview && !smsPreviewOutdated ? smsPreview : persistedSmsPreview;
   const canUseSmsControls = textWorkspaceUnlocked && !isSendStarted;
   const smsProductionSendConnected = false;
   const canRequestEmailTest =
     Boolean(campaign) &&
-    selectedChannelsSaved &&
+    emailSaved &&
     testSendEnabled &&
     !isSendStarted;
   const canRequestSmsTest =
     Boolean(campaign) &&
-    selectedChannelsSaved &&
+    smsSaved &&
     smsTestSendEnabled &&
+    Boolean(smsTestRecipientMasked) &&
+    !smsTestRecipientConfigError &&
     !isSendStarted;
   const smsProductionReady =
     smsBulkSendEnabled && smsBulkInfraReady && smsProductionSendConnected;
@@ -610,9 +623,13 @@ export default function AdminCampaignDraft({
         return;
       }
 
-      target.scrollIntoView({
+      const rect = target.getBoundingClientRect();
+      const topOffset = options.block === "center" ? window.innerHeight * 0.2 : 24;
+      const top = Math.max(0, window.scrollY + rect.top - topOffset);
+
+      window.scrollTo({
+        top,
         behavior: usesReducedMotion() ? "auto" : "smooth",
-        block: options.block || "start",
       });
 
       if (options.focus) {
@@ -792,6 +809,8 @@ export default function AdminCampaignDraft({
   useEffect(() => {
     setTestSendMessageId(null);
     setSmsPreview(null);
+    setSmsPreviewOutdated(false);
+    setEmailPreviewOutdated(false);
     setSmsTestMessageSid(null);
     setSmsTestRecipient(null);
     setAudience(null);
@@ -874,11 +893,15 @@ export default function AdminCampaignDraft({
       key === "messageType" ||
       key === "subject"
     ) {
-      setPreview(null);
+      if (preview) {
+        setEmailPreviewOutdated(true);
+      }
       setTestSendMessageId(null);
     }
     if (key === "smsBody" || key === "smsEnabled") {
-      setSmsPreview(null);
+      if (smsPreview) {
+        setSmsPreviewOutdated(true);
+      }
       setSmsTestMessageSid(null);
       setSmsTestRecipient(null);
     }
@@ -905,22 +928,24 @@ export default function AdminCampaignDraft({
     setAudience(null);
     setCampaign(null);
     setContinueCue(null);
+    setDeleteTarget(null);
     setEmailTestModalOpen(false);
     setEmailTestModalConfirmed(false);
+    setEmailPreviewOutdated(false);
     setFieldErrors({});
     setForm({ ...initialForm, smsEnabled: true });
-    setMessage({
-      tone: "info",
-      text: "Ready for a new announcement. Save the email first, then save the text.",
-    });
+    setMessage(null);
     setPreview(null);
+    setPreviewMode("html");
     setProgress(null);
     setSmsPreview(null);
+    setSmsPreviewOutdated(false);
     setSmsTestMessageSid(null);
     setSmsTestModalOpen(false);
     setSmsTestModalConfirmed(false);
-    setSmsTestPhone("");
     setSmsTestRecipient(null);
+    setSaveHighlight(null);
+    setSentHistoryOpen(false);
     setStartPhrase("");
     setTestSendMessageId(null);
     setWorkflowStarted(true);
@@ -1057,7 +1082,6 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
-      setSmsPreview(null);
       setMessage({
         tone: "success",
         text: `Text saved at ${new Date(
@@ -1123,6 +1147,7 @@ export default function AdminCampaignDraft({
     }
 
     const target = deleteTarget;
+    const deletingOpenAnnouncement = campaign?.id === target.id;
     setBusyAction("delete");
     setMessage(null);
 
@@ -1138,14 +1163,38 @@ export default function AdminCampaignDraft({
       });
       await parseJsonResponse(response);
       setDrafts((current) => current.filter((draft) => draft.id !== target.id));
-      if (campaign?.id === target.id) {
+      if (deletingOpenAnnouncement) {
+        setAudience(null);
         setCampaign(null);
+        setContinueCue(null);
+        setEmailPreviewOutdated(false);
+        setEmailTestModalConfirmed(false);
+        setEmailTestModalOpen(false);
+        setFieldErrors({});
         setForm({ ...initialForm, smsEnabled: true });
         setPreview(null);
+        setProgress(null);
         setSmsPreview(null);
+        setSmsPreviewOutdated(false);
+        setSmsTestMessageSid(null);
+        setSmsTestModalConfirmed(false);
+        setSmsTestModalOpen(false);
+        setSmsTestRecipient(null);
+        setStartPhrase("");
+        setTestSendMessageId(null);
+        setWorkflowStarted(false);
       }
       setDeleteTarget(null);
       setMessage({ tone: "success", text: "Draft deleted." });
+      if (deletingOpenAnnouncement) {
+        window.setTimeout(() => {
+          scrollToElement(topRef, { block: "start" });
+          window.setTimeout(
+            () => newAnnouncementButtonRef.current?.focus({ preventScroll: true }),
+            usesReducedMotion() ? 0 : 350,
+          );
+        }, 50);
+      }
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1253,6 +1302,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setPreview(payload.preview);
+      setEmailPreviewOutdated(false);
       setMessage({ tone: "success", text: "Preview generated." });
 
       if (workflowStarted) {
@@ -1304,6 +1354,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setSmsPreview(payload.preview);
+      setSmsPreviewOutdated(false);
       setMessage({ tone: "success", text: "Text preview generated." });
 
       if (workflowStarted) {
@@ -1381,7 +1432,6 @@ export default function AdminCampaignDraft({
       !campaign ||
       !canRequestSmsTest ||
       !smsTestModalConfirmed ||
-      !smsTestPhone.trim() ||
       isBusy
     ) {
       return;
@@ -1400,20 +1450,25 @@ export default function AdminCampaignDraft({
           },
           body: JSON.stringify({
             expectedVersion: campaign.version,
-            phone: smsTestPhone,
           }),
         },
       );
       const payload = await parseJsonResponse(response);
       setMessage({
-        tone: payload.status === "sent" ? "success" : "info",
+        tone:
+          payload.status === "sent"
+            ? "success"
+            : payload.status === "failed"
+              ? "error"
+              : "info",
         text:
           payload.message ||
-          "Text testing is disabled.",
+          (payload.status === "sent"
+            ? "Text test accepted by Twilio."
+            : "Text testing is not enabled."),
       });
       setSmsTestModalConfirmed(false);
       setSmsTestModalOpen(false);
-      setSmsTestPhone("");
       setSmsTestRecipient(payload.maskedPhone || null);
       setSmsTestMessageSid(payload.messageSid || null);
 
@@ -1575,17 +1630,24 @@ export default function AdminCampaignDraft({
         ? "border-red-400/25 bg-red-400/10 text-red-100"
         : "border-white/10 bg-[#080D12] text-text-secondary";
 
-  const previewsReady = Boolean(preview && activeSmsPreview);
+  const previewsReady = Boolean(
+    preview &&
+      activeSmsPreview &&
+      !emailPreviewOutdated &&
+      !smsPreviewOutdated,
+  );
   const adminTestsReady = Boolean(
     campaign?.testedAt && (!smsTestSendEnabled || campaign.smsTestedAt),
   );
   const selectedDeliveryReady = bulkInfraReady && smsProductionReady;
   const smsTestDisabledCopy = !smsSaved
     ? "Save the text message before sending a test."
-    : !selectedChannelsSaved
-      ? "Save the email before sending a test text."
+    : smsTestRecipientConfigError
+        ? "Text testing is not configured correctly yet."
       : !smsTestSendEnabled
         ? "Text testing is not available yet."
+        : !smsTestRecipientMasked
+          ? "No admin test number is configured for this account."
         : "";
   const workflowSteps = [
     {
@@ -2121,6 +2183,7 @@ export default function AdminCampaignDraft({
         </ol>
         <div className="mt-7 flex justify-center">
           <button
+            ref={newAnnouncementButtonRef}
             type="button"
             onClick={startAnotherAnnouncement}
             disabled={isBusy}
@@ -2327,9 +2390,9 @@ export default function AdminCampaignDraft({
           <div className="mt-5 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-4 text-sm leading-6 text-yellow-100">
             Test email sending is disabled.
           </div>
-        ) : !selectedChannelsSaved ? (
+        ) : !emailSaved ? (
           <div className="mt-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
-            Save the email and text before sending admin tests.
+            Save the email before sending an admin test.
           </div>
         ) : (
           null
@@ -2390,6 +2453,12 @@ export default function AdminCampaignDraft({
             </div>
           </div>
 
+          {preview && emailPreviewOutdated ? (
+            <div className="mb-4 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs font-semibold text-yellow-50">
+              Draft changed. Generate a new preview.
+            </div>
+          ) : null}
+
           {preview ? (
             previewMode === "html" ? (
               <iframe
@@ -2405,8 +2474,7 @@ export default function AdminCampaignDraft({
             )
           ) : (
             <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-6 text-sm leading-6 text-text-secondary">
-              Generate a server preview to see the exact sanitized HTML and
-              plain-text email that future sends would use.
+              Generate the email preview to see the exact branded message.
             </div>
           )}
         </div>
@@ -2530,6 +2598,7 @@ export default function AdminCampaignDraft({
                   {activeSmsPreview.segmentCount}{" "}
                   {activeSmsPreview.segmentCount === 1 ? "segment" : "segments"}{" "}
                   - {activeSmsPreview.encoding}
+                  {smsPreviewOutdated ? " - Draft changed. Generate a new preview." : ""}
                 </span>
               ) : (
                 <span>Generate a preview to check characters and segments.</span>
@@ -2551,7 +2620,6 @@ export default function AdminCampaignDraft({
                 type="button"
                 onClick={() => {
                   setSmsTestModalConfirmed(false);
-                  setSmsTestPhone("");
                   setSmsTestModalOpen(true);
                 }}
                 disabled={!canRequestSmsTest || isBusy}
@@ -2592,7 +2660,11 @@ export default function AdminCampaignDraft({
               </h2>
             </div>
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
-              {activeSmsPreview ? "Previewed" : "Not started"}
+              {activeSmsPreview
+                ? smsPreviewOutdated
+                  ? "Outdated"
+                  : "Previewed"
+                : "Not started"}
             </span>
           </div>
 
@@ -2609,11 +2681,18 @@ export default function AdminCampaignDraft({
               </div>
               {activeSmsPreview ? (
                 <div className="rounded-[18px] bg-accent/15 p-4 text-sm leading-6 text-teal-50">
+                  {smsPreviewOutdated ? (
+                    <p className="mb-3 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-2 text-xs font-semibold text-yellow-50">
+                      Draft changed. Generate a new preview.
+                    </p>
+                  ) : null}
                   <p className="whitespace-pre-wrap">{activeSmsPreview.body}</p>
                 </div>
               ) : (
                 <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-text-secondary">
-                  Generate a server preview to see the exact text message.
+                  Generate the text preview to see the final message, required
+                  SuppVis prefix, compliance footer, character count, and
+                  segment count.
                 </div>
               )}
             </div>
@@ -2757,28 +2836,56 @@ export default function AdminCampaignDraft({
             if (!isBusy) {
               setSmsTestModalOpen(false);
               setSmsTestModalConfirmed(false);
-              setSmsTestPhone("");
             }
           }}
         >
           <p className="text-sm leading-6 text-text-secondary">
-            Enter your own U.S. phone number. This test number is not saved as a
-            subscriber and does not change SMS consent records.
+            This sends exactly one test text to the configured admin test
+            number for your signed-in account.
           </p>
-          <label className="mt-4 block">
-            <span className="text-sm font-semibold text-text-primary">
-              Your phone number
-            </span>
-            <input
-              value={smsTestPhone}
-              onChange={(event) => setSmsTestPhone(event.target.value)}
-              placeholder="650-702-5913"
-              inputMode="tel"
-              autoComplete="tel-national"
-              disabled={isBusy}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </label>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                Admin
+              </p>
+              <p className="mt-1 break-words text-sm font-semibold text-text-primary">
+                {adminEmail}
+              </p>
+            </div>
+            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                Test number
+              </p>
+              <p className="mt-1 text-sm font-semibold text-text-primary">
+                {smsTestRecipientMasked ||
+                  "No admin test number is configured for this account."}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Text preview
+            </p>
+            {smsTestModalPreview ? (
+              <>
+                <pre className="mt-3 whitespace-pre-wrap rounded-[8px] border border-white/10 bg-[#05090D] p-4 text-sm leading-6 text-text-secondary">
+                  {smsTestModalPreview.body}
+                </pre>
+                <p className="mt-3 text-xs text-text-muted">
+                  {smsTestModalPreview.characterCount} characters -{" "}
+                  {smsTestModalPreview.segmentCount}{" "}
+                  {smsTestModalPreview.segmentCount === 1
+                    ? "segment"
+                    : "segments"}{" "}
+                  - {smsTestModalPreview.encoding}
+                </p>
+              </>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-text-secondary">
+                Save the text message before sending a test.
+              </p>
+            )}
+          </div>
           <label className="mt-4 flex gap-3 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-4 text-sm leading-6 text-yellow-50">
             <input
               type="checkbox"
@@ -2790,8 +2897,8 @@ export default function AdminCampaignDraft({
               className="mt-1 h-4 w-4 shrink-0 accent-accent disabled:cursor-not-allowed"
             />
             <span>
-              I understand this sends one test text only to the phone number I
-              entered for my own admin review.
+              I understand this sends one test text only to my configured admin
+              test number.
             </span>
           </label>
           <div className="mt-5 flex flex-wrap justify-end gap-3">
@@ -2800,7 +2907,6 @@ export default function AdminCampaignDraft({
               onClick={() => {
                 setSmsTestModalOpen(false);
                 setSmsTestModalConfirmed(false);
-                setSmsTestPhone("");
               }}
               disabled={isBusy}
               className={primaryButtonClass("dark")}
@@ -2810,9 +2916,7 @@ export default function AdminCampaignDraft({
             <button
               type="button"
               onClick={requestSmsTestSend}
-              disabled={
-                !smsTestModalConfirmed || !smsTestPhone.trim() || isBusy
-              }
+              disabled={!smsTestModalConfirmed || !canRequestSmsTest || isBusy}
               className={primaryButtonClass("amber")}
             >
               {busyAction === "smsTest" ? "Sending test..." : "Send test text"}

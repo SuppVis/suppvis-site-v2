@@ -81,7 +81,8 @@ Admin console auth:
 - `ADMIN_EMAIL_BULK_SEND_INFRA_READY` - extra default-off readiness gate for subscriber campaign queueing; keep `false` until the queue, worker, IAM, and live tests are explicitly approved.
 - `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` - SQS queue URL used only after the readiness gate is enabled.
 - `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for SMS fields in combined admin announcements.
-- `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for one-admin SMS tests through the protected admin modal.
+- `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for one-admin SMS tests through the protected admin modal; keep `false` until Twilio and admin mappings are verified.
+- `ADMIN_SMS_TEST_RECIPIENTS` - sensitive server-only mapping from normalized admin email to one approved U.S. E.164 test phone, such as `admin1@suppvis.health=+1XXXXXXXXXX,admin2@suppvis.health=+1XXXXXXXXXX`. Do not expose with `NEXT_PUBLIC_`.
 - `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for future subscriber SMS announcement sending.
 - `ADMIN_SMS_BULK_SEND_INFRA_READY` - default-off readiness gate for future SMS queue/worker infrastructure.
 
@@ -198,7 +199,7 @@ The `/admin` route is intentionally not linked from public navigation, but hidde
 
 The current admin console supports combined email-plus-text announcement draft persistence, recent draft loading, server-rendered HTML/plain-text email previews, customer-care beta text drafting/previews, one-recipient admin email test sends, protected one-recipient admin text tests when enabled, approval, recipient counting, draft archiving, and a queued production email-send route that remains blocked unless `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true`.
 
-Admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Subscriber SMS announcement sending is not implemented or live in this phase; it remains blocked by separate `ADMIN_SMS_*` gates and missing queue/worker infrastructure.
+Admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Admin SMS tests derive the destination only from the authenticated admin's `ADMIN_SMS_TEST_RECIPIENTS` mapping; the browser cannot submit a phone number, and test sends do not create subscriber consent or enter the production SMS audience. Subscriber SMS announcement sending is not implemented or live in this phase; it remains blocked by separate `ADMIN_SMS_*` gates and missing queue/worker infrastructure.
 
 Recommended Microsoft Entra setup:
 

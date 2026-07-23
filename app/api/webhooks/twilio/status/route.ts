@@ -3,7 +3,10 @@ import {
   PersistenceError,
   ServerConfigError,
 } from "@/app/lib/server/errors";
-import { recordSmsProviderStatus } from "@/app/lib/server/persistence";
+import {
+  recordEmailCampaignSmsTestProviderStatus,
+  recordSmsProviderStatus,
+} from "@/app/lib/server/persistence";
 import {
   isTwilioSignatureRequired,
   validateTwilioSignature,
@@ -43,6 +46,10 @@ function isSmsSubscriberId(value: string | null): value is string {
   return Boolean(value && /^sms_[a-f0-9]{32}$/.test(value));
 }
 
+function isEmailCampaignId(value: string | null): value is string {
+  return Boolean(value && /^email_campaign_[0-9a-f-]{36}$/.test(value));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -77,17 +84,6 @@ export async function POST(request: NextRequest) {
       return emptyResponse(400);
     }
 
-    const subscriberId = request.nextUrl.searchParams.get("subscriber");
-
-    if (!isSmsSubscriberId(subscriberId)) {
-      console.info("[twilio] status callback skipped", {
-        messageSid: parsed.data.MessageSid,
-        reason: "missing_subscriber_id",
-      });
-
-      return emptyResponse();
-    }
-
     const providerStatus = (
       parsed.data.MessageStatus ||
       parsed.data.SmsStatus ||
@@ -96,9 +92,34 @@ export async function POST(request: NextRequest) {
     const messageType = request.nextUrl.searchParams.get("message_type");
 
     if (messageType === "admin_campaign_sms_test") {
+      const campaignId = request.nextUrl.searchParams.get("campaign");
+      let updateStatus = "missing_campaign";
+
+      if (isEmailCampaignId(campaignId)) {
+        const updated = await recordEmailCampaignSmsTestProviderStatus({
+          id: campaignId,
+          messageSid: parsed.data.MessageSid,
+          now: new Date().toISOString(),
+          providerStatus,
+        });
+        updateStatus = updated ? "recorded" : "campaign_missing_or_mismatch";
+      }
+
       console.info("[twilio] admin sms test status callback received", {
         messageSid: parsed.data.MessageSid,
         providerStatus,
+        status: updateStatus,
+      });
+
+      return emptyResponse();
+    }
+
+    const subscriberId = request.nextUrl.searchParams.get("subscriber");
+
+    if (!isSmsSubscriberId(subscriberId)) {
+      console.info("[twilio] status callback skipped", {
+        messageSid: parsed.data.MessageSid,
+        reason: "missing_subscriber_id",
       });
 
       return emptyResponse();

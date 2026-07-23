@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
@@ -6,6 +7,7 @@ import {
   PublicApiError,
   ServerConfigError,
 } from "@/app/lib/server/errors";
+import { areAdminCampaignsEnabled } from "@/app/lib/server/email/admin-campaign";
 import {
   getEmailCampaign,
   markEmailCampaignSmsTestFailed,
@@ -13,6 +15,11 @@ import {
   reserveEmailCampaignSmsTest,
 } from "@/app/lib/server/persistence";
 import {
+  getAdminSmsTestRecipientForEmail,
+  maskAdminSmsTestPhone,
+} from "@/app/lib/server/sms/admin-test-recipients";
+import {
+  assertAdminSmsTestTwilioConfigured,
   areAdminSmsAnnouncementsEnabled,
   isAdminSmsTestSendEnabled,
 } from "@/app/lib/server/sms/admin-campaign";
@@ -24,15 +31,10 @@ import {
 import {
   adminCampaignIdSchema,
   adminCampaignSmsTestSendSchema,
-  normalizeAdminSmsTestPhoneToE164,
 } from "@/app/lib/server/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function maskPhone(phone: string) {
-  return phone.replace(/^(\+\d)(?:\d+)(\d{2})$/, "$1***$2");
-}
 
 function safeTwilioErrorCode(error: unknown) {
   const code = (error as { code?: unknown }).code;
@@ -44,7 +46,7 @@ function safeTwilioErrorCode(error: unknown) {
 
 function safeTwilioErrorMessage(error: unknown) {
   if (error instanceof ServerConfigError) {
-    return "server_configuration_problem";
+    return "Text testing is not ready yet.";
   }
 
   const status = (error as { status?: unknown }).status;
@@ -91,16 +93,6 @@ export async function POST(
     const id = adminCampaignIdSchema.parse(params.id);
     const body = await readJsonBody(request);
     const submission = adminCampaignSmsTestSendSchema.parse(body);
-    const testPhone = normalizeAdminSmsTestPhoneToE164(submission.phone);
-
-    if (!testPhone) {
-      throw new PublicApiError(
-        400,
-        "invalid_admin_test_phone",
-        "Enter a valid U.S. phone number.",
-      );
-    }
-
     const campaign = await getEmailCampaign(id);
 
     if (!campaign) {
@@ -135,7 +127,11 @@ export async function POST(
       );
     }
 
-    if (!areAdminSmsAnnouncementsEnabled() || !isAdminSmsTestSendEnabled()) {
+    if (
+      !areAdminCampaignsEnabled() ||
+      !areAdminSmsAnnouncementsEnabled() ||
+      !isAdminSmsTestSendEnabled()
+    ) {
       await recordAdminCampaignAudit({
         action: "sms_test_send_blocked",
         adminIdentifier: admin.identifier,
@@ -153,16 +149,70 @@ export async function POST(
         ok: true,
         status: "disabled",
         code: "sms_test_send_disabled",
-        message: "Test text sending is disabled.",
+        message: "Text testing is not enabled.",
       });
     }
 
-    const maskedPhone = maskPhone(testPhone);
+    const testRecipient = getAdminSmsTestRecipientForEmail(admin.email);
+
+    if (!testRecipient) {
+      await recordAdminCampaignAudit({
+        action: "sms_test_send_blocked",
+        adminIdentifier: admin.identifier,
+        campaignId: id,
+        status: "admin_test_recipient_missing",
+      }).catch((auditError) => {
+        console.error("[admin-sms] missing recipient audit failed", {
+          campaignId: id,
+          errorName:
+            auditError instanceof Error ? auditError.name : "UnknownError",
+        });
+      });
+
+      throw new PublicApiError(
+        403,
+        "admin_sms_test_recipient_missing",
+        "No test number is configured for this admin.",
+      );
+    }
+
+    try {
+      assertAdminSmsTestTwilioConfigured();
+    } catch (error) {
+      console.error("[admin-sms] test send configuration unavailable", {
+        campaignId: id,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+
+      await recordAdminCampaignAudit({
+        action: "sms_test_send_blocked",
+        adminIdentifier: admin.identifier,
+        campaignId: id,
+        status: "twilio_configuration_incomplete",
+      }).catch((auditError) => {
+        console.error("[admin-sms] config audit failed", {
+          campaignId: id,
+          errorName:
+            auditError instanceof Error ? auditError.name : "UnknownError",
+        });
+      });
+
+      throw new PublicApiError(
+        503,
+        "sms_test_configuration_problem",
+        "Text testing is not ready yet.",
+      );
+    }
+
+    const attemptId = randomUUID();
+    const maskedPhone = maskAdminSmsTestPhone(testRecipient.phoneE164);
     const reserved = await reserveEmailCampaignSmsTest({
       id,
       expectedVersion: campaign.version,
       now: new Date().toISOString(),
-      test_recipient_id: maskedPhone,
+      test_attempt_id: attemptId,
+      test_recipient_id: testRecipient.recipientId,
+      test_recipient_masked: maskedPhone,
       updated_by: admin.identifier,
     });
 
@@ -180,7 +230,7 @@ export async function POST(
       sendResult = await sendTwilioSms({
         body: campaign.sms_rendered_body,
         statusCallbackUrl: buildAdminSmsTestStatusCallbackUrl(id),
-        to: testPhone,
+        to: testRecipient.phoneE164,
       });
     } catch (error) {
       const errorCode = safeTwilioErrorCode(error);
@@ -196,6 +246,7 @@ export async function POST(
         expectedVersion: reserved.version,
         id,
         now: new Date().toISOString(),
+        test_attempt_id: attemptId,
         updated_by: admin.identifier,
       }).catch((updateError) => {
         console.error("[admin-sms] test failure tracking failed", {
@@ -218,11 +269,22 @@ export async function POST(
         });
       });
 
-      throw new PublicApiError(
-        error instanceof ServerConfigError ? 503 : 502,
-        errorCode,
-        safeTwilioErrorMessage(error),
-      );
+      const failedCampaign = await getEmailCampaign(id);
+
+      return NextResponse.json({
+        ok: true,
+        status: "failed",
+        code: errorCode,
+        message: safeTwilioErrorMessage(error),
+        campaign: failedCampaign
+          ? {
+              id: failedCampaign.id,
+              status: failedCampaign.status,
+              version: failedCampaign.version,
+              smsTestStatus: failedCampaign.sms_test_status || null,
+            }
+          : null,
+      });
     }
 
     const updated = await markEmailCampaignSmsTestSent({
@@ -230,7 +292,10 @@ export async function POST(
       expectedVersion: reserved.version,
       messageSid: sendResult.messageSid,
       now: new Date().toISOString(),
-      test_recipient_id: maskedPhone,
+      providerStatus: sendResult.status,
+      test_attempt_id: attemptId,
+      test_recipient_id: testRecipient.recipientId,
+      test_recipient_masked: maskedPhone,
       updated_by: admin.identifier,
     });
 
@@ -266,6 +331,8 @@ export async function POST(
         version: updated.version,
         smsTestedAt: updated.sms_tested_at,
         smsTestMessageSid: updated.sms_test_message_sid,
+        smsTestProviderStatus: updated.sms_test_provider_status,
+        smsTestStatus: updated.sms_test_status,
       },
     });
   } catch (error) {
