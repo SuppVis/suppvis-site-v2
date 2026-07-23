@@ -231,7 +231,7 @@ function validateAdminSmsBody(
   }
 }
 
-export const adminCampaignContentSchema = z
+export const adminCampaignEmailContentSchema = z
   .object({
     messageType: z.enum(adminEmailCampaignMessageTypes).default("beta_update"),
     subject: z.string().trim().min(1).max(120),
@@ -239,8 +239,6 @@ export const adminCampaignContentSchema = z
     body: z.string().trim().min(1).max(5000),
     ctaLabel: optionalTrimmedString(64),
     ctaUrl: adminCampaignCtaUrlSchema,
-    smsEnabled: z.boolean().optional().default(true),
-    smsBody: adminCampaignSmsBodySchema,
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -260,11 +258,10 @@ export const adminCampaignContentSchema = z
       });
     }
 
-    validateAdminSmsBody(true, data.smsBody, ctx);
   });
 
 function validateAdminCampaignNotPlaceholder(
-  data: z.infer<typeof adminCampaignContentSchema>,
+  data: z.infer<typeof adminCampaignEmailContentSchema> & { smsBody?: string },
   ctx: z.RefinementCtx,
 ) {
   if (isBlockedAdminPlaceholder(data.subject)) {
@@ -291,7 +288,7 @@ function validateAdminCampaignNotPlaceholder(
     });
   }
 
-  if (isBlockedAdminPlaceholder(data.smsBody)) {
+  if (data.smsBody !== undefined && isBlockedAdminPlaceholder(data.smsBody)) {
     ctx.addIssue({
       code: "custom",
       path: ["smsBody"],
@@ -301,23 +298,46 @@ function validateAdminCampaignNotPlaceholder(
   }
 }
 
-export const createAdminCampaignSchema = adminCampaignContentSchema.superRefine(
+export const createAdminCampaignSchema = adminCampaignEmailContentSchema.superRefine(
   validateAdminCampaignNotPlaceholder,
 );
 
-export const updateAdminCampaignSchema = adminCampaignContentSchema.extend({
-  expectedVersion: z.number().int().min(1).max(1_000_000),
-}).superRefine((data, ctx) => {
-  validateAdminSmsBody(true, data.smsBody, ctx);
-  validateAdminCampaignNotPlaceholder(data, ctx);
-});
+export const updateAdminCampaignEmailSchema =
+  adminCampaignEmailContentSchema.extend({
+    expectedVersion: z.number().int().min(1).max(1_000_000),
+    saveChannel: z.literal("email").optional().default("email"),
+  }).superRefine((data, ctx) => {
+    validateAdminCampaignNotPlaceholder(data, ctx);
+  });
+
+export const updateAdminCampaignSmsSchema = z
+  .object({
+    expectedVersion: z.number().int().min(1).max(1_000_000),
+    saveChannel: z.literal("sms"),
+    smsBody: adminCampaignSmsBodySchema,
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    validateAdminSmsBody(true, data.smsBody, ctx);
+
+    if (isBlockedAdminPlaceholder(data.smsBody)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["smsBody"],
+        message:
+          "The text message still contains example content. Replace it before saving.",
+      });
+    }
+  });
+
+export const updateAdminCampaignSchema = updateAdminCampaignEmailSchema;
 
 export const adminCampaignIdSchema = z
   .string()
   .trim()
   .regex(/^email_campaign_[0-9a-f-]{36}$/);
 
-export const adminCampaignPreviewSchema = adminCampaignContentSchema;
+export const adminCampaignPreviewSchema = adminCampaignEmailContentSchema;
 
 export const adminCampaignSmsPreviewSchema = z
   .object({

@@ -401,6 +401,12 @@ export type EmailCampaignSummary = Pick<
   | "version"
   | "tested_at"
   | "approved_at"
+  | "queueing_started_at"
+  | "queued_at"
+  | "sent_at"
+  | "completed_at"
+  | "canceled_at"
+  | "failed_at"
   | "test_recipient"
   | "recipient_count"
   | "queued_count"
@@ -649,6 +655,12 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     version: record.version,
     tested_at: record.tested_at,
     approved_at: record.approved_at,
+    queueing_started_at: record.queueing_started_at,
+    queued_at: record.queued_at,
+    sent_at: record.sent_at,
+    completed_at: record.completed_at,
+    canceled_at: record.canceled_at,
+    failed_at: record.failed_at,
     test_recipient: record.test_recipient,
     recipient_count: record.recipient_count,
     queued_count: record.queued_count,
@@ -1389,8 +1401,34 @@ async function listEmailCampaignRecordsForRecentSelection(maxRecords = 500) {
   return records;
 }
 
+function isActiveEmailCampaignRecord(record: EmailCampaignRecord) {
+  return (
+    record.status === "draft" ||
+    record.status === "test_ready" ||
+    record.status === "tested" ||
+    (record.status === "approved" &&
+      !record.queueing_started_at &&
+      !record.queued_at &&
+      !record.sent_at)
+  );
+}
+
+function isSentEmailCampaignRecord(record: EmailCampaignRecord) {
+  return (
+    record.status === "queueing" ||
+    record.status === "queued" ||
+    record.status === "sending" ||
+    record.status === "completed" ||
+    record.status === "completed_with_failures" ||
+    record.status === "failed" ||
+    Boolean(record.queueing_started_at || record.queued_at || record.sent_at)
+  );
+}
+
 export async function listRecentEmailCampaignDrafts(limit = 5) {
-  const records = await listEmailCampaignRecordsForRecentSelection();
+  const records = (await listEmailCampaignRecordsForRecentSelection()).filter(
+    isActiveEmailCampaignRecord,
+  );
   const visibleLimit = Math.max(0, Math.min(limit, 5));
   const byUpdatedAtDesc = (a: EmailCampaignRecord, b: EmailCampaignRecord) =>
     b.updated_at.localeCompare(a.updated_at);
@@ -1408,8 +1446,21 @@ export async function listRecentEmailCampaignDrafts(limit = 5) {
   return [...pinned, ...unpinned].map(emailCampaignSummary);
 }
 
+export async function listSentEmailCampaignSummaries(limit = 50) {
+  const records = (await listEmailCampaignRecordsForRecentSelection()).filter(
+    isSentEmailCampaignRecord,
+  );
+
+  return records
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, Math.max(1, Math.min(limit, 100)))
+    .map(emailCampaignSummary);
+}
+
 export async function countPinnedEmailCampaigns(exceptId?: string) {
-  const records = await listEmailCampaignRecordsForRecentSelection();
+  const records = (await listEmailCampaignRecordsForRecentSelection()).filter(
+    isActiveEmailCampaignRecord,
+  );
   return records.filter(
     (record) => record.is_pinned && (!exceptId || record.id !== exceptId),
   ).length;
@@ -1445,15 +1496,23 @@ export async function setEmailCampaignPinned(input: {
       version: nextVersion,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull)",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested OR (#status = :approved AND (attribute_not_exists(#queueingStartedAt) OR #queueingStartedAt = :deletedAtNull) AND (attribute_not_exists(#queuedAt) OR #queuedAt = :deletedAtNull) AND (attribute_not_exists(#sentAt) OR #sentAt = :deletedAtNull)))",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
       "#deletedAt": "deleted_at",
+      "#status": "status",
+      "#queueingStartedAt": "queueing_started_at",
+      "#queuedAt": "queued_at",
+      "#sentAt": "sent_at",
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
       ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+      ":approved": "approved",
     },
   });
 
@@ -1465,6 +1524,112 @@ export async function setEmailCampaignPinned(input: {
     status: "updated" as const,
     record: emailCampaignFromAttributes(result.attributes),
   };
+}
+
+export async function updateEmailCampaignEmailDraft(input: {
+  body: string;
+  cta_label: string;
+  cta_url: string;
+  expectedVersion: number;
+  heading: string;
+  id: string;
+  message_type: EmailCampaignMessageType;
+  now: string;
+  subject: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "update_email_campaign_email_draft",
+    returnValues: "ALL_NEW",
+    set: {
+      message_type: input.message_type,
+      subject: input.subject,
+      heading: input.heading,
+      body: input.body,
+      cta_label: input.cta_label,
+      cta_url: input.cta_url,
+      status: "draft",
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function updateEmailCampaignSmsDraft(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+  sms_body: string;
+  sms_rendered_body: string;
+  sms_character_count: number;
+  sms_segment_count: number;
+  sms_encoding: "GSM-7" | "Unicode";
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "update_email_campaign_sms_draft",
+    returnValues: "ALL_NEW",
+    set: {
+      sms_enabled: true,
+      sms_body: input.sms_body,
+      sms_rendered_body: input.sms_rendered_body,
+      sms_draft_version: nextVersion,
+      sms_saved_at: input.now,
+      sms_tested_at: null,
+      sms_test_recipient_id: null,
+      sms_test_message_sid: null,
+      sms_character_count: input.sms_character_count,
+      sms_segment_count: input.sms_segment_count,
+      sms_encoding: input.sms_encoding,
+      sms_updated_by: input.updated_by,
+      sms_updated_at: input.now,
+      status: "draft",
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
 }
 
 export async function updateEmailCampaignDraft(input: {
@@ -1801,17 +1966,24 @@ export async function archiveEmailCampaignDraft(input: {
     set: {
       deleted_at: input.now,
       deleted_by: input.deleted_by,
+      is_pinned: false,
+      pinned_at: null,
+      pinned_by: null,
       updated_by: input.deleted_by,
       updated_at: input.now,
       version: nextVersion,
     },
     conditionExpression:
-      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested OR (#status = :approved AND (attribute_not_exists(#queueingStartedAt) OR #queueingStartedAt = :deletedAtNull) AND (attribute_not_exists(#queuedAt) OR #queuedAt = :deletedAtNull) AND (attribute_not_exists(#sentAt) OR #sentAt = :deletedAtNull) AND (attribute_not_exists(#recipientCount) OR #recipientCount = :zero)))",
     conditionAttributeNames: {
       "#id": "id",
       "#version": "version",
       "#deletedAt": "deleted_at",
       "#status": "status",
+      "#queueingStartedAt": "queueing_started_at",
+      "#queuedAt": "queued_at",
+      "#sentAt": "sent_at",
+      "#recipientCount": "recipient_count",
     },
     conditionAttributeValues: {
       ":expectedVersion": input.expectedVersion,
@@ -1819,6 +1991,8 @@ export async function archiveEmailCampaignDraft(input: {
       ":draft": "draft",
       ":testReady": "test_ready",
       ":tested": "tested",
+      ":approved": "approved",
+      ":zero": 0,
     },
   });
 

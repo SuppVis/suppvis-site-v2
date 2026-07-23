@@ -5,7 +5,8 @@ import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
   archiveEmailCampaignDraft,
   getEmailCampaign,
-  updateEmailCampaignDraft,
+  updateEmailCampaignEmailDraft,
+  updateEmailCampaignSmsDraft,
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
 import {
@@ -15,7 +16,8 @@ import {
 import {
   adminCampaignIdSchema,
   adminCampaignVersionSchema,
-  updateAdminCampaignSchema,
+  updateAdminCampaignEmailSchema,
+  updateAdminCampaignSmsSchema,
 } from "@/app/lib/server/validation";
 import { renderAdminSmsAnnouncement } from "@/app/lib/server/messages/admin-sms";
 
@@ -37,7 +39,12 @@ function campaignResponse(record: EmailCampaignRecord) {
     version: record.version,
     testedAt: record.tested_at,
     approvedAt: record.approved_at,
+    queueingStartedAt: record.queueing_started_at,
+    queuedAt: record.queued_at,
     sentAt: record.sent_at,
+    completedAt: record.completed_at,
+    canceledAt: record.canceled_at,
+    failedAt: record.failed_at,
     recipientCount: record.recipient_count || 0,
     eligibleCount: record.eligible_count || 0,
     excludedCount: record.excluded_count || 0,
@@ -118,28 +125,44 @@ export async function PATCH(
     const admin = await requireAdminSession();
     const id = adminCampaignIdSchema.parse(params.id);
     const body = await readJsonBody(request);
-    const submission = updateAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
-    const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
+    const saveChannel = (body as { saveChannel?: unknown })?.saveChannel;
+    let updated: EmailCampaignRecord | null;
+    let auditStatus: string;
 
-    const updated = await updateEmailCampaignDraft({
-      id,
-      body: submission.body,
-      cta_label: submission.ctaLabel,
-      cta_url: submission.ctaUrl,
-      expectedVersion: submission.expectedVersion,
-      heading: submission.heading,
-      message_type: submission.messageType,
-      now,
-      subject: submission.subject,
-      updated_by: admin.identifier,
-      sms_enabled: true,
-      sms_body: smsPreview.editableBody,
-      sms_rendered_body: smsPreview.body,
-      sms_character_count: smsPreview.characterCount,
-      sms_segment_count: smsPreview.segmentCount,
-      sms_encoding: smsPreview.encoding,
-    });
+    if (saveChannel === "sms") {
+      const submission = updateAdminCampaignSmsSchema.parse(body);
+      const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
+
+      updated = await updateEmailCampaignSmsDraft({
+        id,
+        expectedVersion: submission.expectedVersion,
+        now,
+        updated_by: admin.identifier,
+        sms_body: smsPreview.editableBody,
+        sms_rendered_body: smsPreview.body,
+        sms_character_count: smsPreview.characterCount,
+        sms_segment_count: smsPreview.segmentCount,
+        sms_encoding: smsPreview.encoding,
+      });
+      auditStatus = "draft text";
+    } else {
+      const submission = updateAdminCampaignEmailSchema.parse(body);
+
+      updated = await updateEmailCampaignEmailDraft({
+        id,
+        body: submission.body,
+        cta_label: submission.ctaLabel,
+        cta_url: submission.ctaUrl,
+        expectedVersion: submission.expectedVersion,
+        heading: submission.heading,
+        message_type: submission.messageType,
+        now,
+        subject: submission.subject,
+        updated_by: admin.identifier,
+      });
+      auditStatus = "draft email";
+    }
 
     if (!updated) {
       throw new PublicApiError(
@@ -153,7 +176,7 @@ export async function PATCH(
       action: "draft_updated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: "draft email+text",
+      status: auditStatus,
     });
 
     return NextResponse.json({

@@ -6,6 +6,7 @@ import { handleApiError } from "@/app/lib/server/errors";
 import {
   createEmailCampaignDraft,
   listRecentEmailCampaignDrafts,
+  listSentEmailCampaignSummaries,
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
 import {
@@ -13,7 +14,6 @@ import {
   readJsonBody,
 } from "@/app/lib/server/request";
 import { createAdminCampaignSchema } from "@/app/lib/server/validation";
-import { renderAdminSmsAnnouncement } from "@/app/lib/server/messages/admin-sms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +33,12 @@ function campaignResponse(record: EmailCampaignRecord) {
     version: record.version,
     testedAt: record.tested_at,
     approvedAt: record.approved_at,
+    queueingStartedAt: record.queueing_started_at,
+    queuedAt: record.queued_at,
     sentAt: record.sent_at,
+    completedAt: record.completed_at,
+    canceledAt: record.canceled_at,
+    failedAt: record.failed_at,
     recipientCount: record.recipient_count || 0,
     eligibleCount: record.eligible_count || 0,
     excludedCount: record.excluded_count || 0,
@@ -74,6 +79,46 @@ export async function GET(request: NextRequest) {
 
     await requireAdminSession();
 
+    const view = request.nextUrl.searchParams.get("view");
+
+    if (view === "sent") {
+      const sent = await listSentEmailCampaignSummaries(100);
+
+      return NextResponse.json({
+        ok: true,
+        sent: sent.map((draft) => ({
+          id: draft.id,
+          messageType: draft.message_type,
+          subject: draft.subject,
+          heading: draft.heading,
+          status: draft.status,
+          createdAt: draft.created_at,
+          updatedAt: draft.updated_at,
+          version: draft.version,
+          testedAt: draft.tested_at,
+          approvedAt: draft.approved_at,
+          queueingStartedAt: draft.queueing_started_at || null,
+          queuedAt: draft.queued_at || null,
+          sentAt: draft.sent_at || null,
+          completedAt: draft.completed_at || null,
+          canceledAt: draft.canceled_at || null,
+          failedAt: draft.failed_at || null,
+          recipientCount: draft.recipient_count || 0,
+          queuedCount: draft.queued_count || 0,
+          sentCount: draft.sent_count || 0,
+          deliveredCount: draft.delivered_count || 0,
+          failedCount: draft.failed_count || 0,
+          skippedCount: draft.skipped_count || 0,
+          smsEnabled: draft.sms_enabled || false,
+          smsSavedAt: draft.sms_saved_at || null,
+          smsTestedAt: draft.sms_tested_at || null,
+          smsEligibleCount: draft.sms_eligible_count || 0,
+          smsExcludedCount: draft.sms_excluded_count || 0,
+          smsDuplicateCount: draft.sms_duplicate_count || 0,
+        })),
+      });
+    }
+
     const drafts = await listRecentEmailCampaignDrafts(5);
 
     return NextResponse.json({
@@ -89,6 +134,12 @@ export async function GET(request: NextRequest) {
         version: draft.version,
         testedAt: draft.tested_at,
         approvedAt: draft.approved_at,
+        queueingStartedAt: draft.queueing_started_at || null,
+        queuedAt: draft.queued_at || null,
+        sentAt: draft.sent_at || null,
+        completedAt: draft.completed_at || null,
+        canceledAt: draft.canceled_at || null,
+        failedAt: draft.failed_at || null,
         recipientCount: draft.recipient_count || 0,
         queuedCount: draft.queued_count || 0,
         sentCount: draft.sent_count || 0,
@@ -130,7 +181,6 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody(request);
     const submission = createAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
-    const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
     const record: EmailCampaignRecord = {
       id: `email_campaign_${randomUUID()}`,
       record_type: "email_campaign",
@@ -151,10 +201,10 @@ export async function POST(request: NextRequest) {
       sent_at: null,
       test_recipient: null,
       sms_enabled: true,
-      sms_body: smsPreview.editableBody,
-      sms_rendered_body: smsPreview.body,
-      sms_draft_version: 1,
-      sms_saved_at: now,
+      sms_body: "",
+      sms_rendered_body: "",
+      sms_draft_version: 0,
+      sms_saved_at: null,
       sms_tested_at: null,
       sms_test_recipient_id: null,
       sms_test_message_sid: null,
@@ -162,11 +212,11 @@ export async function POST(request: NextRequest) {
       sms_test_send_reserved_by: null,
       last_sms_test_send_failed_at: null,
       last_sms_test_send_error_code: null,
-      sms_character_count: smsPreview.characterCount,
-      sms_segment_count: smsPreview.segmentCount,
-      sms_encoding: smsPreview.encoding,
-      sms_updated_by: admin.identifier,
-      sms_updated_at: now,
+      sms_character_count: 0,
+      sms_segment_count: 0,
+      sms_encoding: "GSM-7",
+      sms_updated_by: null,
+      sms_updated_at: null,
       is_pinned: false,
       pinned_at: null,
       pinned_by: null,
@@ -177,7 +227,7 @@ export async function POST(request: NextRequest) {
       action: "draft_created",
       adminIdentifier: admin.identifier,
       campaignId: record.id,
-      status: "draft email+text",
+      status: "draft email",
     });
 
     return NextResponse.json({
