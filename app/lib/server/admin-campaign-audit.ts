@@ -13,6 +13,8 @@ export type AdminCampaignAuditAction =
   | "test_send_failed"
   | "test_send_sent"
   | "campaign_approved"
+  | "announcement_pinned"
+  | "announcement_unpinned"
   | "production_send_blocked"
   | "sms_production_send_blocked"
   | "queueing_started"

@@ -58,6 +58,8 @@ function campaignResponse(record: EmailCampaignRecord) {
     smsEligibleCount: record.sms_eligible_count || 0,
     smsExcludedCount: record.sms_excluded_count || 0,
     smsDuplicateCount: record.sms_duplicate_count || 0,
+    isPinned: record.is_pinned || false,
+    pinnedAt: record.pinned_at || null,
   };
 }
 
@@ -117,9 +119,7 @@ export async function PATCH(
     const body = await readJsonBody(request);
     const submission = updateAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
-    const smsPreview = submission.smsEnabled
-      ? renderAdminSmsAnnouncement(submission.smsBody)
-      : null;
+    const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
 
     const updated = await updateEmailCampaignDraft({
       id,
@@ -132,12 +132,12 @@ export async function PATCH(
       now,
       subject: submission.subject,
       updated_by: admin.identifier,
-      sms_enabled: submission.smsEnabled,
-      sms_body: smsPreview?.editableBody || "",
-      sms_rendered_body: smsPreview?.body || "",
-      sms_character_count: smsPreview?.characterCount || 0,
-      sms_segment_count: smsPreview?.segmentCount || 0,
-      sms_encoding: smsPreview?.encoding || "GSM-7",
+      sms_enabled: true,
+      sms_body: smsPreview.editableBody,
+      sms_rendered_body: smsPreview.body,
+      sms_character_count: smsPreview.characterCount,
+      sms_segment_count: smsPreview.segmentCount,
+      sms_encoding: smsPreview.encoding,
     });
 
     if (!updated) {
@@ -152,7 +152,7 @@ export async function PATCH(
       action: "draft_updated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: updated.sms_enabled ? "draft email+text" : updated.status,
+      status: "draft email+text",
     });
 
     return NextResponse.json({

@@ -61,13 +61,15 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_tested",
-        "Send a test email before approving this email.",
+        "Send a test email before approving this announcement.",
       );
     }
 
     if (
-      current.sms_enabled &&
-      (!current.sms_saved_at || !current.sms_body || !current.sms_rendered_body)
+      !current.sms_enabled ||
+      !current.sms_saved_at ||
+      !current.sms_body ||
+      !current.sms_rendered_body
     ) {
       throw new PublicApiError(
         409,
@@ -95,7 +97,7 @@ export async function POST(
       action: "campaign_approved",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: current.sms_enabled ? "approved email+text" : approved.status,
+      status: "approved email+text",
     });
 
     return NextResponse.json({

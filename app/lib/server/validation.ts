@@ -186,7 +186,7 @@ function validateAdminSmsBody(
     ctx.addIssue({
       code: "custom",
       path: ["smsBody"],
-      message: "Add text message copy or turn off text messages.",
+      message: "Add text message copy before continuing.",
     });
     return;
   }
@@ -248,6 +248,8 @@ export const createAdminCampaignSchema = adminCampaignContentSchema;
 
 export const updateAdminCampaignSchema = adminCampaignContentSchema.extend({
   expectedVersion: z.number().int().min(1).max(1_000_000),
+}).superRefine((data, ctx) => {
+  validateAdminSmsBody(true, data.smsBody, ctx);
 });
 
 export const adminCampaignIdSchema = z
@@ -264,7 +266,7 @@ export const adminCampaignSmsPreviewSchema = z
   })
   .strict()
   .superRefine((data, ctx) => {
-    validateAdminSmsBody(data.smsEnabled, data.smsBody, ctx);
+    validateAdminSmsBody(true, data.smsBody, ctx);
   });
 
 export const adminCampaignTestSendSchema = z.object({}).strict();
@@ -272,6 +274,10 @@ export const adminCampaignTestSendSchema = z.object({}).strict();
 export const adminCampaignVersionSchema = z.object({
   expectedVersion: z.number().int().min(1).max(1_000_000),
 }).strict();
+
+export const adminCampaignPinSchema = adminCampaignVersionSchema.extend({
+  pinned: z.boolean(),
+});
 
 export const adminCampaignStartSchema = adminCampaignVersionSchema.extend({
   confirmationPhrase: z.string().trim().min(1).max(80),

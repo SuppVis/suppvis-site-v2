@@ -28,13 +28,6 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody(request);
     const submission = adminCampaignSmsPreviewSchema.parse(body);
 
-    if (!submission.smsEnabled) {
-      return NextResponse.json({
-        ok: true,
-        preview: null,
-      });
-    }
-
     const rendered = renderAdminSmsAnnouncement(submission.smsBody);
 
     await recordAdminCampaignAudit({

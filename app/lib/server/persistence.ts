@@ -335,6 +335,9 @@ export type EmailCampaignRecord = {
   sms_eligible_count?: number;
   sms_excluded_count?: number;
   sms_duplicate_count?: number;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
+  pinned_by?: string | null;
 };
 
 export type EmailCampaignRecipientStatus =
@@ -409,6 +412,9 @@ export type EmailCampaignSummary = Pick<
   | "sms_eligible_count"
   | "sms_excluded_count"
   | "sms_duplicate_count"
+  | "is_pinned"
+  | "pinned_at"
+  | "pinned_by"
 >;
 
 function numberAttribute(value: unknown) {
@@ -559,6 +565,9 @@ function emailCampaignFromAttributes(
     sms_eligible_count: numberAttribute(attributes?.sms_eligible_count),
     sms_excluded_count: numberAttribute(attributes?.sms_excluded_count),
     sms_duplicate_count: numberAttribute(attributes?.sms_duplicate_count),
+    is_pinned: booleanAttribute(attributes?.is_pinned) || false,
+    pinned_at: nullableStringAttribute(attributes?.pinned_at) || null,
+    pinned_by: nullableStringAttribute(attributes?.pinned_by) || null,
   };
 }
 
@@ -639,6 +648,9 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     sms_eligible_count: record.sms_eligible_count,
     sms_excluded_count: record.sms_excluded_count,
     sms_duplicate_count: record.sms_duplicate_count,
+    is_pinned: record.is_pinned,
+    pinned_at: record.pinned_at,
+    pinned_by: record.pinned_by,
   };
 }
 
@@ -1296,6 +1308,9 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       sms_encoding: record.sms_encoding || "GSM-7",
       sms_updated_by: record.sms_updated_by || null,
       sms_updated_at: record.sms_updated_at || null,
+      is_pinned: record.is_pinned || false,
+      pinned_at: record.pinned_at || null,
+      pinned_by: record.pinned_by || null,
     },
   });
 
@@ -1312,28 +1327,119 @@ export async function getEmailCampaign(id: string) {
   return emailCampaignFromAttributes(item);
 }
 
-export async function listRecentEmailCampaignDrafts(limit = 20) {
-  const items = await queryDynamoItems({
+async function listEmailCampaignRecordsForRecentSelection(maxRecords = 500) {
+  const records: EmailCampaignRecord[] = [];
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+  do {
+    const page = await queryDynamoItemsPage({
+      tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+      indexName: "record_type-updated_at-index",
+      keyConditionExpression: "#recordType = :recordType",
+      expressionAttributeNames: {
+        "#recordType": "record_type",
+      },
+      expressionAttributeValues: {
+        ":recordType": "email_campaign",
+      },
+      exclusiveStartKey: lastEvaluatedKey,
+      limit: 100,
+      scanIndexForward: false,
+      operation: "list_recent_email_campaigns",
+    });
+
+    for (const item of page.items) {
+      const record = emailCampaignFromAttributes(item);
+      if (record && !record.deleted_at) {
+        records.push(record);
+      }
+
+      if (records.length >= maxRecords) {
+        return records;
+      }
+    }
+
+    lastEvaluatedKey = page.lastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return records;
+}
+
+export async function listRecentEmailCampaignDrafts(limit = 5) {
+  const records = await listEmailCampaignRecordsForRecentSelection();
+  const visibleLimit = Math.max(0, Math.min(limit, 5));
+  const byUpdatedAtDesc = (a: EmailCampaignRecord, b: EmailCampaignRecord) =>
+    b.updated_at.localeCompare(a.updated_at);
+  const byPinnedAtDesc = (a: EmailCampaignRecord, b: EmailCampaignRecord) =>
+    (b.pinned_at || b.updated_at).localeCompare(a.pinned_at || a.updated_at);
+  const pinned = records
+    .filter((record) => record.is_pinned)
+    .sort(byPinnedAtDesc)
+    .slice(0, visibleLimit);
+  const unpinned = records
+    .filter((record) => !record.is_pinned)
+    .sort(byUpdatedAtDesc)
+    .slice(0, Math.max(0, visibleLimit - pinned.length));
+
+  return [...pinned, ...unpinned].map(emailCampaignSummary);
+}
+
+export async function countPinnedEmailCampaigns(exceptId?: string) {
+  const records = await listEmailCampaignRecordsForRecentSelection();
+  return records.filter(
+    (record) => record.is_pinned && (!exceptId || record.id !== exceptId),
+  ).length;
+}
+
+export async function setEmailCampaignPinned(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  pinned: boolean;
+  updated_by: string;
+}) {
+  if (input.pinned) {
+    const pinnedCount = await countPinnedEmailCampaigns(input.id);
+
+    if (pinnedCount >= 5) {
+      return { status: "pin_limit" as const, record: null };
+    }
+  }
+
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
-    indexName: "record_type-updated_at-index",
-    keyConditionExpression: "#recordType = :recordType",
-    expressionAttributeNames: {
-      "#recordType": "record_type",
+    key: { id: input.id },
+    operation: "set_email_campaign_pinned",
+    returnValues: "ALL_NEW",
+    set: {
+      is_pinned: input.pinned,
+      pinned_at: input.pinned ? input.now : null,
+      pinned_by: input.pinned ? input.updated_by : null,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
     },
-    expressionAttributeValues: {
-      ":recordType": "email_campaign",
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND attribute_not_exists(#deletedAt)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
     },
-    limit: Math.max(limit * 3, 30),
-    scanIndexForward: false,
-    operation: "list_recent_email_campaigns",
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+    },
   });
 
-  return items
-    .map((item) => emailCampaignFromAttributes(item))
-    .filter((record): record is EmailCampaignRecord => Boolean(record))
-    .filter((record) => !record.deleted_at)
-    .slice(0, limit)
-    .map(emailCampaignSummary);
+  if (!result.wrote) {
+    return { status: "conflict" as const, record: null };
+  }
+
+  return {
+    status: "updated" as const,
+    record: emailCampaignFromAttributes(result.attributes),
+  };
 }
 
 export async function updateEmailCampaignDraft(input: {

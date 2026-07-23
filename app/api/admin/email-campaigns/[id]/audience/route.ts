@@ -39,7 +39,6 @@ export async function POST(
     }
 
     if (
-      campaign.status !== "tested" &&
       campaign.status !== "approved" &&
       campaign.status !== "queued" &&
       campaign.status !== "sending"
@@ -47,27 +46,34 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_ready",
-        "Send a test email before reviewing recipients.",
+        "Approve this announcement before reviewing recipients.",
+      );
+    }
+
+    if (
+      !campaign.sms_enabled ||
+      !campaign.sms_saved_at ||
+      !campaign.sms_body ||
+      !campaign.sms_rendered_body
+    ) {
+      throw new PublicApiError(
+        409,
+        "sms_draft_not_saved",
+        "Save the text message before reviewing recipients.",
       );
     }
 
     const emailAudience = await buildCampaignAudience();
-    const smsAudience = campaign.sms_enabled
-      ? await buildSmsCampaignAudience()
-      : null;
+    const smsAudience = await buildSmsCampaignAudience();
 
     await recordAdminCampaignAudit({
       action: "recipient_count_generated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: smsAudience
-        ? `email=${emailAudience.eligibleCount} sms=${smsAudience.eligibleCount}`
-        : `eligible=${emailAudience.eligibleCount} excluded=${emailAudience.excludedCount}`,
+      status: `email=${emailAudience.eligibleCount} sms=${smsAudience.eligibleCount}`,
     });
 
-    const confirmationPhrase = smsAudience
-      ? `SEND EMAIL TO ${emailAudience.eligibleCount} AND TEXT TO ${smsAudience.eligibleCount}`
-      : `SEND TO ${emailAudience.eligibleCount} SUBSCRIBERS`;
+    const confirmationPhrase = `SEND EMAIL TO ${emailAudience.eligibleCount} AND TEXT TO ${smsAudience.eligibleCount}`;
 
     return NextResponse.json({
       ok: true,
@@ -75,10 +81,10 @@ export async function POST(
         eligibleCount: emailAudience.eligibleCount,
         excludedCount: emailAudience.excludedCount,
         duplicateCount: emailAudience.duplicateCount,
-        smsEligibleCount: smsAudience?.eligibleCount || 0,
-        smsExcludedCount: smsAudience?.excludedCount || 0,
-        smsDuplicateCount: smsAudience?.duplicateCount || 0,
-        smsIncluded: Boolean(smsAudience),
+        smsEligibleCount: smsAudience.eligibleCount,
+        smsExcludedCount: smsAudience.excludedCount,
+        smsDuplicateCount: smsAudience.duplicateCount,
+        smsIncluded: true,
         receivingBothCount: null,
         confirmationPhrase,
       },

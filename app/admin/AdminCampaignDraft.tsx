@@ -46,6 +46,8 @@ type CampaignDraft = {
   smsEligibleCount?: number;
   smsExcludedCount?: number;
   smsDuplicateCount?: number;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
 };
 
 type ProgressSummary = {
@@ -112,6 +114,7 @@ type BusyAction =
   | "audience"
   | "delete"
   | "load"
+  | "pin"
   | "preview"
   | "refresh"
   | "save"
@@ -154,7 +157,7 @@ function campaignToForm(campaign: CampaignDraft): FormValues {
     heading: campaign.heading,
     messageType: campaign.messageType,
     smsBody: campaign.smsBody || DEFAULT_SMS_BODY,
-    smsEnabled: Boolean(campaign.smsEnabled),
+    smsEnabled: true,
     subject: campaign.subject,
   };
 }
@@ -167,8 +170,8 @@ function statusLabel(status?: string) {
   const labels: Record<string, string> = {
     approved: "Approved",
     canceled: "Canceled",
-    completed: "Email sent",
-    completed_with_failures: "Email completed with issues",
+    completed: "Announcement sent",
+    completed_with_failures: "Announcement completed with issues",
     draft: "Draft",
     failed: "Issue found",
     queueing: "Preparing send",
@@ -207,6 +210,26 @@ function canDeleteDraft(campaign: CampaignDraft) {
     (campaign.status === "draft" ||
       campaign.status === "test_ready" ||
       campaign.status === "tested")
+  );
+}
+
+function PinIcon({ pinned }: { pinned: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill={pinned ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      <path d="M14 4l6 6" />
+      <path d="M12 6l6 6-4 4-6-6 4-4z" />
+      <path d="M8 14l-4 4" />
+      <path d="M9 15l-3 5" />
+    </svg>
   );
 }
 
@@ -288,6 +311,7 @@ export default function AdminCampaignDraft({
   const [startPhrase, setStartPhrase] = useState("");
   const [testSendConfirmed, setTestSendConfirmed] = useState(false);
   const [testSendMessageId, setTestSendMessageId] = useState<string | null>(null);
+  const [pinningId, setPinningId] = useState<string | null>(null);
 
   const hasCampaign = Boolean(campaign);
   const isBusy = Boolean(busyAction);
@@ -309,22 +333,19 @@ export default function AdminCampaignDraft({
         form.subject !== campaign.subject),
   );
   const textWorkspaceUnlocked = Boolean(campaign);
-  const smsIncluded = Boolean(form.smsEnabled);
   const smsChangedSinceSave = Boolean(
-    smsIncluded &&
-      campaign &&
-      (!campaign.smsEnabled || campaign.smsBody !== form.smsBody),
+    campaign && (!campaign.smsEnabled || campaign.smsBody !== form.smsBody),
+  );
+  const hasSavedSmsDraft = Boolean(
+    campaign?.smsEnabled &&
+      campaign.smsSavedAt &&
+      campaign.smsBody &&
+      !smsChangedSinceSave,
   );
   const selectedChannelsSaved = Boolean(
-    campaign &&
-      !emailChangedSinceSave &&
-      (!smsIncluded ||
-        (campaign.smsEnabled && campaign.smsSavedAt && !smsChangedSinceSave)),
+    campaign && !emailChangedSinceSave && hasSavedSmsDraft,
   );
-  const smsSaved = Boolean(
-    !smsIncluded ||
-      (campaign?.smsEnabled && campaign.smsSavedAt && !smsChangedSinceSave),
-  );
+  const smsSaved = hasSavedSmsDraft;
   const canApprove = campaign?.status === "tested" && selectedChannelsSaved;
   const canStart = campaign?.status === "approved" && selectedChannelsSaved;
   const canDeleteCurrent = campaign ? canDeleteDraft(campaign) : false;
@@ -355,10 +376,7 @@ export default function AdminCampaignDraft({
   const smsTestNumberConfigured = false;
   const canRequestSmsTest = smsTestSendEnabled && smsTestNumberConfigured;
   const smsProductionReady =
-    smsBulkSendEnabled &&
-    smsBulkInfraReady &&
-    smsIncluded &&
-    smsProductionSendConnected;
+    smsBulkSendEnabled && smsBulkInfraReady && smsProductionSendConnected;
 
   async function refreshDrafts() {
     setBusyAction((current) => current || "refresh");
@@ -481,11 +499,10 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setForm((current) => ({ ...current, smsEnabled: true }));
       setMessage({
         tone: "success",
-        text: form.smsEnabled
-          ? "Email and text draft created and saved."
-          : "Draft created and saved.",
+        text: "Email draft created and saved. Add and save the text message next.",
       });
       await refreshDrafts();
     } catch (error) {
@@ -521,9 +538,7 @@ export default function AdminCampaignDraft({
       setCampaign(payload.campaign);
       setMessage({
         tone: "success",
-        text: `${
-          form.smsEnabled ? "Email and text saved" : "Draft saved"
-        } at ${new Date(
+        text: `Email and text saved at ${new Date(
           payload.campaign.updatedAt,
         ).toLocaleTimeString()}.`,
       });
@@ -611,6 +626,62 @@ export default function AdminCampaignDraft({
     }
   }
 
+  async function togglePin(target: CampaignDraft) {
+    if (isBusy || pinningId) {
+      return;
+    }
+
+    setPinningId(target.id);
+    setMessage(null);
+
+    try {
+      const response = await fetch(
+        `/api/admin/email-campaigns/${target.id}/pin`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            expectedVersion: target.version,
+            pinned: !target.isPinned,
+          }),
+        },
+      );
+      const payload = await parseJsonResponse(response);
+      const partial = payload.campaign as Partial<CampaignDraft>;
+
+      if (campaign?.id === target.id) {
+        updateCampaignFromPartial(partial);
+      }
+
+      setMessage({
+        tone: "success",
+        text: partial.isPinned ? "Announcement pinned." : "Announcement unpinned.",
+      });
+      await refreshDrafts();
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not update the pin.",
+      });
+    } finally {
+      setPinningId(null);
+    }
+  }
+
+  function scrollToTop() {
+    window.scrollTo({
+      top: 0,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }
+
   async function generatePreview() {
     setBusyAction("preview");
     setMessage(null);
@@ -647,7 +718,7 @@ export default function AdminCampaignDraft({
   }
 
   async function generateSmsPreview() {
-    if (!canUseSmsControls || !form.smsEnabled || isBusy) {
+    if (!canUseSmsControls || isBusy) {
       return;
     }
 
@@ -662,7 +733,7 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           smsBody: form.smsBody,
-          smsEnabled: form.smsEnabled,
+          smsEnabled: true,
         }),
       });
       const payload = await parseJsonResponse(response);
@@ -745,7 +816,6 @@ export default function AdminCampaignDraft({
       !campaign ||
       !canRequestSmsTest ||
       !smsTestConfirmed ||
-      !form.smsEnabled ||
       isBusy
     ) {
       return;
@@ -815,18 +885,16 @@ export default function AdminCampaignDraft({
       const nextAudience = await calculateAudienceForCampaign(campaign.id);
       setMessage({
         tone: "success",
-        text: nextAudience.smsIncluded
-          ? `Announcement approved. Email: ${nextAudience.eligibleCount} eligible. Text: ${
-              nextAudience.smsEligibleCount || 0
-            } eligible.`
-          : `Announcement approved. ${nextAudience.eligibleCount} eligible email subscribers counted.`,
+        text: `Announcement approved. Email: ${
+          nextAudience.eligibleCount
+        } eligible. Text: ${nextAudience.smsEligibleCount || 0} eligible.`,
       });
       await refreshDrafts();
     } catch (error) {
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "Could not approve email.",
+          error instanceof Error ? error.message : "Could not approve announcement.",
       });
     } finally {
       setBusyAction(null);
@@ -858,11 +926,9 @@ export default function AdminCampaignDraft({
       const nextAudience = await calculateAudienceForCampaign(campaign.id);
       setMessage({
         tone: "success",
-        text: nextAudience.smsIncluded
-          ? `Email: ${nextAudience.eligibleCount} eligible. Text: ${
-              nextAudience.smsEligibleCount || 0
-            } eligible.`
-          : `${nextAudience.eligibleCount} eligible email subscribers counted.`,
+        text: `Email: ${nextAudience.eligibleCount} eligible. Text: ${
+          nextAudience.smsEligibleCount || 0
+        } eligible.`,
       });
     } catch (error) {
       setMessage({
@@ -922,7 +988,7 @@ export default function AdminCampaignDraft({
       setMessage({
         tone: "error",
         text:
-          error instanceof Error ? error.message : "Could not send email.",
+          error instanceof Error ? error.message : "Could not send announcement.",
       });
     } finally {
       setBusyAction(null);
@@ -936,27 +1002,29 @@ export default function AdminCampaignDraft({
         ? "border-red-400/25 bg-red-400/10 text-red-100"
         : "border-white/10 bg-[#080D12] text-text-secondary";
 
-  const previewsReady = Boolean(preview && (!smsIncluded || activeSmsPreview));
+  const previewsReady = Boolean(preview && activeSmsPreview);
   const adminTestsReady = Boolean(
-    campaign?.testedAt &&
-      (!smsIncluded || !smsTestSendEnabled || campaign.smsTestedAt),
+    campaign?.testedAt && (!smsTestSendEnabled || campaign.smsTestedAt),
   );
-  const selectedDeliveryReady = smsIncluded
-    ? bulkInfraReady && smsProductionReady
-    : bulkInfraReady;
+  const selectedDeliveryReady = bulkInfraReady && smsProductionReady;
   const workflowSteps = [
     {
-      label: "Drafts saved",
+      label: "Email saved",
       state: selectedChannelsSaved ? "completed" : campaign ? "ready" : "ready",
       detail: campaign
-        ? smsIncluded
-          ? smsSaved
-            ? "Email and text are saved."
-            : "Save the email and text together."
-          : emailChangedSinceSave
-            ? "Save the latest email changes."
-            : "Email is saved. Text is not included."
+        ? emailChangedSinceSave
+          ? "Save the latest email changes."
+          : "Email draft is saved."
         : "Start by saving this announcement.",
+    },
+    {
+      label: "Text saved",
+      state: smsSaved ? "completed" : textWorkspaceUnlocked ? "ready" : "blocked",
+      detail: smsSaved
+        ? "Text draft is saved."
+        : textWorkspaceUnlocked
+          ? "Add and save the text message."
+          : "Save the email draft first.",
     },
     {
       label: "Previews reviewed",
@@ -966,13 +1034,9 @@ export default function AdminCampaignDraft({
           ? "ready"
           : "blocked",
       detail: previewsReady
-        ? smsIncluded
-          ? "Email and text previews are ready."
-          : "Email preview is ready. Text is not included."
+        ? "Email and text previews are ready."
         : selectedChannelsSaved
-          ? smsIncluded
-            ? "Generate email and text previews."
-            : "Generate the exact email preview."
+          ? "Generate email and text previews."
           : "Save the draft first.",
     },
     {
@@ -983,13 +1047,9 @@ export default function AdminCampaignDraft({
           ? "ready"
           : "blocked",
       detail: adminTestsReady
-        ? smsIncluded
-          ? "Email test complete. Text testing is not enabled here."
-          : `Test email sent to ${adminEmail}.`
+        ? "Email test complete. Text testing is not enabled here."
         : preview
-          ? smsIncluded
-            ? "Send one email test. Text testing stays disabled until configured."
-            : "Send one email test to yourself."
+          ? "Send one email test to yourself."
           : "Preview the email first.",
     },
     {
@@ -1004,7 +1064,7 @@ export default function AdminCampaignDraft({
         campaign?.status === "approved" || isSendStarted
           ? "Approved for recipient review."
           : canApprove
-            ? "Approve after reviewing selected channels."
+            ? "Approve after reviewing email and text."
             : "Complete the saved draft and admin test first.",
     },
     {
@@ -1015,11 +1075,9 @@ export default function AdminCampaignDraft({
           ? "ready"
           : "blocked",
       detail: audience
-        ? audience.smsIncluded
-          ? `Email: ${audience.eligibleCount}. Text: ${
-              audience.smsEligibleCount || 0
-            }.`
-          : `${audience.eligibleCount} eligible email subscribers.`
+        ? `Email: ${audience.eligibleCount}. Text: ${
+            audience.smsEligibleCount || 0
+          }.`
         : campaign?.status === "approved"
           ? "Refresh the count before sending."
           : "Approve the announcement first.",
@@ -1027,9 +1085,9 @@ export default function AdminCampaignDraft({
     {
       label:
         campaign?.status === "completed"
-          ? "Email sent"
+          ? "Announcement sent"
           : campaign?.status === "completed_with_failures"
-            ? "Email completed with issues"
+            ? "Announcement completed with issues"
             : "Ready to send",
       state:
         campaign?.status === "completed" ||
@@ -1047,13 +1105,11 @@ export default function AdminCampaignDraft({
         campaign?.status === "queued" ||
         campaign?.status === "sending"
           ? "The worker continues independently."
-          : smsIncluded
-            ? "Text delivery is prepared in the UI, but production text jobs are not live yet."
-            : audience && bulkInfraReady
-              ? "Type the confirmation phrase to send."
-              : !bulkInfraReady
-                ? "Sending is not available while setup is being prepared."
-                : "Review recipients first.",
+          : audience && selectedDeliveryReady
+            ? "Type the confirmation phrase to send."
+            : !bulkInfraReady
+              ? "Sending is not available while setup is being prepared."
+              : "Text delivery jobs are not connected yet.",
     },
   ] as const;
 
@@ -1062,6 +1118,334 @@ export default function AdminCampaignDraft({
     completed: "border-accent/25 bg-accent/10 text-teal-50",
     ready: "border-blue-300/25 bg-blue-400/10 text-blue-50",
   };
+
+  const subscriberDeliverySection = (
+    <section className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/20">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+            Subscriber delivery
+          </p>
+          <p className="mt-2 text-sm leading-6 text-text-secondary">
+            Review the final email, text, and recipient counts before sending.
+            You will be asked to type a confirmation phrase.
+          </p>
+        </div>
+        <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
+          {!bulkInfraReady || !smsProductionReady
+            ? "Setup incomplete"
+            : isSendStarted
+              ? status
+              : "Ready to send"}
+        </span>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={approveCampaign}
+          disabled={!campaign || !canApprove || isBusy}
+          className={primaryButtonClass("blue")}
+        >
+          {busyAction === "approve" ? "Approving..." : "Approve announcement"}
+        </button>
+        <button
+          type="button"
+          onClick={calculateAudience}
+          disabled={
+            !campaign ||
+            isBusy ||
+            campaign.status !== "approved"
+          }
+          className={primaryButtonClass("dark")}
+        >
+          {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
+        </button>
+      </div>
+
+      {audience ? (
+        <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+              <p className="font-semibold text-text-primary">
+                Email recipients
+              </p>
+              <p className="mt-1">
+                {audience.eligibleCount} eligible subscribers.
+              </p>
+              <p className="text-xs text-text-muted">
+                {audience.excludedCount} excluded or suppressed records.
+                {audience.duplicateCount
+                  ? ` ${audience.duplicateCount} duplicate email records skipped.`
+                  : ""}
+              </p>
+            </div>
+            <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+              <p className="font-semibold text-text-primary">Text recipients</p>
+              <p className="mt-1">
+                {audience.smsEligibleCount || 0} eligible subscribers.
+              </p>
+              <p className="text-xs text-text-muted">
+                {audience.smsExcludedCount || 0} text records excluded.
+                {audience.smsDuplicateCount
+                  ? ` ${audience.smsDuplicateCount} duplicate phone records skipped.`
+                  : ""}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-text-muted">
+            Receiving both is not shown until a future safe email-phone join is
+            added.
+          </p>
+          <label className="mt-4 block">
+            <span className="font-semibold text-text-primary">
+              Type this phrase to send:
+            </span>
+            <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
+              {audience.confirmationPhrase}
+            </code>
+            <input
+              value={startPhrase}
+              onChange={(event) => setStartPhrase(event.target.value)}
+              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={startCampaign}
+            disabled={
+              !campaign ||
+              !canStart ||
+              !bulkSendEnabled ||
+              !bulkInfraReady ||
+              !smsProductionReady ||
+              !audience.eligibleCount ||
+              !audience.smsEligibleCount ||
+              startPhrase !== audience.confirmationPhrase ||
+              isBusy
+            }
+            className={`mt-4 ${primaryButtonClass("amber")}`}
+          >
+            {busyAction === "start" ? "Sending..." : "Send announcement"}
+          </button>
+          {!smsProductionReady ? (
+            <p className="mt-3 text-xs leading-5 text-yellow-100">
+              Sending is not available yet because text delivery jobs are not
+              connected.
+            </p>
+          ) : null}
+          {!bulkInfraReady ? (
+            <p className="mt-3 text-xs leading-5 text-yellow-100">
+              Sending is not available while setup is being prepared.
+            </p>
+          ) : null}
+          {audience.eligibleCount === 0 || !audience.smsEligibleCount ? (
+            <p className="mt-3 text-xs leading-5 text-yellow-100">
+              Both email and text need at least one eligible recipient before
+              sending.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {progress ? (
+        <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="font-semibold text-text-primary">
+              {statusLabel(progress.campaignStatus)}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                campaign && fetchProgress(campaign.id).catch(() => undefined)
+              }
+              className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent"
+            >
+              Refresh progress
+            </button>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
+            {[
+              ["Eligible", progress.eligible],
+              ["Queued", progress.counts.queued],
+              ["Sending", progress.counts.sending],
+              ["Accepted by SES", progress.counts.sent],
+              ["Delivered", progress.counts.delivered],
+              ["Delayed", progress.counts.delayed],
+              ["Skipped", progress.counts.skipped],
+              ["Failed", progress.counts.failed],
+              ["Bounced", progress.counts.bounced],
+              ["Complained", progress.counts.complained],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3"
+              >
+                <dt className="text-text-muted">{label}</dt>
+                <dd className="mt-1 text-lg font-bold text-text-primary">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-xs leading-5 text-text-muted">
+            Queued means ready for the worker. Accepted by SES means AWS
+            accepted the message. Delivered means SES reports delivery to the
+            recipient mail server.
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+
+  const recentAnnouncementsSection = (
+    <section className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/20">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="font-headline text-xl font-bold text-text-primary">
+          Recent announcements
+        </h2>
+        <SecondaryButton
+          disabled={isBusy}
+          onClick={() =>
+            refreshDrafts().catch(() =>
+              setMessage({
+                tone: "error",
+                text: "Could not refresh announcements.",
+              }),
+            )
+          }
+        >
+          {busyAction === "refresh" ? "Refreshing..." : "Refresh"}
+        </SecondaryButton>
+      </div>
+
+      <div className="space-y-3">
+        {drafts.length ? (
+          drafts.map((draft) => {
+            const pinLoading = pinningId === draft.id;
+
+            return (
+              <article
+                key={draft.id}
+                className="rounded-[8px] border border-white/10 bg-[#080D12] p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold text-text-primary">
+                      {draft.subject}
+                    </p>
+                    <p className="mt-2 line-clamp-2 text-sm text-text-secondary">
+                      {draft.heading}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      aria-label={
+                        draft.isPinned
+                          ? "Unpin announcement"
+                          : "Pin announcement"
+                      }
+                      onClick={() => togglePin(draft)}
+                      disabled={isBusy || Boolean(pinningId)}
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs transition duration-150 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080D12] disabled:pointer-events-none disabled:opacity-50 ${
+                        draft.isPinned
+                          ? "border-accent/40 bg-accent/15 text-accent"
+                          : "border-white/10 bg-white/[0.03] text-text-muted hover:border-accent/50 hover:text-accent"
+                      }`}
+                    >
+                      {pinLoading ? "..." : <PinIcon pinned={Boolean(draft.isPinned)} />}
+                    </button>
+                    <span className="rounded-full border border-accent/20 px-2 py-1 text-xs capitalize text-accent">
+                      {statusLabel(draft.status)}
+                    </span>
+                  </div>
+                </div>
+                <dl className="mt-3 grid gap-2 text-xs text-text-muted sm:grid-cols-4">
+                  <div>
+                    <dt className="font-semibold text-text-secondary">Type</dt>
+                    <dd>{messageTypeLabel(draft.messageType)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-text-secondary">
+                      Updated
+                    </dt>
+                    <dd>{new Date(draft.updatedAt).toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-text-secondary">
+                      Email test
+                    </dt>
+                    <dd>{draft.testedAt ? "Complete" : "Needed"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-text-secondary">Text</dt>
+                    <dd>
+                      {draft.smsEnabled && draft.smsSavedAt
+                        ? draft.smsTestedAt
+                          ? "Saved, tested"
+                          : "Saved"
+                        : "Needs text"}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {draft.isPinned ? (
+                    <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-1 text-xs text-teal-50">
+                      Pinned
+                    </span>
+                  ) : null}
+                  <span className="rounded-full border border-blue-300/20 bg-blue-400/10 px-2 py-1 text-xs text-blue-50">
+                    Email
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-xs ${
+                      draft.smsEnabled && draft.smsSavedAt
+                        ? "border-accent/25 bg-accent/10 text-teal-50"
+                        : "border-yellow-400/20 bg-yellow-400/10 text-yellow-50"
+                    }`}
+                  >
+                    {draft.smsEnabled && draft.smsSavedAt
+                      ? "Text saved"
+                      : "Text needed"}
+                  </span>
+                  {draft.approvedAt ? (
+                    <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-2 py-1 text-xs text-yellow-50">
+                      Approved
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <SecondaryButton
+                    disabled={isBusy}
+                    onClick={() => loadDraft(draft.id)}
+                  >
+                    {busyAction === "load" && campaign?.id === draft.id
+                      ? "Opening..."
+                      : "Open"}
+                  </SecondaryButton>
+                  {canDeleteDraft(draft) ? (
+                    <SecondaryButton
+                      disabled={isBusy}
+                      onClick={() => deleteDraft(draft)}
+                    >
+                      {busyAction === "delete" && campaign?.id === draft.id
+                        ? "Deleting..."
+                        : "Delete draft"}
+                    </SecondaryButton>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <p className="rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm text-text-secondary">
+            No announcements loaded yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
 
   return (
     <>
@@ -1084,7 +1468,7 @@ export default function AdminCampaignDraft({
             New announcement
           </button>
         </div>
-        <ol className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
           {workflowSteps.map((step, index) => (
             <li
               key={step.label}
@@ -1117,8 +1501,7 @@ export default function AdminCampaignDraft({
             </h2>
             <p className="mt-2 text-sm leading-6 text-text-secondary">
               Save a draft, preview it, send one admin test, then approve and
-              review recipients before sending. Add text below when this
-              announcement should include SMS too.
+              review email and text recipients before sending.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1242,12 +1625,8 @@ export default function AdminCampaignDraft({
             {busyAction === "save"
               ? "Saving..."
               : hasCampaign
-                ? form.smsEnabled
-                  ? "Save email & text"
-                  : "Save draft"
-                : form.smsEnabled
-                  ? "Create email & text"
-                  : "Create draft"}
+                ? "Save email & text"
+                : "Save email"}
           </button>
           <button
             type="button"
@@ -1293,172 +1672,6 @@ export default function AdminCampaignDraft({
             Test accepted by SES for {adminEmail}. Message ID recorded.
           </div>
         ) : null}
-
-        <div className="mt-6 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-                Subscriber delivery
-              </p>
-              <p className="mt-2 text-sm leading-6 text-text-secondary">
-                Review the final email and recipient count before sending. You
-                will be asked to type a confirmation phrase.
-              </p>
-            </div>
-            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
-              {form.smsEnabled && !smsProductionReady
-                ? "Text setup incomplete"
-                : bulkInfraReady
-                ? isSendStarted
-                  ? status
-                  : "Ready to send"
-                : "Setup incomplete"}
-            </span>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={approveCampaign}
-              disabled={!campaign || !canApprove || isBusy}
-              className={primaryButtonClass("blue")}
-            >
-              {busyAction === "approve" ? "Approving..." : "Approve email"}
-            </button>
-            <button
-              type="button"
-              onClick={calculateAudience}
-              disabled={!campaign || isBusy || (campaign.status !== "tested" && campaign.status !== "approved")}
-              className={primaryButtonClass("dark")}
-            >
-              {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
-            </button>
-          </div>
-
-          {audience ? (
-            <div className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm leading-6 text-text-secondary">
-              <p className="font-semibold text-text-primary">
-                Email: {audience.eligibleCount} eligible subscribers
-              </p>
-              <p>
-                {audience.excludedCount} excluded or suppressed records.
-                {audience.duplicateCount
-                  ? ` ${audience.duplicateCount} duplicate email records skipped.`
-                  : ""}
-              </p>
-              {audience.smsIncluded ? (
-                <div className="mt-3 rounded-[8px] border border-white/10 bg-[#080D12] p-3">
-                  <p className="font-semibold text-text-primary">
-                    Text: {audience.smsEligibleCount || 0} eligible subscribers
-                  </p>
-                  <p>
-                    {audience.smsExcludedCount || 0} text records excluded.
-                    {audience.smsDuplicateCount
-                      ? ` ${audience.smsDuplicateCount} duplicate phone records skipped.`
-                      : ""}
-                  </p>
-                  <p className="mt-2 text-xs text-text-muted">
-                    Receiving both is not shown until a future safe email-phone
-                    join is added.
-                  </p>
-                </div>
-              ) : null}
-              <label className="mt-4 block">
-                <span className="font-semibold text-text-primary">
-                  Type this phrase to send:
-                </span>
-                <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
-                  {audience.confirmationPhrase}
-                </code>
-                <input
-                  value={startPhrase}
-                  onChange={(event) => setStartPhrase(event.target.value)}
-                  className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={startCampaign}
-                disabled={
-                  !campaign ||
-                  !canStart ||
-                  !bulkSendEnabled ||
-                  !bulkInfraReady ||
-                  (form.smsEnabled && !smsProductionReady) ||
-                  startPhrase !== audience.confirmationPhrase ||
-                  isBusy
-                }
-                className={`mt-4 ${primaryButtonClass("amber")}`}
-              >
-                {busyAction === "start"
-                  ? "Sending..."
-                  : form.smsEnabled
-                    ? "Send announcement"
-                    : "Send email"}
-              </button>
-              {form.smsEnabled && !smsProductionReady ? (
-                <p className="mt-3 text-xs leading-5 text-yellow-100">
-                  Text sending is prepared in the draft UI, but subscriber text
-                  jobs are not live yet.
-                </p>
-              ) : null}
-              {!bulkInfraReady ? (
-                <p className="mt-3 text-xs leading-5 text-yellow-100">
-                  Sending is not available yet because the email delivery system
-                  is still being prepared.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {progress ? (
-            <div className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm leading-6 text-text-secondary">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="font-semibold text-text-primary">
-                  {statusLabel(progress.campaignStatus)}
-                </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    campaign && fetchProgress(campaign.id).catch(() => undefined)
-                  }
-                  className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent"
-                >
-                  Refresh progress
-                </button>
-              </div>
-              <dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-5">
-                {[
-                  ["Eligible", progress.eligible],
-                  ["Queued", progress.counts.queued],
-                  ["Sending", progress.counts.sending],
-                  ["Accepted by SES", progress.counts.sent],
-                  ["Delivered", progress.counts.delivered],
-                  ["Delayed", progress.counts.delayed],
-                  ["Skipped", progress.counts.skipped],
-                  ["Failed", progress.counts.failed],
-                  ["Bounced", progress.counts.bounced],
-                  ["Complained", progress.counts.complained],
-                ].map(([label, value]) => (
-                  <div
-                    key={label}
-                    className="rounded-[8px] border border-white/10 bg-[#080D12] p-3"
-                  >
-                    <dt className="text-text-muted">{label}</dt>
-                    <dd className="mt-1 text-lg font-bold text-text-primary">
-                      {value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-3 text-xs leading-5 text-text-muted">
-                Queued means ready for the worker. Accepted by SES means AWS
-                accepted the message. Delivered means SES reports delivery to
-                the recipient mail server.
-              </p>
-            </div>
-          ) : null}
-        </div>
 
         {message ? (
           <div
@@ -1544,21 +1757,19 @@ export default function AdminCampaignDraft({
                 Text workspace
               </p>
               <h2 className="mt-2 font-headline text-2xl text-text-primary">
-                Optional beta text
+                Text draft
               </h2>
               <p className="mt-2 text-sm leading-6 text-text-secondary">
-                Add a short customer-care beta update only when this
-                announcement should include SMS.
+                Add the required customer-care beta text that sends with this
+                announcement.
               </p>
             </div>
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
               {!textWorkspaceUnlocked
                 ? "Locked"
-                : form.smsEnabled
-                  ? smsSaved
-                    ? "Saved"
-                    : "Unsaved"
-                  : "Not included"}
+                : smsSaved
+                  ? "Saved"
+                  : "Unsaved"}
             </span>
           </div>
 
@@ -1568,30 +1779,18 @@ export default function AdminCampaignDraft({
             </div>
           ) : null}
 
-          <label
-            className={`mt-5 flex gap-3 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary transition ${
-              !textWorkspaceUnlocked ? "opacity-60" : ""
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={form.smsEnabled}
-              onChange={(event) =>
-                updateField("smsEnabled", event.target.checked)
-              }
-              disabled={!textWorkspaceUnlocked || isSendStarted}
-              className="mt-1 h-4 w-4 shrink-0 accent-accent disabled:cursor-not-allowed"
-            />
-            <span>
-              Include a text message with this announcement. Text recipients
-              are counted from eligible SMS consent records only.
-            </span>
-          </label>
+          {textWorkspaceUnlocked ? (
+            <div className="mt-5 rounded-[8px] border border-accent/20 bg-accent/10 p-4 text-sm leading-6 text-teal-50">
+              Every announcement requires both an email and a text message.
+              Text recipients are counted from eligible SMS consent records
+              only.
+            </div>
+          ) : null}
 
           <div
-            aria-disabled={!canUseSmsControls || !form.smsEnabled}
+            aria-disabled={!canUseSmsControls}
             className={`mt-5 space-y-4 transition duration-300 ${
-              canUseSmsControls && form.smsEnabled
+              canUseSmsControls
                 ? "opacity-100"
                 : "pointer-events-none opacity-45"
             }`}
@@ -1605,7 +1804,7 @@ export default function AdminCampaignDraft({
                 onChange={(event) => updateField("smsBody", event.target.value)}
                 rows={6}
                 maxLength={260}
-                disabled={!canUseSmsControls || !form.smsEnabled}
+                disabled={!canUseSmsControls}
                 className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
@@ -1638,7 +1837,7 @@ export default function AdminCampaignDraft({
               <button
                 type="button"
                 onClick={generateSmsPreview}
-                disabled={!form.smsEnabled || !canUseSmsControls || isBusy}
+                disabled={!canUseSmsControls || isBusy}
                 className={primaryButtonClass("blue")}
               >
                 {busyAction === "smsPreview"
@@ -1650,7 +1849,6 @@ export default function AdminCampaignDraft({
                 onClick={requestSmsTestSend}
                 disabled={
                   !campaign ||
-                  !form.smsEnabled ||
                   !canRequestSmsTest ||
                   !smsTestConfirmed ||
                   isBusy
@@ -1668,7 +1866,7 @@ export default function AdminCampaignDraft({
                 type="checkbox"
                 checked={smsTestConfirmed}
                 onChange={(event) => setSmsTestConfirmed(event.target.checked)}
-                disabled={!form.smsEnabled || !canRequestSmsTest || isBusy}
+                disabled={!canRequestSmsTest || isBusy}
                 className="mt-1 h-4 w-4 shrink-0 accent-accent disabled:cursor-not-allowed"
               />
               <span>
@@ -1689,15 +1887,11 @@ export default function AdminCampaignDraft({
                 Text preview
               </p>
               <h2 className="mt-1 text-sm font-semibold text-text-primary">
-                {form.smsEnabled ? "SuppVis beta text" : "Text not included"}
+                SuppVis beta text
               </h2>
             </div>
             <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
-              {form.smsEnabled
-                ? activeSmsPreview
-                  ? "Previewed"
-                  : "Not started"
-                : "Off"}
+              {activeSmsPreview ? "Previewed" : "Not started"}
             </span>
           </div>
 
@@ -1712,145 +1906,52 @@ export default function AdminCampaignDraft({
                 </div>
                 <span className="h-3 w-3 rounded-full bg-accent shadow-[0_0_18px_rgba(36,196,182,0.55)]" />
               </div>
-              {form.smsEnabled && activeSmsPreview ? (
+              {activeSmsPreview ? (
                 <div className="rounded-[18px] bg-accent/15 p-4 text-sm leading-6 text-teal-50">
                   <p className="whitespace-pre-wrap">{activeSmsPreview.body}</p>
                 </div>
               ) : (
                 <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-text-secondary">
-                  {form.smsEnabled
-                    ? "Generate a server preview to see the exact text message."
-                    : "Turn on text if this announcement needs an SMS update."}
+                  Generate a server preview to see the exact text message.
                 </div>
               )}
             </div>
           </div>
 
           <p className="mt-4 text-xs leading-5 text-text-muted">
-            Text announcement sending is not connected yet. No SMS recipients
-            are touched while text remains disabled or unapproved.
+            Text sending is not connected yet. No SMS recipients are touched
+            while the announcement remains unsent.
           </p>
         </div>
       </section>
 
-        <section className="mt-5 rounded-[8px] border border-white/10 bg-[#0D1117] p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="font-headline text-xl font-bold text-text-primary">
-              Recent announcements
-            </h2>
-            <SecondaryButton
-              disabled={isBusy}
-              onClick={() =>
-                refreshDrafts().catch(() =>
-                  setMessage({
-                    tone: "error",
-                    text: "Could not refresh drafts.",
-                  }),
-                )
-              }
-            >
-              {busyAction === "refresh" ? "Refreshing..." : "Refresh"}
-            </SecondaryButton>
-          </div>
+      <section className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        {subscriberDeliverySection}
+        {recentAnnouncementsSection}
+      </section>
 
-          <div className="space-y-3">
-            {drafts.length ? (
-              drafts.map((draft) => (
-                <article
-                  key={draft.id}
-                  className="rounded-[8px] border border-white/10 bg-[#080D12] p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="break-words font-semibold text-text-primary">
-                        {draft.subject}
-                      </p>
-                      <p className="mt-2 line-clamp-2 text-sm text-text-secondary">
-                        {draft.heading}
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-accent/20 px-2 py-1 text-xs capitalize text-accent">
-                      {statusLabel(draft.status)}
-                    </span>
-                  </div>
-                  <dl className="mt-3 grid gap-2 text-xs text-text-muted sm:grid-cols-4">
-                    <div>
-                      <dt className="font-semibold text-text-secondary">Type</dt>
-                      <dd>{messageTypeLabel(draft.messageType)}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-text-secondary">
-                        Updated
-                      </dt>
-                      <dd>{new Date(draft.updatedAt).toLocaleString()}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-text-secondary">
-                        Email test
-                      </dt>
-                      <dd>{draft.testedAt ? "Yes" : "No"}</dd>
-                    </div>
-                    <div>
-                      <dt className="font-semibold text-text-secondary">
-                        Text
-                      </dt>
-                      <dd>
-                        {draft.smsEnabled
-                          ? draft.smsTestedAt
-                            ? "Included, tested"
-                            : "Included"
-                          : "Not included"}
-                      </dd>
-                    </div>
-                  </dl>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="rounded-full border border-blue-300/20 bg-blue-400/10 px-2 py-1 text-xs text-blue-50">
-                      Email
-                    </span>
-                    <span
-                      className={`rounded-full border px-2 py-1 text-xs ${
-                        draft.smsEnabled
-                          ? "border-accent/25 bg-accent/10 text-teal-50"
-                          : "border-white/10 bg-white/[0.03] text-text-muted"
-                      }`}
-                    >
-                      {draft.smsEnabled ? "Email + text" : "Email only"}
-                    </span>
-                    {draft.approvedAt ? (
-                      <span className="rounded-full border border-yellow-400/20 bg-yellow-400/10 px-2 py-1 text-xs text-yellow-50">
-                        Approved
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <SecondaryButton
-                      disabled={isBusy}
-                      onClick={() => loadDraft(draft.id)}
-                    >
-                      {busyAction === "load" && campaign?.id === draft.id
-                        ? "Opening..."
-                        : "Open"}
-                    </SecondaryButton>
-                    {canDeleteDraft(draft) ? (
-                      <SecondaryButton
-                        disabled={isBusy}
-                        onClick={() => deleteDraft(draft)}
-                      >
-                        {busyAction === "delete" && campaign?.id === draft.id
-                          ? "Deleting..."
-                          : "Delete draft"}
-                      </SecondaryButton>
-                    ) : null}
-                  </div>
-                </article>
-              ))
-            ) : (
-              <p className="rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm text-text-secondary">
-                No drafts loaded yet.
-              </p>
-            )}
-          </div>
-        </section>
+      <div className="mt-6 flex justify-center">
+        <button
+          type="button"
+          onClick={scrollToTop}
+          className="inline-flex w-full max-w-3xl items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-5 py-4 text-sm font-bold text-accent transition duration-150 ease-out hover:-translate-y-0.5 hover:border-accent/70 hover:bg-accent/15 active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
+        >
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          >
+            <path d="M12 19V5" />
+            <path d="M5 12l7-7 7 7" />
+          </svg>
+          Back to top
+        </button>
+      </div>
     </>
   );
 }

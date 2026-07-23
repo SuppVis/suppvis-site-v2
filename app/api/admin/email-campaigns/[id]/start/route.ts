@@ -2,27 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
-import {
-  enqueueEmailCampaignRecipient,
-  isAdminEmailBulkInfraReady,
-} from "@/app/lib/server/email/campaign-queue";
+import { isAdminEmailBulkInfraReady } from "@/app/lib/server/email/campaign-queue";
 import {
   areAdminCampaignsEnabled,
   isAdminEmailBulkSendEnabled,
 } from "@/app/lib/server/email/admin-campaign";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
-import {
-  assertDynamoTablesConfigured,
-  DYNAMO_TABLE_ENVS,
-} from "@/app/lib/server/dynamo";
-import {
-  createEmailCampaignRecipient,
-  getEmailCampaign,
-  markEmailCampaignQueued,
-  markEmailCampaignQueueFailed,
-  markEmailCampaignQueueing,
-  markEmailCampaignRecipientQueued,
-} from "@/app/lib/server/persistence";
+import { getEmailCampaign } from "@/app/lib/server/persistence";
 import {
   enforceRateLimit,
   readJsonBody,
@@ -31,6 +17,7 @@ import {
   adminCampaignIdSchema,
   adminCampaignStartSchema,
 } from "@/app/lib/server/validation";
+import { buildSmsCampaignAudience } from "@/app/lib/server/sms/campaign-audience";
 import {
   areAdminSmsAnnouncementsEnabled,
   isAdminSmsBulkInfraReady,
@@ -92,7 +79,7 @@ export async function POST(
         status: "disabled",
         code: "production_send_disabled",
         message:
-          "Sending is not available yet because the email delivery system is still being prepared.",
+          "Sending is not available yet because announcement delivery is still being prepared.",
       });
     }
 
@@ -100,37 +87,34 @@ export async function POST(
       throw new PublicApiError(
         409,
         "campaign_not_approved",
-        "Approve this email before sending it.",
+        "Approve this announcement before sending it.",
       );
     }
 
-    if (campaign.sms_enabled) {
-      const smsReady =
-        areAdminSmsAnnouncementsEnabled() &&
-        isAdminSmsBulkSendEnabled() &&
-        isAdminSmsBulkInfraReady();
-
-      await recordAdminCampaignAudit({
-        action: "sms_production_send_blocked",
-        adminIdentifier: admin.identifier,
-        campaignId: id,
-        status: smsReady
-          ? "sms_worker_not_connected"
-          : "sms_feature_flags_disabled",
-      }).catch(() => undefined);
-
-      return NextResponse.json({
-        ok: true,
-        status: "disabled",
-        code: "sms_production_send_disabled",
-        message: smsReady
-          ? "Text delivery jobs are not connected yet. Send an email-only announcement or leave text disabled."
-          : "Text sending is not available yet because the text delivery system is still being prepared.",
-      });
+    if (campaign.version !== submission.expectedVersion) {
+      throw new PublicApiError(
+        409,
+        "campaign_conflict",
+        "This announcement changed in another session. Reload it and try again.",
+      );
     }
 
-    const audience = await buildCampaignAudience();
-    const expectedPhrase = `SEND TO ${audience.eligibleCount} SUBSCRIBERS`;
+    if (
+      !campaign.sms_enabled ||
+      !campaign.sms_saved_at ||
+      !campaign.sms_body ||
+      !campaign.sms_rendered_body
+    ) {
+      throw new PublicApiError(
+        409,
+        "sms_draft_not_saved",
+        "Save the text message before sending this announcement.",
+      );
+    }
+
+    const emailAudience = await buildCampaignAudience();
+    const smsAudience = await buildSmsCampaignAudience();
+    const expectedPhrase = `SEND EMAIL TO ${emailAudience.eligibleCount} AND TEXT TO ${smsAudience.eligibleCount}`;
 
     if (submission.confirmationPhrase !== expectedPhrase) {
       throw new PublicApiError(
@@ -140,143 +124,35 @@ export async function POST(
       );
     }
 
-    assertDynamoTablesConfigured(DYNAMO_TABLE_ENVS.emailCampaignRecipients);
-
-    if (!process.env.ADMIN_EMAIL_CAMPAIGN_QUEUE_URL?.trim()) {
-      throw new PublicApiError(
-        503,
-        "campaign_queue_not_configured",
-        "Email delivery is not fully configured.",
-      );
-    }
-
-    const now = new Date().toISOString();
-    const queueing = await markEmailCampaignQueueing({
-      id,
-      expectedVersion: submission.expectedVersion,
-      now,
-      queued_by: admin.identifier,
-    });
-
-    if (!queueing) {
+    if (emailAudience.eligibleCount === 0 || smsAudience.eligibleCount === 0) {
       throw new PublicApiError(
         409,
-        "campaign_conflict",
-        "This email changed in another session. Reload it and try again.",
+        "announcement_audience_incomplete",
+        "Both email and text need at least one eligible recipient before sending.",
       );
     }
 
-    await recordAdminCampaignAudit({
-      action: "queueing_started",
-      adminIdentifier: admin.identifier,
-      campaignId: id,
-      status: `eligible=${audience.eligibleCount}`,
-    });
-
-    let queuedCount = 0;
-
-    try {
-      for (const candidate of audience.candidates) {
-        if (!candidate.decision.eligible) {
-          await createEmailCampaignRecipient({
-            campaignId: id,
-            subscriberId: candidate.subscriber.id,
-            now,
-            status: "skipped",
-            eligibilityDecision: "excluded",
-            skipReason: candidate.decision.reason,
-          });
-          continue;
-        }
-
-        const recipient = await createEmailCampaignRecipient({
-          campaignId: id,
-          subscriberId: candidate.subscriber.id,
-          now,
-          status: "queueing",
-          eligibilityDecision: "eligible",
-        });
-
-        if (!recipient) {
-          continue;
-        }
-
-        const queueResult = await enqueueEmailCampaignRecipient({
-          campaignId: id,
-          subscriberId: candidate.subscriber.id,
-        });
-
-        await markEmailCampaignRecipientQueued({
-          campaignId: id,
-          subscriberId: candidate.subscriber.id,
-          now: new Date().toISOString(),
-          sqsMessageId: queueResult.MessageId,
-        });
-
-        queuedCount += 1;
-      }
-    } catch (error) {
-      console.error("[admin-email] queueing failed", {
-        campaignId: id,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-      });
-
-      await markEmailCampaignQueueFailed({
-        id,
-        now: new Date().toISOString(),
-        updated_by: admin.identifier,
-        failureCode: "queueing_failed",
-      }).catch((updateError) => {
-        console.error("[admin-email] queue failure tracking failed", {
-          campaignId: id,
-          errorName:
-            updateError instanceof Error ? updateError.name : "UnknownError",
-        });
-      });
-
-      await recordAdminCampaignAudit({
-        action: "queueing_failed",
-        adminIdentifier: admin.identifier,
-        campaignId: id,
-        status: "queueing_failed",
-      }).catch(() => undefined);
-
-      throw new PublicApiError(
-        503,
-        "campaign_queueing_failed",
-        "Email delivery could not be started. Review logs before retrying.",
-      );
-    }
-
-    const queued = await markEmailCampaignQueued({
-      id,
-      now: new Date().toISOString(),
-      updated_by: admin.identifier,
-      eligibleCount: audience.eligibleCount,
-      excludedCount: audience.excludedCount,
-      queuedCount,
-    });
+    const smsReady =
+      areAdminSmsAnnouncementsEnabled() &&
+      isAdminSmsBulkSendEnabled() &&
+      isAdminSmsBulkInfraReady();
 
     await recordAdminCampaignAudit({
-      action: "campaign_queued",
+      action: "sms_production_send_blocked",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: `queued=${queuedCount} excluded=${audience.excludedCount}`,
+      status: smsReady
+        ? "sms_worker_not_connected"
+        : "sms_feature_flags_disabled",
     });
 
     return NextResponse.json({
       ok: true,
-      status: "queued",
-      campaign: queued
-        ? {
-            id: queued.id,
-            status: queued.status,
-            version: queued.version,
-            recipientCount: queued.recipient_count || 0,
-            queuedCount: queued.queued_count || 0,
-            skippedCount: queued.skipped_count || 0,
-          }
-        : null,
+      status: "disabled",
+      code: "sms_production_send_disabled",
+      message: smsReady
+        ? "Sending is not available yet because text delivery jobs are not connected."
+        : "Sending is not available yet because the text delivery system is still being prepared.",
     });
   } catch (error) {
     return handleApiError(error);

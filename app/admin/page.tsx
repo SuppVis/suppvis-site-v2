@@ -96,11 +96,11 @@ export default async function AdminPage() {
               </span>
             </div>
             <h1 className="font-headline text-4xl font-extrabold tracking-tight">
-              Beta announcements
+              Beta emails & texts
             </h1>
             <p className="mt-3 max-w-2xl leading-7 text-text-secondary">
-              Create, preview, test, and safely send beta updates by email with
-              optional account-related text messages.
+              Create, preview, test, and safely send beta announcements by
+              email and text.
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm text-text-secondary">
@@ -154,12 +154,12 @@ export default async function AdminPage() {
 
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           {[
-            ["Draft", "Create copy and preview it in SuppVis styling."],
-            ["Admin review", "Preview and test selected channels."],
+            ["Draft", "Write and save the email and text drafts."],
+            ["Admin review", "Preview both formats and send the admin test."],
             [
               "Subscriber delivery",
               process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
-                ? "Email delivery is ready after approval and recipient review."
+                ? "Send both channels only after recipient review."
                 : "Sending is not available while setup is being prepared.",
             ],
           ].map(([title, body]) => (

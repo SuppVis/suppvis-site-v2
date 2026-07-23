@@ -54,6 +54,8 @@ function campaignResponse(record: EmailCampaignRecord) {
     smsEligibleCount: record.sms_eligible_count || 0,
     smsExcludedCount: record.sms_excluded_count || 0,
     smsDuplicateCount: record.sms_duplicate_count || 0,
+    isPinned: record.is_pinned || false,
+    pinnedAt: record.pinned_at || null,
   };
 }
 
@@ -71,7 +73,7 @@ export async function GET(request: NextRequest) {
 
     await requireAdminSession();
 
-    const drafts = await listRecentEmailCampaignDrafts(20);
+    const drafts = await listRecentEmailCampaignDrafts(5);
 
     return NextResponse.json({
       ok: true,
@@ -101,6 +103,8 @@ export async function GET(request: NextRequest) {
         smsEligibleCount: draft.sms_eligible_count || 0,
         smsExcludedCount: draft.sms_excluded_count || 0,
         smsDuplicateCount: draft.sms_duplicate_count || 0,
+        isPinned: draft.is_pinned || false,
+        pinnedAt: draft.pinned_at || null,
       })),
     });
   } catch (error) {
@@ -158,6 +162,9 @@ export async function POST(request: NextRequest) {
       sms_encoding: smsPreview?.encoding || "GSM-7",
       sms_updated_by: smsPreview ? admin.identifier : null,
       sms_updated_at: smsPreview ? now : null,
+      is_pinned: false,
+      pinned_at: null,
+      pinned_by: null,
     };
 
     await createEmailCampaignDraft(record);
