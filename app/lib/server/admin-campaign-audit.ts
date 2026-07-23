@@ -6,12 +6,15 @@ export type AdminCampaignAuditAction =
   | "draft_updated"
   | "draft_deleted"
   | "preview_generated"
+  | "sms_preview_generated"
   | "recipient_count_generated"
+  | "sms_test_send_blocked"
   | "test_send_blocked"
   | "test_send_failed"
   | "test_send_sent"
   | "campaign_approved"
   | "production_send_blocked"
+  | "sms_production_send_blocked"
   | "queueing_started"
   | "queueing_failed"
   | "campaign_queued"
@@ -24,11 +27,12 @@ export async function recordAdminCampaignAudit(input: {
   status?: string;
 }) {
   const now = new Date().toISOString();
+  const isSmsAction = input.action.startsWith("sms_");
 
   await saveBroadcastAudit({
     id: `broadcast_audit_${randomUUID()}`,
     admin_identifier: input.adminIdentifier,
-    channel: "email",
+    channel: isSmsAction ? "sms" : "email",
     message_preview: [
       input.action,
       input.campaignId ? `campaign=${input.campaignId}` : "",
@@ -36,7 +40,9 @@ export async function recordAdminCampaignAudit(input: {
     ]
       .filter(Boolean)
       .join(" "),
-    intended_audience: "admin_email_campaign",
+    intended_audience: isSmsAction
+      ? "admin_sms_announcement"
+      : "admin_email_campaign",
     dry_run: true,
     status: "dry_run_recorded",
     created_at: now,

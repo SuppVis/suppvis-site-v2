@@ -1,6 +1,12 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import { z } from "zod";
 import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
+import {
+  ADMIN_SMS_MAX_SEGMENTS,
+  hasAdminSmsRequiredCopyDuplication,
+  isAdminSmsWithinLimits,
+  renderAdminSmsAnnouncement,
+} from "@/app/lib/server/messages/admin-sms";
 
 const emailSchema = z
   .string()
@@ -165,6 +171,47 @@ const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
   "Enter an https:// link.",
 );
 
+const adminCampaignSmsBodySchema = z.string().trim().max(260).optional().default("");
+
+function validateAdminSmsBody(
+  smsEnabled: boolean,
+  smsBody: string,
+  ctx: z.RefinementCtx,
+) {
+  if (!smsEnabled) {
+    return;
+  }
+
+  if (!smsBody) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["smsBody"],
+      message: "Add text message copy or turn off text messages.",
+    });
+    return;
+  }
+
+  if (hasAdminSmsRequiredCopyDuplication(smsBody)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["smsBody"],
+      message:
+        "Do not include SuppVis: or the message/data-rates footer. Those are added automatically.",
+    });
+    return;
+  }
+
+  const rendered = renderAdminSmsAnnouncement(smsBody);
+
+  if (!isAdminSmsWithinLimits(rendered)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["smsBody"],
+      message: `Keep the full text to ${ADMIN_SMS_MAX_SEGMENTS} SMS segments or fewer.`,
+    });
+  }
+}
+
 export const adminCampaignContentSchema = z
   .object({
     messageType: z.enum(adminEmailCampaignMessageTypes).default("beta_update"),
@@ -173,6 +220,8 @@ export const adminCampaignContentSchema = z
     body: z.string().trim().min(1).max(5000),
     ctaLabel: optionalTrimmedString(64),
     ctaUrl: adminCampaignCtaUrlSchema,
+    smsEnabled: z.boolean().optional().default(false),
+    smsBody: adminCampaignSmsBodySchema,
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -191,6 +240,8 @@ export const adminCampaignContentSchema = z
         message: "Add a link URL or remove the link text.",
       });
     }
+
+    validateAdminSmsBody(data.smsEnabled, data.smsBody, ctx);
   });
 
 export const createAdminCampaignSchema = adminCampaignContentSchema;
@@ -205,6 +256,16 @@ export const adminCampaignIdSchema = z
   .regex(/^email_campaign_[0-9a-f-]{36}$/);
 
 export const adminCampaignPreviewSchema = adminCampaignContentSchema;
+
+export const adminCampaignSmsPreviewSchema = z
+  .object({
+    smsEnabled: z.boolean().optional().default(false),
+    smsBody: adminCampaignSmsBodySchema,
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    validateAdminSmsBody(data.smsEnabled, data.smsBody, ctx);
+  });
 
 export const adminCampaignTestSendSchema = z.object({}).strict();
 

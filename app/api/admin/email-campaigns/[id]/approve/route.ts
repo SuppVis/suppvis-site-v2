@@ -65,6 +65,17 @@ export async function POST(
       );
     }
 
+    if (
+      current.sms_enabled &&
+      (!current.sms_saved_at || !current.sms_body || !current.sms_rendered_body)
+    ) {
+      throw new PublicApiError(
+        409,
+        "sms_draft_not_saved",
+        "Save the text message before approving this announcement.",
+      );
+    }
+
     const approved = await approveEmailCampaign({
       id,
       expectedVersion: submission.expectedVersion,
@@ -84,7 +95,7 @@ export async function POST(
       action: "campaign_approved",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: approved.status,
+      status: current.sms_enabled ? "approved email+text" : approved.status,
     });
 
     return NextResponse.json({

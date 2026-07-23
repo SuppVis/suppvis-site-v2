@@ -4,6 +4,7 @@ import {
   putDynamoItem,
   queryDynamoItems,
   queryDynamoItemsPage,
+  scanDynamoItemsPage,
   updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
@@ -319,6 +320,21 @@ export type EmailCampaignRecord = {
   test_message_id?: string | null;
   last_test_send_failed_at?: string | null;
   last_test_send_error_code?: string | null;
+  sms_enabled?: boolean;
+  sms_body?: string;
+  sms_rendered_body?: string;
+  sms_draft_version?: number;
+  sms_saved_at?: string | null;
+  sms_tested_at?: string | null;
+  sms_test_recipient_id?: string | null;
+  sms_character_count?: number;
+  sms_segment_count?: number;
+  sms_encoding?: "GSM-7" | "Unicode";
+  sms_updated_by?: string | null;
+  sms_updated_at?: string | null;
+  sms_eligible_count?: number;
+  sms_excluded_count?: number;
+  sms_duplicate_count?: number;
 };
 
 export type EmailCampaignRecipientStatus =
@@ -384,6 +400,15 @@ export type EmailCampaignSummary = Pick<
   | "delivered_count"
   | "failed_count"
   | "skipped_count"
+  | "sms_enabled"
+  | "sms_saved_at"
+  | "sms_tested_at"
+  | "sms_character_count"
+  | "sms_segment_count"
+  | "sms_encoding"
+  | "sms_eligible_count"
+  | "sms_excluded_count"
+  | "sms_duplicate_count"
 >;
 
 function numberAttribute(value: unknown) {
@@ -517,6 +542,23 @@ function emailCampaignFromAttributes(
       nullableStringAttribute(attributes?.last_test_send_failed_at) || null,
     last_test_send_error_code:
       nullableStringAttribute(attributes?.last_test_send_error_code) || null,
+    sms_enabled: booleanAttribute(attributes?.sms_enabled) || false,
+    sms_body: stringAttribute(attributes?.sms_body) || "",
+    sms_rendered_body: stringAttribute(attributes?.sms_rendered_body) || "",
+    sms_draft_version: numberAttribute(attributes?.sms_draft_version) || 0,
+    sms_saved_at: nullableStringAttribute(attributes?.sms_saved_at) || null,
+    sms_tested_at: nullableStringAttribute(attributes?.sms_tested_at) || null,
+    sms_test_recipient_id:
+      nullableStringAttribute(attributes?.sms_test_recipient_id) || null,
+    sms_character_count: numberAttribute(attributes?.sms_character_count) || 0,
+    sms_segment_count: numberAttribute(attributes?.sms_segment_count) || 0,
+    sms_encoding:
+      attributes?.sms_encoding === "Unicode" ? "Unicode" : "GSM-7",
+    sms_updated_by: nullableStringAttribute(attributes?.sms_updated_by) || null,
+    sms_updated_at: nullableStringAttribute(attributes?.sms_updated_at) || null,
+    sms_eligible_count: numberAttribute(attributes?.sms_eligible_count),
+    sms_excluded_count: numberAttribute(attributes?.sms_excluded_count),
+    sms_duplicate_count: numberAttribute(attributes?.sms_duplicate_count),
   };
 }
 
@@ -588,6 +630,15 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     delivered_count: record.delivered_count,
     failed_count: record.failed_count,
     skipped_count: record.skipped_count,
+    sms_enabled: record.sms_enabled,
+    sms_saved_at: record.sms_saved_at,
+    sms_tested_at: record.sms_tested_at,
+    sms_character_count: record.sms_character_count,
+    sms_segment_count: record.sms_segment_count,
+    sms_encoding: record.sms_encoding,
+    sms_eligible_count: record.sms_eligible_count,
+    sms_excluded_count: record.sms_excluded_count,
+    sms_duplicate_count: record.sms_duplicate_count,
   };
 }
 
@@ -1131,6 +1182,75 @@ export function canSendSmsToSubscriber(
   );
 }
 
+export async function listSmsSubscribersForAnnouncement(limit = 5000) {
+  const subscribers: SmsSubscriberRecord[] = [];
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+  do {
+    const page = await scanDynamoItemsPage({
+      tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+      projectionExpression:
+        "#id, phone_number_raw, phone_number_e164, #status, sms_informational_consent, sms_marketing_consent, sms_consent_timestamp, sms_consent_source, sms_consent_version, sms_global_opt_out, sms_global_opt_out_at, opt_out_timestamp, opt_out_source, last_opt_out_keyword, resubscribed_at, created_at, updated_at",
+      expressionAttributeNames: {
+        "#id": "id",
+        "#status": "status",
+      },
+      exclusiveStartKey: lastEvaluatedKey,
+      limit: 250,
+      operation: "list_sms_subscribers_for_announcement",
+    });
+
+    for (const item of page.items) {
+      const id = stringAttribute(item.id);
+      const phone = stringAttribute(item.phone_number_e164);
+      const status = smsSubscriberStatusAttribute(item.status);
+      const createdAt = stringAttribute(item.created_at);
+      const updatedAt = stringAttribute(item.updated_at);
+
+      if (!id || !phone || !status || !createdAt || !updatedAt) {
+        continue;
+      }
+
+      subscribers.push(
+        smsSubscriberFromAttributes(item, {
+          id,
+          phone_number_raw: stringAttribute(item.phone_number_raw) || phone,
+          phone_number_e164: phone,
+          status,
+          sms_informational_consent:
+            booleanAttribute(item.sms_informational_consent) || false,
+          sms_informational_consent_at: null,
+          sms_marketing_consent:
+            booleanAttribute(item.sms_marketing_consent) || false,
+          sms_marketing_consent_at: null,
+          sms_consent_timestamp:
+            stringAttribute(item.sms_consent_timestamp) || createdAt,
+          sms_consent_source:
+            stringAttribute(item.sms_consent_source) || "unknown",
+          sms_consent_version:
+            stringAttribute(item.sms_consent_version) || "unknown",
+          sms_global_opt_out:
+            booleanAttribute(item.sms_global_opt_out) || false,
+          sms_global_opt_out_at:
+            nullableStringAttribute(item.sms_global_opt_out_at) || null,
+          opt_out_timestamp:
+            nullableStringAttribute(item.opt_out_timestamp) || null,
+          created_at: createdAt,
+          updated_at: updatedAt,
+        }),
+      );
+
+      if (subscribers.length >= limit) {
+        return subscribers;
+      }
+    }
+
+    lastEvaluatedKey = page.lastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return subscribers;
+}
+
 export async function saveBroadcastAudit(record: BroadcastAuditRecord) {
   await putDynamoItem(
     DYNAMO_TABLE_ENVS.broadcastAuditLogs,
@@ -1164,6 +1284,18 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       approved_at: record.approved_at,
       sent_at: record.sent_at,
       test_recipient: record.test_recipient,
+      sms_enabled: record.sms_enabled || false,
+      sms_body: record.sms_body || "",
+      sms_rendered_body: record.sms_rendered_body || "",
+      sms_draft_version: record.sms_draft_version || 0,
+      sms_saved_at: record.sms_saved_at || null,
+      sms_tested_at: record.sms_tested_at || null,
+      sms_test_recipient_id: record.sms_test_recipient_id || null,
+      sms_character_count: record.sms_character_count || 0,
+      sms_segment_count: record.sms_segment_count || 0,
+      sms_encoding: record.sms_encoding || "GSM-7",
+      sms_updated_by: record.sms_updated_by || null,
+      sms_updated_at: record.sms_updated_at || null,
     },
   });
 
@@ -1215,8 +1347,15 @@ export async function updateEmailCampaignDraft(input: {
   now: string;
   subject: string;
   updated_by: string;
+  sms_enabled?: boolean;
+  sms_body?: string;
+  sms_rendered_body?: string;
+  sms_character_count?: number;
+  sms_segment_count?: number;
+  sms_encoding?: "GSM-7" | "Unicode";
 }) {
   const nextVersion = input.expectedVersion + 1;
+  const smsDraftVersion = input.sms_enabled ? nextVersion : 0;
   const result = await updateDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
     key: { id: input.id },
@@ -1229,6 +1368,21 @@ export async function updateEmailCampaignDraft(input: {
       body: input.body,
       cta_label: input.cta_label,
       cta_url: input.cta_url,
+      sms_enabled: Boolean(input.sms_enabled),
+      sms_body: input.sms_enabled ? input.sms_body || "" : "",
+      sms_rendered_body: input.sms_enabled ? input.sms_rendered_body || "" : "",
+      sms_draft_version: smsDraftVersion,
+      sms_saved_at: input.sms_enabled ? input.now : null,
+      sms_tested_at: input.sms_enabled ? undefined : null,
+      sms_test_recipient_id: input.sms_enabled ? undefined : null,
+      sms_character_count: input.sms_enabled ? input.sms_character_count || 0 : 0,
+      sms_segment_count: input.sms_enabled ? input.sms_segment_count || 0 : 0,
+      sms_encoding: input.sms_enabled ? input.sms_encoding || "GSM-7" : "GSM-7",
+      sms_updated_by: input.sms_enabled ? input.updated_by : null,
+      sms_updated_at: input.sms_enabled ? input.now : null,
+      sms_eligible_count: input.sms_enabled ? undefined : 0,
+      sms_excluded_count: input.sms_enabled ? undefined : 0,
+      sms_duplicate_count: input.sms_enabled ? undefined : 0,
       status: "draft",
       updated_by: input.updated_by,
       updated_at: input.now,

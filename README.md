@@ -80,6 +80,10 @@ Admin console auth:
 - `ADMIN_EMAIL_BULK_SEND_ENABLED` - keep `false` until queued batch sending and audit controls are approved.
 - `ADMIN_EMAIL_BULK_SEND_INFRA_READY` - extra default-off readiness gate for subscriber campaign queueing; keep `false` until the queue, worker, IAM, and live tests are explicitly approved.
 - `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` - SQS queue URL used only after the readiness gate is enabled.
+- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for optional SMS fields in admin announcements.
+- `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for future one-admin SMS tests; also requires a verified server-side admin test number mapping before any test can send.
+- `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for future subscriber SMS announcement sending.
+- `ADMIN_SMS_BULK_SEND_INFRA_READY` - default-off readiness gate for future SMS queue/worker infrastructure.
 
 Welcome templates:
 
@@ -128,7 +132,7 @@ The current code writes these record shapes:
 
 - Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `legacy_sms_consent`, `sms_informational_consent`, `sms_marketing_consent`, `sms_consent_version`, `status`, `source_page`, `created_at`, `updated_at`
 - Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
-- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`, optional approval/queue timestamps, soft-delete fields, and aggregate send counters
+- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, optional admin SMS fields (`sms_enabled`, `sms_body`, `sms_rendered_body`, `sms_draft_version`, `sms_saved_at`, `sms_tested_at`, `sms_character_count`, `sms_segment_count`, `sms_encoding`, `sms_updated_by`, `sms_updated_at`, optional SMS audience counts), `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`, optional approval/queue timestamps, soft-delete fields, and aggregate send counters
 - Email campaign recipients: `campaign_id`, `subscriber_id`, `record_type`, `status`, `eligibility_decision`, optional `skip_reason`, optional `ses_message_id`, queue/send/delivery/failure timestamps, `retry_count`, optional safe failure classification, `created_at`, `updated_at`
 - SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_informational_consent`, `sms_informational_consent_at`, `sms_marketing_consent`, `sms_marketing_consent_at`, `sms_consent_timestamp`, `sms_consent_source`, `sms_consent_version`, `sms_global_opt_out`, `sms_global_opt_out_at`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
 - Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
@@ -182,7 +186,7 @@ Real welcome sends must remain disabled until:
 
 Do not enable bulk sends or broadcast sends from these helpers. They are one-recipient transactional paths only.
 
-## Admin Email Campaign Console
+## Admin Announcement Console
 
 The `/admin` route is intentionally not linked from public navigation, but hidden URLs are not a security boundary. Admin access is enforced by:
 
@@ -192,7 +196,9 @@ The `/admin` route is intentionally not linked from public navigation, but hidde
 - Server-side authorization checks on the admin page.
 - Disabled send flags until each sending phase is approved.
 
-The current admin console supports campaign draft persistence, recent draft loading, server-rendered HTML/plain-text previews, one-recipient admin test sends, approval, recipient counting, draft archiving, and a queued production-send route that remains blocked unless `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true`.
+The current admin console supports announcement draft persistence, recent draft loading, server-rendered HTML/plain-text email previews, optional customer-care beta text drafting/previews, one-recipient admin email test sends, approval, recipient counting, draft archiving, and a queued production email-send route that remains blocked unless `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true`.
+
+Optional admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Subscriber SMS announcement sending is not implemented or live in this phase; it remains blocked by separate `ADMIN_SMS_*` gates and missing queue/worker infrastructure.
 
 Recommended Microsoft Entra setup:
 
@@ -218,6 +224,8 @@ Queued production campaign sending uses:
 `ADMIN_EMAIL_BULK_SEND_ENABLED=true` is not enough by itself. Subscriber campaign queueing also requires `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true` and a configured `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL`.
 
 Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
+
+Admin SMS announcement sends must not use `WELCOME_SMS_ENABLED`; that flag is only for the beta signup welcome text path. Future SMS announcement sending needs a channel-specific queue/worker, recipient tracking, STOP/status re-checks, and least-privilege IAM before `ADMIN_SMS_BULK_SEND_INFRA_READY` can be enabled.
 
 Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional link text/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
 

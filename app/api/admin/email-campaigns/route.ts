@@ -13,6 +13,7 @@ import {
   readJsonBody,
 } from "@/app/lib/server/request";
 import { createAdminCampaignSchema } from "@/app/lib/server/validation";
+import { renderAdminSmsAnnouncement } from "@/app/lib/server/messages/admin-sms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,15 +28,12 @@ function campaignResponse(record: EmailCampaignRecord) {
     ctaLabel: record.cta_label,
     ctaUrl: record.cta_url,
     status: record.status,
-    createdBy: record.created_by,
-    updatedBy: record.updated_by,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     version: record.version,
     testedAt: record.tested_at,
     approvedAt: record.approved_at,
     sentAt: record.sent_at,
-    testRecipient: record.test_recipient,
     recipientCount: record.recipient_count || 0,
     eligibleCount: record.eligible_count || 0,
     excludedCount: record.excluded_count || 0,
@@ -44,6 +42,18 @@ function campaignResponse(record: EmailCampaignRecord) {
     deliveredCount: record.delivered_count || 0,
     failedCount: record.failed_count || 0,
     skippedCount: record.skipped_count || 0,
+    smsEnabled: record.sms_enabled || false,
+    smsBody: record.sms_body || "",
+    smsRenderedBody: record.sms_rendered_body || "",
+    smsDraftVersion: record.sms_draft_version || 0,
+    smsSavedAt: record.sms_saved_at || null,
+    smsTestedAt: record.sms_tested_at || null,
+    smsCharacterCount: record.sms_character_count || 0,
+    smsSegmentCount: record.sms_segment_count || 0,
+    smsEncoding: record.sms_encoding || "GSM-7",
+    smsEligibleCount: record.sms_eligible_count || 0,
+    smsExcludedCount: record.sms_excluded_count || 0,
+    smsDuplicateCount: record.sms_duplicate_count || 0,
   };
 }
 
@@ -71,20 +81,26 @@ export async function GET(request: NextRequest) {
         subject: draft.subject,
         heading: draft.heading,
         status: draft.status,
-        createdBy: draft.created_by,
-        updatedBy: draft.updated_by,
         createdAt: draft.created_at,
         updatedAt: draft.updated_at,
         version: draft.version,
         testedAt: draft.tested_at,
         approvedAt: draft.approved_at,
-        testRecipient: draft.test_recipient,
         recipientCount: draft.recipient_count || 0,
         queuedCount: draft.queued_count || 0,
         sentCount: draft.sent_count || 0,
         deliveredCount: draft.delivered_count || 0,
         failedCount: draft.failed_count || 0,
         skippedCount: draft.skipped_count || 0,
+        smsEnabled: draft.sms_enabled || false,
+        smsSavedAt: draft.sms_saved_at || null,
+        smsTestedAt: draft.sms_tested_at || null,
+        smsCharacterCount: draft.sms_character_count || 0,
+        smsSegmentCount: draft.sms_segment_count || 0,
+        smsEncoding: draft.sms_encoding || "GSM-7",
+        smsEligibleCount: draft.sms_eligible_count || 0,
+        smsExcludedCount: draft.sms_excluded_count || 0,
+        smsDuplicateCount: draft.sms_duplicate_count || 0,
       })),
     });
   } catch (error) {
@@ -108,6 +124,9 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody(request);
     const submission = createAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
+    const smsPreview = submission.smsEnabled
+      ? renderAdminSmsAnnouncement(submission.smsBody)
+      : null;
     const record: EmailCampaignRecord = {
       id: `email_campaign_${randomUUID()}`,
       record_type: "email_campaign",
@@ -127,6 +146,18 @@ export async function POST(request: NextRequest) {
       approved_at: null,
       sent_at: null,
       test_recipient: null,
+      sms_enabled: submission.smsEnabled,
+      sms_body: smsPreview?.editableBody || "",
+      sms_rendered_body: smsPreview?.body || "",
+      sms_draft_version: smsPreview ? 1 : 0,
+      sms_saved_at: smsPreview ? now : null,
+      sms_tested_at: null,
+      sms_test_recipient_id: null,
+      sms_character_count: smsPreview?.characterCount || 0,
+      sms_segment_count: smsPreview?.segmentCount || 0,
+      sms_encoding: smsPreview?.encoding || "GSM-7",
+      sms_updated_by: smsPreview ? admin.identifier : null,
+      sms_updated_at: smsPreview ? now : null,
     };
 
     await createEmailCampaignDraft(record);
@@ -134,7 +165,7 @@ export async function POST(request: NextRequest) {
       action: "draft_created",
       adminIdentifier: admin.identifier,
       campaignId: record.id,
-      status: record.status,
+      status: record.sms_enabled ? "draft email+text" : record.status,
     });
 
     return NextResponse.json({

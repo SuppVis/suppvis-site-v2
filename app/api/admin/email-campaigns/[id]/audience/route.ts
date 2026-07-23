@@ -5,6 +5,7 @@ import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience"
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import { getEmailCampaign } from "@/app/lib/server/persistence";
 import { enforceRateLimit } from "@/app/lib/server/request";
+import { buildSmsCampaignAudience } from "@/app/lib/server/sms/campaign-audience";
 import { adminCampaignIdSchema } from "@/app/lib/server/validation";
 
 export const runtime = "nodejs";
@@ -50,22 +51,36 @@ export async function POST(
       );
     }
 
-    const audience = await buildCampaignAudience();
+    const emailAudience = await buildCampaignAudience();
+    const smsAudience = campaign.sms_enabled
+      ? await buildSmsCampaignAudience()
+      : null;
 
     await recordAdminCampaignAudit({
       action: "recipient_count_generated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: `eligible=${audience.eligibleCount} excluded=${audience.excludedCount}`,
+      status: smsAudience
+        ? `email=${emailAudience.eligibleCount} sms=${smsAudience.eligibleCount}`
+        : `eligible=${emailAudience.eligibleCount} excluded=${emailAudience.excludedCount}`,
     });
+
+    const confirmationPhrase = smsAudience
+      ? `SEND EMAIL TO ${emailAudience.eligibleCount} AND TEXT TO ${smsAudience.eligibleCount}`
+      : `SEND TO ${emailAudience.eligibleCount} SUBSCRIBERS`;
 
     return NextResponse.json({
       ok: true,
       audience: {
-        eligibleCount: audience.eligibleCount,
-        excludedCount: audience.excludedCount,
-        duplicateCount: audience.duplicateCount,
-        confirmationPhrase: `SEND TO ${audience.eligibleCount} SUBSCRIBERS`,
+        eligibleCount: emailAudience.eligibleCount,
+        excludedCount: emailAudience.excludedCount,
+        duplicateCount: emailAudience.duplicateCount,
+        smsEligibleCount: smsAudience?.eligibleCount || 0,
+        smsExcludedCount: smsAudience?.excludedCount || 0,
+        smsDuplicateCount: smsAudience?.duplicateCount || 0,
+        smsIncluded: Boolean(smsAudience),
+        receivingBothCount: null,
+        confirmationPhrase,
       },
     });
   } catch (error) {

@@ -31,6 +31,11 @@ import {
   adminCampaignIdSchema,
   adminCampaignStartSchema,
 } from "@/app/lib/server/validation";
+import {
+  areAdminSmsAnnouncementsEnabled,
+  isAdminSmsBulkInfraReady,
+  isAdminSmsBulkSendEnabled,
+} from "@/app/lib/server/sms/admin-campaign";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +102,31 @@ export async function POST(
         "campaign_not_approved",
         "Approve this email before sending it.",
       );
+    }
+
+    if (campaign.sms_enabled) {
+      const smsReady =
+        areAdminSmsAnnouncementsEnabled() &&
+        isAdminSmsBulkSendEnabled() &&
+        isAdminSmsBulkInfraReady();
+
+      await recordAdminCampaignAudit({
+        action: "sms_production_send_blocked",
+        adminIdentifier: admin.identifier,
+        campaignId: id,
+        status: smsReady
+          ? "sms_worker_not_connected"
+          : "sms_feature_flags_disabled",
+      }).catch(() => undefined);
+
+      return NextResponse.json({
+        ok: true,
+        status: "disabled",
+        code: "sms_production_send_disabled",
+        message: smsReady
+          ? "Text delivery jobs are not connected yet. Send an email-only announcement or leave text disabled."
+          : "Text sending is not available yet because the text delivery system is still being prepared.",
+      });
     }
 
     const audience = await buildCampaignAudience();

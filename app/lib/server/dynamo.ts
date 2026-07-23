@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { PersistenceError, ServerConfigError } from "./errors";
@@ -52,6 +53,17 @@ type QueryInput = {
   exclusiveStartKey?: DynamoRecord;
   limit?: number;
   scanIndexForward?: boolean;
+  operation: string;
+};
+
+type ScanInput = {
+  tableEnvName: string;
+  filterExpression?: string;
+  projectionExpression?: string;
+  expressionAttributeNames?: Record<string, string>;
+  expressionAttributeValues?: DynamoRecord;
+  exclusiveStartKey?: DynamoRecord;
+  limit?: number;
   operation: string;
 };
 
@@ -324,6 +336,37 @@ export async function queryDynamoItemsPage(input: QueryInput) {
       operation: input.operation,
       tableEnvName: input.tableEnvName,
       indexName: input.indexName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function scanDynamoItemsPage(input: ScanInput) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+
+  try {
+    const result = await getDocumentClient().send(
+      new ScanCommand({
+        TableName: tableName,
+        FilterExpression: input.filterExpression,
+        ProjectionExpression: input.projectionExpression,
+        ExpressionAttributeNames: input.expressionAttributeNames,
+        ExpressionAttributeValues: input.expressionAttributeValues,
+        ExclusiveStartKey: input.exclusiveStartKey,
+        Limit: input.limit,
+      }),
+    );
+
+    return {
+      items: (result.Items || []) as DynamoRecord[],
+      lastEvaluatedKey: result.LastEvaluatedKey as DynamoRecord | undefined,
+    };
+  } catch (error) {
+    console.error("[dynamodb] scan failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
 

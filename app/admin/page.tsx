@@ -96,10 +96,11 @@ export default async function AdminPage() {
               </span>
             </div>
             <h1 className="font-headline text-4xl font-extrabold tracking-tight">
-              Beta emails
+              Beta announcements
             </h1>
             <p className="mt-3 max-w-2xl leading-7 text-text-secondary">
-              Create, preview, test, and safely send branded beta updates.
+              Create, preview, test, and safely send beta updates by email with
+              optional account-related text messages.
             </p>
           </div>
           <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4 text-sm text-text-secondary">
@@ -118,21 +119,21 @@ export default async function AdminPage() {
           <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-                Email workspace
+                Announcement workspace
               </p>
               <h2 className="mt-2 font-headline text-2xl font-bold text-text-primary">
                 Compose one beta update at a time
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-text-secondary">
                 Drafts are saved before sending, previews use the same branded
-                renderer as the final email, and subscriber sends are queued
-                with unsubscribe and suppression checks for each recipient.
+                renderer as final delivery, and subscriber sends use channel
+                consent plus suppression checks for each recipient.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
               {[
-                ["Audience", "Subscribed beta email records"],
-                ["Safety", "Test to yourself before approval"],
+                ["Audience", "Eligible email and text consent records"],
+                ["Safety", "Admin tests before approval"],
                 ["Tracking", "Queued, accepted, and delivered states"],
               ].map(([label, body]) => (
                 <div
@@ -154,11 +155,11 @@ export default async function AdminPage() {
         <div className="mb-5 grid gap-4 md:grid-cols-3">
           {[
             ["Draft", "Create copy and preview it in SuppVis styling."],
-            ["Test email", "One message to your signed-in admin inbox."],
+            ["Admin review", "Preview and test selected channels."],
             [
-              "Subscriber email",
+              "Subscriber delivery",
               process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
-                ? "Ready after approval and recipient review."
+                ? "Email delivery is ready after approval and recipient review."
                 : "Sending is not available while setup is being prepared.",
             ],
           ].map(([title, body]) => (
@@ -186,6 +187,17 @@ export default async function AdminPage() {
         }
         bulkInfraReady={
           process.env.ADMIN_EMAIL_BULK_SEND_INFRA_READY === "true"
+        }
+        smsTestSendEnabled={
+          process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
+          process.env.ADMIN_SMS_TEST_SEND_ENABLED === "true"
+        }
+        smsBulkSendEnabled={
+          process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
+          process.env.ADMIN_SMS_BULK_SEND_ENABLED === "true"
+        }
+        smsBulkInfraReady={
+          process.env.ADMIN_SMS_BULK_SEND_INFRA_READY === "true"
         }
         />
       </div>
