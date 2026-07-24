@@ -80,7 +80,7 @@ Admin console auth:
 - `ADMIN_EMAIL_BULK_SEND_ENABLED` - keep `false` until queued batch sending and audit controls are approved.
 - `ADMIN_EMAIL_BULK_SEND_INFRA_READY` - extra default-off readiness gate for subscriber campaign queueing; keep `false` until the queue, worker, IAM, and live tests are explicitly approved.
 - `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` - SQS queue URL used only after the readiness gate is enabled.
-- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for SMS fields in combined admin announcements.
+- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for future subscriber SMS announcement delivery. It is not required for the one-admin SMS test modal.
 - `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for one-admin SMS tests through the protected admin modal; keep `false` until Twilio and admin mappings are verified.
 - `ADMIN_SMS_TEST_RECIPIENTS` - sensitive server-only mapping from normalized admin email to one approved U.S. E.164 test phone, such as `admin1@suppvis.health=+1XXXXXXXXXX,admin2@suppvis.health=+1XXXXXXXXXX`. Do not expose with `NEXT_PUBLIC_`.
 - `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for future subscriber SMS announcement sending.

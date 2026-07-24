@@ -8,11 +8,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-const DEFAULT_BODY =
-  "A new SuppVis beta update is ready. Open TestFlight to install the latest build, then reply with anything that feels confusing, broken, or surprisingly useful.";
-const DEFAULT_SMS_BODY =
-  "Your beta update is ready. Open TestFlight to install the latest build: https://testflight.apple.com/join/nTASgewZ";
+import {
+  DEFAULT_ADMIN_EMAIL_BODY,
+  DEFAULT_ADMIN_EMAIL_CTA_LABEL,
+  DEFAULT_ADMIN_EMAIL_CTA_URL,
+  DEFAULT_ADMIN_EMAIL_HEADING,
+  DEFAULT_ADMIN_EMAIL_SUBJECT,
+  DEFAULT_ADMIN_MESSAGE_TYPE,
+  DEFAULT_ADMIN_SMS_BODY,
+  isDefaultAdminEmailContent,
+  isDefaultAdminSmsContent,
+  isUnsafeTestPlaceholder,
+} from "@/app/lib/admin-campaign-defaults";
 
 type CampaignDraft = {
   id: string;
@@ -116,6 +123,29 @@ type SmsPreview = {
   segmentCount: number;
 };
 
+type SmsTestReadiness = {
+  adminCampaignsEnabled: boolean;
+  featureEnabled: boolean;
+  mappingConfigValid: boolean;
+  mappingFound: boolean;
+  maskedPhone: string | null;
+  phoneValid: boolean;
+  ready: boolean;
+  reason:
+    | "admin_campaigns_disabled"
+    | "mapping_invalid"
+    | "mapping_missing"
+    | "ready"
+    | "sms_test_disabled"
+    | "stale_version"
+    | "text_not_saved"
+    | "twilio_config_incomplete";
+  sessionAuthorized: boolean;
+  textSaved: boolean;
+  twilioConfigured: boolean;
+  versionMatches: boolean;
+};
+
 type FormValues = {
   body: string;
   ctaLabel: string;
@@ -144,15 +174,20 @@ type BusyAction =
   | "test"
   | null;
 
+type DefaultSaveRequest = {
+  channel: "email" | "text";
+  sections: string[];
+};
+
 const initialForm: FormValues = {
-  body: DEFAULT_BODY,
-  ctaLabel: "Open TestFlight",
-  ctaUrl: "https://testflight.apple.com/join/nTASgewZ",
-  heading: "A new beta build is ready.",
-  messageType: "testflight_update",
-  smsBody: DEFAULT_SMS_BODY,
+  body: DEFAULT_ADMIN_EMAIL_BODY,
+  ctaLabel: DEFAULT_ADMIN_EMAIL_CTA_LABEL,
+  ctaUrl: DEFAULT_ADMIN_EMAIL_CTA_URL,
+  heading: DEFAULT_ADMIN_EMAIL_HEADING,
+  messageType: DEFAULT_ADMIN_MESSAGE_TYPE,
+  smsBody: DEFAULT_ADMIN_SMS_BODY,
   smsEnabled: true,
-  subject: "New SuppVis beta update",
+  subject: DEFAULT_ADMIN_EMAIL_SUBJECT,
 };
 
 async function parseJsonResponse(response: Response) {
@@ -190,7 +225,7 @@ function campaignToForm(campaign: CampaignDraft): FormValues {
     ctaUrl: campaign.ctaUrl,
     heading: campaign.heading,
     messageType: campaign.messageType,
-    smsBody: campaign.smsBody || DEFAULT_SMS_BODY,
+    smsBody: campaign.smsBody || DEFAULT_ADMIN_SMS_BODY,
     smsEnabled: true,
     subject: campaign.subject,
   };
@@ -236,6 +271,153 @@ function messageTypeLabel(messageType?: string) {
   }
 
   return "Beta announcement";
+}
+
+function messageTypeEmailLabel(messageType?: string) {
+  return messageTypeLabel(messageType).toUpperCase();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function localParagraphs(body: string) {
+  return body
+    .trim()
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function localEmailPreviewHtml(form: FormValues) {
+  const label = messageTypeEmailLabel(form.messageType);
+  const bodyHtml = [
+    ...localParagraphs(form.body).map((paragraph) =>
+      `<p style="margin:0 0 18px 0;color:#9BAFBF;font-size:16px;line-height:1.65;">${paragraph
+        .split(/\n/)
+        .map(escapeHtml)
+        .join("<br />")}</p>`,
+    ),
+    form.ctaLabel && form.ctaUrl
+      ? `<p style="margin:0 0 18px 0;text-align:center;"><a href="${escapeHtml(
+          form.ctaUrl,
+        )}" style="display:inline-block;border-radius:999px;background:#14B8A6;color:#0A0F14;text-decoration:none;font-size:16px;font-weight:800;padding:14px 24px;">${escapeHtml(
+          form.ctaLabel,
+        )}</a></p>`
+      : "",
+    form.ctaUrl
+      ? `<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(
+          form.ctaUrl,
+        )}</p>`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(form.subject)}</title>
+  </head>
+  <body style="margin:0;background:#0A0F14;color:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0A0F14;margin:0;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;border-collapse:collapse;">
+            <tr>
+              <td style="padding:0 0 18px 0;text-align:left;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="text-align:left;vertical-align:middle;">
+                      <div style="font-size:24px;line-height:1;font-weight:800;letter-spacing:0;color:#F0F4F8;">SuppVis</div>
+                      <div style="padding-top:7px;color:#14B8A6;font-size:11px;line-height:1;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;">${escapeHtml(
+                        label,
+                      )}</div>
+                    </td>
+                    <td align="right" style="vertical-align:middle;">
+                      <div style="display:inline-flex;width:42px;height:42px;align-items:center;justify-content:center;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);color:#14B8A6;font-size:20px;font-weight:800;">S</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#0D1117;border:1px solid rgba(20,184,166,0.22);border-radius:18px;padding:34px 28px;box-shadow:0 18px 50px rgba(0,0,0,0.28);">
+                <p style="margin:0 0 14px 0;color:#14B8A6;font-size:12px;line-height:1;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;">${escapeHtml(
+                  label,
+                )}</p>
+                <h1 style="margin:0 0 22px 0;color:#F0F4F8;font-size:28px;line-height:1.15;font-weight:800;">${escapeHtml(
+                  form.heading,
+                )}</h1>
+                ${bodyHtml}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 8px 0 8px;text-align:center;color:#5A7089;font-size:12px;line-height:1.6;">
+                You are receiving this because you joined the SuppVis beta.
+                <br />
+                <span style="color:#14B8A6;text-decoration:underline;">Unsubscribe link will be inserted per recipient before a production send.</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+const GSM_7_EXTENSION_CHARS = "^{}\\[~]|";
+const GSM_7_BASIC_SET = new Set(
+  Array.from({ length: 95 }, (_, index) => String.fromCharCode(index + 32))
+    .filter((char) => !GSM_7_EXTENSION_CHARS.includes(char))
+    .concat(["\n", "\r"]),
+);
+const GSM_7_EXTENSION_SET = new Set(GSM_7_EXTENSION_CHARS.split(""));
+
+function localSmsMetrics(message: string) {
+  let gsmLength = 0;
+  let isGsm = true;
+
+  for (const char of message) {
+    if (GSM_7_EXTENSION_SET.has(char)) {
+      gsmLength += 2;
+    } else if (GSM_7_BASIC_SET.has(char)) {
+      gsmLength += 1;
+    } else {
+      isGsm = false;
+      break;
+    }
+  }
+
+  const encoding: SmsPreview["encoding"] = isGsm ? "GSM-7" : "Unicode";
+  const characterCount = isGsm ? gsmLength : Array.from(message).length;
+  const singleSegmentLimit = isGsm ? 160 : 70;
+  const multipartSegmentLimit = isGsm ? 153 : 67;
+  const segmentCount =
+    characterCount <= singleSegmentLimit
+      ? 1
+      : Math.ceil(characterCount / multipartSegmentLimit);
+
+  return { characterCount, encoding, segmentCount };
+}
+
+function localSmsPreview(smsBody: string): SmsPreview {
+  const editableBody = smsBody.trim().replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+  const body = `SuppVis: ${editableBody}\n\nMsg frequency varies. Msg & data rates may apply.`;
+
+  return {
+    body,
+    editableBody,
+    ...localSmsMetrics(body),
+  };
 }
 
 function canDeleteDraft(campaign: CampaignDraft) {
@@ -312,6 +494,7 @@ function SecondaryButton({
   return (
     <button
       type="button"
+      aria-label="Continue to the next announcement step"
       onClick={onClick}
       disabled={disabled}
       className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
@@ -407,7 +590,7 @@ function ContinueCue({
     <button
       type="button"
       onClick={onClick}
-      className="mt-4 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/5 px-3 py-2 text-xs font-semibold text-accent/80 opacity-90 transition duration-200 hover:border-accent/50 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 motion-reduce:transition-none"
+      className="mt-5 inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent opacity-95 shadow-[0_0_22px_rgba(36,196,182,0.16)] transition duration-200 hover:border-accent/70 hover:bg-accent/15 hover:shadow-[0_0_28px_rgba(36,196,182,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 motion-reduce:transition-none"
     >
       {children}
       <svg
@@ -453,6 +636,8 @@ export default function AdminCampaignDraft({
   const emailSaveRef = useRef<HTMLButtonElement | null>(null);
   const firstEmailFieldRef = useRef<HTMLInputElement | null>(null);
   const textWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const textHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const textBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const textSaveRef = useRef<HTMLButtonElement | null>(null);
   const deliveryRef = useRef<HTMLElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
@@ -466,6 +651,8 @@ export default function AdminCampaignDraft({
     "delivery" | "save" | "text" | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignDraft | null>(null);
+  const [defaultSaveRequest, setDefaultSaveRequest] =
+    useState<DefaultSaveRequest | null>(null);
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
   const [emailTestModalOpen, setEmailTestModalOpen] = useState(false);
   const [emailTestModalConfirmed, setEmailTestModalConfirmed] = useState(false);
@@ -487,6 +674,8 @@ export default function AdminCampaignDraft({
   const [smsTestModalConfirmed, setSmsTestModalConfirmed] = useState(false);
   const [smsTestModalOpen, setSmsTestModalOpen] = useState(false);
   const [smsTestRecipient, setSmsTestRecipient] = useState<string | null>(null);
+  const [smsTestReadiness, setSmsTestReadiness] =
+    useState<SmsTestReadiness | null>(null);
   const [startPhrase, setStartPhrase] = useState("");
   const [testSendMessageId, setTestSendMessageId] = useState<string | null>(null);
   const [pinningId, setPinningId] = useState<string | null>(null);
@@ -559,7 +748,16 @@ export default function AdminCampaignDraft({
     campaign?.smsRenderedBody,
     campaign?.smsSegmentCount,
   ]);
+  const defaultEmailPreviewHtml = useMemo(
+    () => localEmailPreviewHtml(form),
+    [form],
+  );
+  const defaultSmsPreview = useMemo(
+    () => localSmsPreview(form.smsBody),
+    [form.smsBody],
+  );
   const activeSmsPreview = smsPreview;
+  const displaySmsPreview = activeSmsPreview || defaultSmsPreview;
   const smsTestModalPreview =
     smsPreview && !smsPreviewOutdated ? smsPreview : persistedSmsPreview;
   const canUseSmsControls = textWorkspaceUnlocked && !isSendStarted;
@@ -572,9 +770,7 @@ export default function AdminCampaignDraft({
   const canRequestSmsTest =
     Boolean(campaign) &&
     smsSaved &&
-    smsTestSendEnabled &&
-    Boolean(smsTestRecipientMasked) &&
-    !smsTestRecipientConfigError &&
+    Boolean(smsTestReadiness?.ready) &&
     !isSendStarted;
   const smsProductionReady =
     smsBulkSendEnabled && smsBulkInfraReady && smsProductionSendConnected;
@@ -602,6 +798,7 @@ export default function AdminCampaignDraft({
     emailTestModalOpen ||
     smsTestModalOpen ||
     Boolean(deleteTarget) ||
+    Boolean(defaultSaveRequest) ||
     newAnnouncementConfirmOpen ||
     sentHistoryOpen;
 
@@ -642,6 +839,32 @@ export default function AdminCampaignDraft({
     [usesReducedMotion],
   );
 
+  const delayedScrollToElement = useCallback(
+    (
+      ref: { current: HTMLElement | null },
+      options: {
+        block?: ScrollLogicalPosition;
+        delayMs?: number;
+        focus?: boolean;
+        skipIfModalOpen?: boolean;
+      } = {},
+    ) => {
+      const delay = usesReducedMotion() ? 0 : options.delayMs ?? 350;
+
+      window.setTimeout(() => {
+        if (options.skipIfModalOpen && anyModalOpen) {
+          return;
+        }
+
+        scrollToElement(ref, {
+          block: options.block,
+          focus: options.focus,
+        });
+      }, delay);
+    },
+    [anyModalOpen, scrollToElement, usesReducedMotion],
+  );
+
   function scheduleContinueCue(cue: "delivery" | "save" | "text") {
     if (!workflowStarted || anyModalOpen) {
       return;
@@ -655,7 +878,7 @@ export default function AdminCampaignDraft({
     continueCueTimeoutRef.current = window.setTimeout(() => {
       setContinueCue(cue);
       continueCueTimeoutRef.current = null;
-    }, usesReducedMotion() ? 0 : 3500);
+    }, usesReducedMotion() ? 0 : 4000);
   }
 
   function sortVisibleDrafts(nextDrafts: CampaignDraft[]) {
@@ -676,19 +899,16 @@ export default function AdminCampaignDraft({
     return [...pinned, ...unpinned];
   }
 
-  function normalizedPlaceholderCandidate(value: string) {
-    return value.trim().replace(/\s+/g, " ").toLowerCase();
+  function isBlockedPlaceholder(value: string) {
+    return isUnsafeTestPlaceholder(value);
   }
 
-  function isBlockedPlaceholder(value: string) {
-    const normalized = normalizedPlaceholderCandidate(value);
+  function emailDefaultSections() {
+    return isDefaultAdminEmailContent(form) ? ["Email"] : [];
+  }
 
-    return (
-      normalized === normalizedPlaceholderCandidate(DEFAULT_BODY) ||
-      normalized === normalizedPlaceholderCandidate(DEFAULT_SMS_BODY) ||
-      normalized.includes("test. ignore") ||
-      normalized.includes("test ignore")
-    );
+  function textDefaultSections() {
+    return isDefaultAdminSmsContent(form.smsBody) ? ["Text"] : [];
   }
 
   function validateEmailBeforeSave() {
@@ -697,19 +917,19 @@ export default function AdminCampaignDraft({
     if (!form.subject.trim()) {
       nextErrors.subject = "Add a subject before saving.";
     } else if (isBlockedPlaceholder(form.subject)) {
-      nextErrors.subject = "Replace the example subject before saving.";
+      nextErrors.subject = "Replace test placeholder text before saving.";
     }
 
     if (!form.heading.trim()) {
       nextErrors.heading = "Add a heading before saving.";
     } else if (isBlockedPlaceholder(form.heading)) {
-      nextErrors.heading = "Replace the example heading before saving.";
+      nextErrors.heading = "Replace test placeholder text before saving.";
     }
 
     if (!form.body.trim()) {
       nextErrors.body = "Add email copy before saving.";
     } else if (isBlockedPlaceholder(form.body)) {
-      nextErrors.body = "The email still contains example content. Replace it before saving.";
+      nextErrors.body = "Replace test placeholder text before saving.";
     }
 
     setFieldErrors(nextErrors);
@@ -732,7 +952,7 @@ export default function AdminCampaignDraft({
       nextErrors.smsBody = "Add text message copy before saving.";
     } else if (isBlockedPlaceholder(form.smsBody)) {
       nextErrors.smsBody =
-        "The text message still contains example content. Replace it before saving.";
+        "Replace test placeholder text before saving.";
     }
 
     setFieldErrors(nextErrors);
@@ -789,6 +1009,39 @@ export default function AdminCampaignDraft({
     return payload.progress as ProgressSummary;
   }
 
+  async function refreshSmsTestReadiness(target = campaign) {
+    if (!target) {
+      setSmsTestReadiness(null);
+      return null;
+    }
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/email-campaigns/${target.id}/sms-test-readiness?expectedVersion=${target.version}`,
+        { cache: "no-store" },
+      );
+      const payload = await parseJsonResponse(response);
+      setSmsTestReadiness(payload.readiness || null);
+      return payload.readiness as SmsTestReadiness | null;
+    } catch {
+      setSmsTestReadiness({
+        adminCampaignsEnabled: false,
+        featureEnabled: false,
+        mappingConfigValid: true,
+        mappingFound: false,
+        maskedPhone: null,
+        phoneValid: false,
+        ready: false,
+        reason: "sms_test_disabled",
+        sessionAuthorized: false,
+        textSaved: false,
+        twilioConfigured: false,
+        versionMatches: false,
+      });
+      return null;
+    }
+  }
+
   useEffect(() => {
     refreshDrafts().catch((error) => {
       setMessage({
@@ -816,6 +1069,7 @@ export default function AdminCampaignDraft({
     setAudience(null);
     setStartPhrase("");
     setProgress(null);
+    setSmsTestReadiness(null);
   }, [campaign?.id]);
 
   useEffect(() => {
@@ -904,6 +1158,7 @@ export default function AdminCampaignDraft({
       }
       setSmsTestMessageSid(null);
       setSmsTestRecipient(null);
+      setSmsTestReadiness(null);
     }
   }
 
@@ -928,6 +1183,7 @@ export default function AdminCampaignDraft({
     setAudience(null);
     setCampaign(null);
     setContinueCue(null);
+    setDefaultSaveRequest(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
     setEmailTestModalConfirmed(false);
@@ -944,6 +1200,7 @@ export default function AdminCampaignDraft({
     setSmsTestModalOpen(false);
     setSmsTestModalConfirmed(false);
     setSmsTestRecipient(null);
+    setSmsTestReadiness(null);
     setSaveHighlight(null);
     setSentHistoryOpen(false);
     setStartPhrase("");
@@ -954,11 +1211,18 @@ export default function AdminCampaignDraft({
       window.setTimeout(() => {
         firstEmailFieldRef.current?.focus({ preventScroll: true });
       }, usesReducedMotion() ? 0 : 350);
-    }, 50);
+    }, usesReducedMotion() ? 0 : 350);
   }
 
-  async function createEmailDraft() {
+  async function createEmailDraft(defaultContentConfirmed = false) {
     if (!validateEmailBeforeSave()) {
+      return;
+    }
+
+    const defaultSections = emailDefaultSections();
+
+    if (defaultSections.length && !defaultContentConfirmed) {
+      setDefaultSaveRequest({ channel: "email", sections: defaultSections });
       return;
     }
 
@@ -975,6 +1239,7 @@ export default function AdminCampaignDraft({
           body: form.body,
           ctaLabel: form.ctaLabel,
           ctaUrl: form.ctaUrl,
+          defaultContentConfirmed,
           heading: form.heading,
           messageType: form.messageType,
           subject: form.subject,
@@ -989,7 +1254,7 @@ export default function AdminCampaignDraft({
         ).toLocaleTimeString()}.`,
       });
       await refreshDrafts();
-      scrollToElement(textWorkspaceRef, { block: "start" });
+      delayedScrollToElement(textWorkspaceRef, { block: "start" });
       scheduleContinueCue("text");
     } catch (error) {
       setMessage({
@@ -1001,12 +1266,19 @@ export default function AdminCampaignDraft({
     }
   }
 
-  async function saveEmailDraft() {
+  async function saveEmailDraft(defaultContentConfirmed = false) {
     if (!campaign) {
-      return createEmailDraft();
+      return createEmailDraft(defaultContentConfirmed);
     }
 
     if (!validateEmailBeforeSave()) {
+      return;
+    }
+
+    const defaultSections = emailDefaultSections();
+
+    if (defaultSections.length && !defaultContentConfirmed) {
+      setDefaultSaveRequest({ channel: "email", sections: defaultSections });
       return;
     }
 
@@ -1023,6 +1295,7 @@ export default function AdminCampaignDraft({
           body: form.body,
           ctaLabel: form.ctaLabel,
           ctaUrl: form.ctaUrl,
+          defaultContentConfirmed,
           expectedVersion: campaign.version,
           heading: form.heading,
           messageType: form.messageType,
@@ -1039,7 +1312,7 @@ export default function AdminCampaignDraft({
         ).toLocaleTimeString()}.`,
       });
       await refreshDrafts();
-      scrollToElement(textWorkspaceRef, { block: "start" });
+      delayedScrollToElement(textWorkspaceRef, { block: "start" });
       scheduleContinueCue("text");
     } catch (error) {
       setMessage({
@@ -1051,7 +1324,7 @@ export default function AdminCampaignDraft({
     }
   }
 
-  async function saveTextDraft() {
+  async function saveTextDraft(defaultContentConfirmed = false) {
     if (!campaign) {
       setMessage({
         tone: "error",
@@ -1062,6 +1335,13 @@ export default function AdminCampaignDraft({
     }
 
     if (!validateTextBeforeSave()) {
+      return;
+    }
+
+    const defaultSections = textDefaultSections();
+
+    if (defaultSections.length && !defaultContentConfirmed) {
+      setDefaultSaveRequest({ channel: "text", sections: defaultSections });
       return;
     }
 
@@ -1076,6 +1356,7 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           expectedVersion: campaign.version,
+          defaultContentConfirmed,
           saveChannel: "sms",
           smsBody: form.smsBody,
         }),
@@ -1089,7 +1370,8 @@ export default function AdminCampaignDraft({
         ).toLocaleTimeString()}.`,
       });
       await refreshDrafts();
-      scrollToElement(deliveryRef, { block: "start" });
+      await refreshSmsTestReadiness(payload.campaign);
+      delayedScrollToElement(deliveryRef, { block: "start" });
       scheduleContinueCue("delivery");
     } catch (error) {
       setMessage({
@@ -1116,9 +1398,11 @@ export default function AdminCampaignDraft({
       setFieldErrors({});
       setPreview(null);
       setSmsPreview(null);
+      setSmsTestReadiness(null);
       setMessage({ tone: "info", text: "Announcement loaded." });
       setWorkflowStarted(true);
-      scrollToElement(emailWorkspaceRef, { block: "start" });
+      await refreshSmsTestReadiness(payload.campaign);
+      delayedScrollToElement(emailWorkspaceRef, { block: "start" });
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1180,6 +1464,7 @@ export default function AdminCampaignDraft({
         setSmsTestModalConfirmed(false);
         setSmsTestModalOpen(false);
         setSmsTestRecipient(null);
+        setSmsTestReadiness(null);
         setStartPhrase("");
         setTestSendMessageId(null);
         setWorkflowStarted(false);
@@ -1187,13 +1472,11 @@ export default function AdminCampaignDraft({
       setDeleteTarget(null);
       setMessage({ tone: "success", text: "Draft deleted." });
       if (deletingOpenAnnouncement) {
-        window.setTimeout(() => {
-          scrollToElement(topRef, { block: "start" });
-          window.setTimeout(
-            () => newAnnouncementButtonRef.current?.focus({ preventScroll: true }),
-            usesReducedMotion() ? 0 : 350,
-          );
-        }, 50);
+        delayedScrollToElement(topRef, { block: "start" });
+        window.setTimeout(
+          () => newAnnouncementButtonRef.current?.focus({ preventScroll: true }),
+          usesReducedMotion() ? 0 : 750,
+        );
       }
     } catch (error) {
       setMessage({
@@ -1306,10 +1589,8 @@ export default function AdminCampaignDraft({
       setMessage({ tone: "success", text: "Preview generated." });
 
       if (workflowStarted) {
-        window.setTimeout(() => {
-          scrollToElement(previewRef, { block: "start" });
-          scheduleContinueCue("text");
-        }, 50);
+        delayedScrollToElement(previewRef, { block: "start" });
+        scheduleContinueCue("text");
       }
     } catch (error) {
       setMessage({
@@ -1358,10 +1639,8 @@ export default function AdminCampaignDraft({
       setMessage({ tone: "success", text: "Text preview generated." });
 
       if (workflowStarted) {
-        window.setTimeout(() => {
-          scrollToElement(smsPreviewRef, { block: "start" });
-          scheduleContinueCue("save");
-        }, 50);
+        delayedScrollToElement(smsPreviewRef, { block: "start" });
+        scheduleContinueCue("save");
       }
     } catch (error) {
       setMessage({
@@ -1403,6 +1682,16 @@ export default function AdminCampaignDraft({
           text: `Test email accepted by SES for ${adminEmail}.`,
         });
         setTestSendMessageId(payload.messageId || null);
+        window.setTimeout(() => {
+          scrollToElement(textWorkspaceRef, { block: "start" });
+          window.setTimeout(() => {
+            if (form.smsBody.trim()) {
+              textHeadingRef.current?.focus({ preventScroll: true });
+            } else {
+              textBodyRef.current?.focus({ preventScroll: true });
+            }
+          }, usesReducedMotion() ? 0 : 350);
+        }, usesReducedMotion() ? 0 : 800);
       } else {
         setMessage({
           tone: "info",
@@ -1474,6 +1763,7 @@ export default function AdminCampaignDraft({
 
       if (payload.campaign) {
         updateCampaignFromPartial(payload.campaign);
+        await refreshSmsTestReadiness(payload.campaign);
       }
       await refreshDrafts();
     } catch (error) {
@@ -1636,48 +1926,63 @@ export default function AdminCampaignDraft({
       !emailPreviewOutdated &&
       !smsPreviewOutdated,
   );
-  const adminTestsReady = Boolean(
-    campaign?.testedAt && (!smsTestSendEnabled || campaign.smsTestedAt),
-  );
+  const emailTestReady = Boolean(campaign?.testedAt);
+  const smsTestReady = Boolean(campaign?.smsTestedAt);
+  const adminTestsReady = Boolean(emailTestReady && smsTestReady);
   const selectedDeliveryReady = bulkInfraReady && smsProductionReady;
+  const smsReadinessReason = smsTestReadiness?.reason;
+  const currentSmsTestMaskedPhone =
+    smsTestReadiness?.maskedPhone || smsTestRecipientMasked;
   const smsTestDisabledCopy = !smsSaved
     ? "Save the text message before sending a test."
-    : smsTestRecipientConfigError
+    : smsReadinessReason === "sms_test_disabled" || !smsTestSendEnabled
+      ? "Text testing is disabled in Production."
+      : smsReadinessReason === "mapping_invalid" || smsTestRecipientConfigError
         ? "Text testing is not configured correctly yet."
-      : !smsTestSendEnabled
-        ? "Text testing is not available yet."
-        : !smsTestRecipientMasked
-          ? "No admin test number is configured for this account."
-        : "";
+      : smsReadinessReason === "mapping_missing" ||
+            (!smsTestReadiness && !currentSmsTestMaskedPhone)
+          ? "No test number is configured for this admin."
+          : smsReadinessReason === "twilio_config_incomplete"
+            ? "Twilio test configuration is incomplete."
+            : smsReadinessReason === "stale_version"
+              ? "Save the current text message before sending a test."
+              : smsReadinessReason === "admin_campaigns_disabled"
+                ? "Admin email campaigns are disabled."
+                : smsTestReadiness && !smsTestReadiness.sessionAuthorized
+                  ? "Your session expired. Sign in again."
+                  : smsTestReadiness?.ready
+                    ? ""
+                    : "Checking text test readiness.";
+  const recipientsReviewed =
+    Boolean(audience) && (campaign?.status === "approved" || isSendStarted);
+  const announcementQueued =
+    campaign?.status === "queueing" ||
+    campaign?.status === "queued" ||
+    campaign?.status === "sending" ||
+    campaign?.status === "completed" ||
+    campaign?.status === "completed_with_failures";
   const workflowSteps = [
     {
-      label: "Email saved",
-      state: emailSaved ? "completed" : workflowStarted ? "ready" : "blocked",
-      detail: campaign
-        ? emailChangedSinceSave
-          ? "Save the latest email changes."
-          : "Email draft is saved."
+      label: "Draft email & text",
+      state: selectedChannelsSaved
+        ? "completed"
         : workflowStarted
-          ? "Write the email, then save it."
+          ? "active"
+          : "blocked",
+      detail: selectedChannelsSaved
+        ? "Email and text drafts are saved."
+        : workflowStarted
+          ? emailSaved
+            ? "Text still needs to be saved."
+            : "Save the email, then save the text."
           : "Click New announcement to begin.",
     },
     {
-      label: "Text saved",
-      state: smsSaved ? "completed" : textWorkspaceUnlocked ? "ready" : "blocked",
-      detail: smsSaved
-        ? "Text draft is saved."
-        : textWorkspaceUnlocked
-          ? campaign
-            ? "Add the text and save it."
-            : "Save the email first."
-          : "Click New announcement to begin.",
-    },
-    {
-      label: "Previews reviewed",
+      label: "Preview email & text",
       state: previewsReady
         ? "completed"
         : selectedChannelsSaved
-          ? "ready"
+          ? "active"
           : "blocked",
       detail: previewsReady
         ? "Email and text previews are ready."
@@ -1686,72 +1991,58 @@ export default function AdminCampaignDraft({
           : "Save the draft first.",
     },
     {
-      label: "Admin tests completed",
-      state: adminTestsReady
+      label: "Test email",
+      state: emailTestReady
         ? "completed"
-        : preview
-          ? "ready"
+        : previewsReady
+          ? "active"
           : "blocked",
-      detail: adminTestsReady
-        ? smsTestSendEnabled
-          ? "Email and text tests are complete."
-          : "Email test complete. Text testing is disabled."
-        : preview
-          ? "Send the admin test to yourself."
-          : "Preview the email first.",
+      detail: emailTestReady
+        ? "Email test is complete."
+        : previewsReady
+          ? "Send one test email to yourself."
+          : "Generate both previews first.",
     },
     {
-      label: "Recipients reviewed",
-      state: audience
+      label: "Test text",
+      state: smsTestReady
+        ? "completed"
+        : emailTestReady
+          ? "active"
+          : "blocked",
+      detail: smsTestReady
+        ? "Text test is complete."
+        : emailTestReady
+          ? smsTestDisabledCopy || "Send one test text to yourself."
+          : "Complete the email test first.",
+    },
+    {
+      label: "Approve & review recipients",
+      state: recipientsReviewed
         ? "completed"
         : adminTestsReady
-          ? "ready"
+          ? "active"
           : "blocked",
-      detail: audience
+      detail: recipientsReviewed && audience
         ? `Email: ${audience.eligibleCount}. Text: ${
             audience.smsEligibleCount || 0
           }.`
         : adminTestsReady
-          ? "Refresh the count before approval."
+          ? audience
+            ? "Approve after reviewing recipient counts."
+            : "Refresh recipient counts before approval."
           : "Complete admin tests first.",
     },
     {
-      label: "Announcement approved",
+      label: "Send announcement",
       state:
-        campaign?.status === "approved" || isSendStarted
+        announcementQueued
           ? "completed"
-          : canApprove
-            ? "ready"
+          : campaign?.status === "approved" && audience && selectedDeliveryReady
+            ? "active"
             : "blocked",
       detail:
-        campaign?.status === "approved" || isSendStarted
-          ? "Approved for sending."
-          : canApprove
-            ? "Approve after reviewing recipient counts."
-            : "Refresh recipient counts first.",
-    },
-    {
-      label:
-        campaign?.status === "completed"
-          ? "Announcement sent"
-          : campaign?.status === "completed_with_failures"
-            ? "Announcement completed with issues"
-            : "Ready to send",
-      state:
-        campaign?.status === "completed" ||
-        campaign?.status === "completed_with_failures"
-          ? "completed"
-          : campaign?.status === "queueing" ||
-              campaign?.status === "queued" ||
-              campaign?.status === "sending"
-            ? "completed"
-            : campaign?.status === "approved" && audience && selectedDeliveryReady
-              ? "ready"
-              : "blocked",
-      detail:
-        campaign?.status === "queueing" ||
-        campaign?.status === "queued" ||
-        campaign?.status === "sending"
+        announcementQueued
           ? "The worker continues independently."
           : campaign?.status === "approved" && audience && selectedDeliveryReady
             ? "Type the confirmation phrase to send."
@@ -1762,9 +2053,10 @@ export default function AdminCampaignDraft({
   ] as const;
 
   const stepTone = {
+    active:
+      "border-accent/70 bg-accent/15 text-teal-50 shadow-[0_0_30px_rgba(36,196,182,0.16)]",
     blocked: "border-white/10 bg-white/[0.03] text-text-muted",
-    completed: "border-accent/25 bg-accent/10 text-teal-50",
-    ready: "border-blue-300/25 bg-blue-400/10 text-blue-50",
+    completed: "border-accent/20 bg-white/[0.04] text-text-secondary",
   };
 
   const subscriberDeliverySection = (
@@ -2162,21 +2454,21 @@ export default function AdminCampaignDraft({
             </h2>
           </div>
         </div>
-        <ol className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+        <ol className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {workflowSteps.map((step, index) => (
             <li
               key={step.label}
-              className={`min-h-[118px] rounded-[8px] border p-3 text-sm ${stepTone[step.state]}`}
+              className={`min-h-[118px] rounded-[8px] border p-3 text-sm transition duration-200 motion-reduce:transition-none ${stepTone[step.state]}`}
             >
               <div className="flex items-center gap-2">
                 <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-current/30 text-xs font-bold">
-                  {index + 1}
+                  {step.state === "completed" ? "✓" : index + 1}
                 </span>
                 <span className="font-semibold leading-5">{step.label}</span>
               </div>
               <p className="mt-2 text-xs leading-5 opacity-85">{step.detail}</p>
               <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">
-                {step.state}
+                {step.state === "active" ? "current" : step.state}
               </p>
             </li>
           ))}
@@ -2347,7 +2639,7 @@ export default function AdminCampaignDraft({
           <button
             ref={emailSaveRef}
             type="button"
-            onClick={saveEmailDraft}
+            onClick={() => saveEmailDraft()}
             disabled={
               isBusy ||
               isSendStarted ||
@@ -2421,12 +2713,20 @@ export default function AdminCampaignDraft({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-                Server preview
+                Email preview
               </p>
               <h2 className="mt-1 text-sm font-semibold text-text-primary">
                 {preview?.subject || form.subject || "Untitled beta update"}
               </h2>
             </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
+              {preview
+                ? emailPreviewOutdated
+                  ? "Outdated"
+                  : "Current"
+                : "Draft preview"}
+            </span>
             <div className="flex rounded-full border border-white/10 bg-[#080D12] p-1">
               <button
                 type="button"
@@ -2451,6 +2751,7 @@ export default function AdminCampaignDraft({
                 Text
               </button>
             </div>
+            </div>
           </div>
 
           {preview && emailPreviewOutdated ? (
@@ -2473,9 +2774,37 @@ export default function AdminCampaignDraft({
               </pre>
             )
           ) : (
-            <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-6 text-sm leading-6 text-text-secondary">
-              Generate the email preview to see the exact branded message.
-            </div>
+            <>
+              <div className="mb-4 rounded-[8px] border border-accent/20 bg-accent/5 p-3 text-xs font-semibold text-teal-50">
+                Draft preview - Default content. Generate preview before
+                testing or approving.
+              </div>
+              {previewMode === "html" ? (
+                <iframe
+                  title="Email draft preview"
+                  sandbox=""
+                  srcDoc={defaultEmailPreviewHtml}
+                  className="h-[620px] w-full rounded-[8px] border border-white/10 bg-[#0A0F14]"
+                />
+              ) : (
+                <pre className="max-h-[620px] overflow-auto whitespace-pre-wrap rounded-[8px] border border-white/10 bg-[#0D1117] p-5 text-sm leading-6 text-text-secondary">
+                  {[
+                    form.heading,
+                    "",
+                    form.body.trim(),
+                    "",
+                    form.ctaLabel && form.ctaUrl
+                      ? `${form.ctaLabel}: ${form.ctaUrl}`
+                      : "",
+                    "",
+                    "You are receiving this because you joined the SuppVis beta.",
+                    "Unsubscribe link will be inserted per recipient before a production send.",
+                  ]
+                    .filter((part) => part !== "")
+                    .join("\n")}
+                </pre>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -2483,7 +2812,7 @@ export default function AdminCampaignDraft({
 
       {continueCue === "text" ? (
         <ContinueCue onClick={() => scrollToElement(textWorkspaceRef)}>
-          Continue to text
+          Continue to the text message
         </ContinueCue>
       ) : null}
 
@@ -2499,7 +2828,11 @@ export default function AdminCampaignDraft({
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">
                 Text workspace
               </p>
-              <h2 className="mt-2 font-headline text-2xl text-text-primary">
+              <h2
+                ref={textHeadingRef}
+                tabIndex={-1}
+                className="mt-2 font-headline text-2xl text-text-primary focus:outline-none"
+              >
                 Text draft
               </h2>
               <p className="mt-2 text-sm leading-6 text-text-secondary">
@@ -2543,6 +2876,7 @@ export default function AdminCampaignDraft({
                 Text message
               </span>
               <textarea
+                ref={textBodyRef}
                 value={form.smsBody}
                 onChange={(event) => updateField("smsBody", event.target.value)}
                 rows={6}
@@ -2573,7 +2907,7 @@ export default function AdminCampaignDraft({
               <button
                 ref={textSaveRef}
                 type="button"
-                onClick={saveTextDraft}
+                onClick={() => saveTextDraft()}
                 disabled={!canSaveTextContent || isBusy || !canModifyDraft(campaign)}
                 className={`${primaryButtonClass("teal")} min-h-14 min-w-44 px-8 text-base shadow-[0_0_28px_rgba(36,196,182,0.22)] ${
                   saveHighlight === "text"
@@ -2592,12 +2926,13 @@ export default function AdminCampaignDraft({
             ) : null}
 
             <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-3 text-xs leading-5 text-text-muted">
-              {activeSmsPreview ? (
+              {displaySmsPreview ? (
                 <span>
-                  {activeSmsPreview.characterCount} characters -{" "}
-                  {activeSmsPreview.segmentCount}{" "}
-                  {activeSmsPreview.segmentCount === 1 ? "segment" : "segments"}{" "}
-                  - {activeSmsPreview.encoding}
+                  {displaySmsPreview.characterCount} characters -{" "}
+                  {displaySmsPreview.segmentCount}{" "}
+                  {displaySmsPreview.segmentCount === 1 ? "segment" : "segments"}{" "}
+                  - {displaySmsPreview.encoding}
+                  {!activeSmsPreview ? " - Draft preview" : ""}
                   {smsPreviewOutdated ? " - Draft changed. Generate a new preview." : ""}
                 </span>
               ) : (
@@ -2664,7 +2999,7 @@ export default function AdminCampaignDraft({
                 ? smsPreviewOutdated
                   ? "Outdated"
                   : "Previewed"
-                : "Not started"}
+                : "Draft preview"}
             </span>
           </div>
 
@@ -2679,14 +3014,20 @@ export default function AdminCampaignDraft({
                 </div>
                 <span className="h-3 w-3 rounded-full bg-accent shadow-[0_0_18px_rgba(36,196,182,0.55)]" />
               </div>
-              {activeSmsPreview ? (
+              {displaySmsPreview ? (
                 <div className="rounded-[18px] bg-accent/15 p-4 text-sm leading-6 text-teal-50">
+                  {!activeSmsPreview ? (
+                    <p className="mb-3 rounded-[8px] border border-accent/20 bg-accent/10 p-2 text-xs font-semibold text-teal-50">
+                      Draft preview - Default content. Generate preview before
+                      testing or approving.
+                    </p>
+                  ) : null}
                   {smsPreviewOutdated ? (
                     <p className="mb-3 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-2 text-xs font-semibold text-yellow-50">
                       Draft changed. Generate a new preview.
                     </p>
                   ) : null}
-                  <p className="whitespace-pre-wrap">{activeSmsPreview.body}</p>
+                  <p className="whitespace-pre-wrap">{displaySmsPreview.body}</p>
                 </div>
               ) : (
                 <div className="rounded-[18px] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-text-secondary">
@@ -2707,7 +3048,7 @@ export default function AdminCampaignDraft({
 
       {continueCue === "save" ? (
         <ContinueCue onClick={() => scrollToElement(textSaveRef)}>
-          Continue below when ready
+          Continue to admin tests
         </ContinueCue>
       ) : null}
 
@@ -2768,6 +3109,56 @@ export default function AdminCampaignDraft({
               className={primaryButtonClass("teal")}
             >
               New announcement
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {defaultSaveRequest ? (
+        <Modal
+          title="Use the default announcement?"
+          onClose={() => {
+            if (!isBusy) {
+              setDefaultSaveRequest(null);
+            }
+          }}
+        >
+          <p className="text-sm leading-6 text-text-secondary">
+            This announcement still uses the default example content. You can
+            continue, but confirm that you intend to save and use it.
+          </p>
+          <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Default content detected
+            </p>
+            <p className="mt-2 text-sm font-semibold text-text-primary">
+              {defaultSaveRequest.sections.join(" and ")}
+            </p>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setDefaultSaveRequest(null)}
+              disabled={isBusy}
+              className={primaryButtonClass("dark")}
+            >
+              Go back
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const request = defaultSaveRequest;
+                setDefaultSaveRequest(null);
+                if (request.channel === "email") {
+                  saveEmailDraft(true);
+                } else {
+                  saveTextDraft(true);
+                }
+              }}
+              disabled={isBusy}
+              className={primaryButtonClass("teal")}
+            >
+              Save default content
             </button>
           </div>
         </Modal>
@@ -2857,7 +3248,7 @@ export default function AdminCampaignDraft({
                 Test number
               </p>
               <p className="mt-1 text-sm font-semibold text-text-primary">
-                {smsTestRecipientMasked ||
+                {currentSmsTestMaskedPhone ||
                   "No admin test number is configured for this account."}
               </p>
             </div>

@@ -193,7 +193,6 @@ export default async function AdminPage() {
         }
         smsTestSendEnabled={
           process.env.ADMIN_EMAIL_CAMPAIGNS_ENABLED === "true" &&
-          process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
           process.env.ADMIN_SMS_TEST_SEND_ENABLED === "true"
         }
         smsTestRecipientConfigError={smsTestRecipientPreview.configError}

@@ -20,7 +20,6 @@ import {
 } from "@/app/lib/server/sms/admin-test-recipients";
 import {
   assertAdminSmsTestTwilioConfigured,
-  areAdminSmsAnnouncementsEnabled,
   isAdminSmsTestSendEnabled,
 } from "@/app/lib/server/sms/admin-campaign";
 import { sendTwilioSms } from "@/app/lib/server/sms/twilio";
@@ -129,7 +128,6 @@ export async function POST(
 
     if (
       !areAdminCampaignsEnabled() ||
-      !areAdminSmsAnnouncementsEnabled() ||
       !isAdminSmsTestSendEnabled()
     ) {
       await recordAdminCampaignAudit({

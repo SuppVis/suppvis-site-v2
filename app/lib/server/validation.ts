@@ -7,6 +7,11 @@ import {
   isAdminSmsWithinLimits,
   renderAdminSmsAnnouncement,
 } from "@/app/lib/server/messages/admin-sms";
+import {
+  isDefaultAdminEmailContent,
+  isDefaultAdminSmsContent,
+  isUnsafeTestPlaceholder,
+} from "@/app/lib/admin-campaign-defaults";
 
 const emailSchema = z
   .string()
@@ -172,26 +177,6 @@ const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
 );
 
 const adminCampaignSmsBodySchema = z.string().trim().max(260).optional().default("");
-const defaultAdminCampaignEmailBody =
-  "A new SuppVis beta update is ready. Open TestFlight to install the latest build, then reply with anything that feels confusing, broken, or surprisingly useful.";
-const defaultAdminCampaignSmsBody =
-  "Your beta update is ready. Open TestFlight to install the latest build: https://testflight.apple.com/join/nTASgewZ";
-
-function normalizedPlaceholderCandidate(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function isBlockedAdminPlaceholder(value: string) {
-  const normalized = normalizedPlaceholderCandidate(value);
-
-  return (
-    normalized === normalizedPlaceholderCandidate(defaultAdminCampaignEmailBody) ||
-    normalized === normalizedPlaceholderCandidate(defaultAdminCampaignSmsBody) ||
-    normalized.includes("test. ignore") ||
-    normalized.includes("test ignore")
-  );
-}
-
 function validateAdminSmsBody(
   smsEnabled: boolean,
   smsBody: string,
@@ -239,6 +224,7 @@ export const adminCampaignEmailContentSchema = z
     body: z.string().trim().min(1).max(5000),
     ctaLabel: optionalTrimmedString(64),
     ctaUrl: adminCampaignCtaUrlSchema,
+    defaultContentConfirmed: z.boolean().optional().default(false),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -264,36 +250,58 @@ function validateAdminCampaignNotPlaceholder(
   data: z.infer<typeof adminCampaignEmailContentSchema> & { smsBody?: string },
   ctx: z.RefinementCtx,
 ) {
-  if (isBlockedAdminPlaceholder(data.subject)) {
+  if (isUnsafeTestPlaceholder(data.subject)) {
     ctx.addIssue({
       code: "custom",
       path: ["subject"],
-      message: "Replace the example subject before saving.",
+      message: "Replace test placeholder text before saving.",
     });
   }
 
-  if (isBlockedAdminPlaceholder(data.heading)) {
+  if (isUnsafeTestPlaceholder(data.heading)) {
     ctx.addIssue({
       code: "custom",
       path: ["heading"],
-      message: "Replace the example heading before saving.",
+      message: "Replace test placeholder text before saving.",
     });
   }
 
-  if (isBlockedAdminPlaceholder(data.body)) {
+  if (isUnsafeTestPlaceholder(data.body)) {
     ctx.addIssue({
       code: "custom",
       path: ["body"],
-      message: "The email still contains example content. Replace it before saving.",
+      message: "Replace test placeholder text before saving.",
     });
   }
 
-  if (data.smsBody !== undefined && isBlockedAdminPlaceholder(data.smsBody)) {
+  if (data.smsBody !== undefined && isUnsafeTestPlaceholder(data.smsBody)) {
     ctx.addIssue({
       code: "custom",
       path: ["smsBody"],
-      message:
-        "The text message still contains example content. Replace it before saving.",
+      message: "Replace test placeholder text before saving.",
+    });
+  }
+
+  if (
+    isDefaultAdminEmailContent(data) &&
+    !data.defaultContentConfirmed
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["defaultContentConfirmed"],
+      message: "Confirm before saving the default email content.",
+    });
+  }
+
+  if (
+    data.smsBody !== undefined &&
+    isDefaultAdminSmsContent(data.smsBody) &&
+    !data.defaultContentConfirmed
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["defaultContentConfirmed"],
+      message: "Confirm before saving the default text content.",
     });
   }
 }
@@ -315,17 +323,28 @@ export const updateAdminCampaignSmsSchema = z
     expectedVersion: z.number().int().min(1).max(1_000_000),
     saveChannel: z.literal("sms"),
     smsBody: adminCampaignSmsBodySchema,
+    defaultContentConfirmed: z.boolean().optional().default(false),
   })
   .strict()
   .superRefine((data, ctx) => {
     validateAdminSmsBody(true, data.smsBody, ctx);
 
-    if (isBlockedAdminPlaceholder(data.smsBody)) {
+    if (isUnsafeTestPlaceholder(data.smsBody)) {
       ctx.addIssue({
         code: "custom",
         path: ["smsBody"],
-        message:
-          "The text message still contains example content. Replace it before saving.",
+        message: "Replace test placeholder text before saving.",
+      });
+    }
+
+    if (
+      isDefaultAdminSmsContent(data.smsBody) &&
+      !data.defaultContentConfirmed
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["defaultContentConfirmed"],
+        message: "Confirm before saving the default text content.",
       });
     }
   });

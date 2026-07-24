@@ -148,7 +148,9 @@ export async function PATCH(
         sms_segment_count: smsPreview.segmentCount,
         sms_encoding: smsPreview.encoding,
       });
-      auditStatus = "draft text";
+      auditStatus = submission.defaultContentConfirmed
+        ? "draft text default_override"
+        : "draft text";
     } else {
       const submission = updateAdminCampaignEmailSchema.parse(body);
 
@@ -164,7 +166,9 @@ export async function PATCH(
         subject: submission.subject,
         updated_by: admin.identifier,
       });
-      auditStatus = "draft email";
+      auditStatus = submission.defaultContentConfirmed
+        ? "draft email default_override"
+        : "draft email";
     }
 
     if (!updated) {

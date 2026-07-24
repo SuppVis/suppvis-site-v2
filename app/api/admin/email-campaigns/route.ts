@@ -238,7 +238,9 @@ export async function POST(request: NextRequest) {
       action: "draft_created",
       adminIdentifier: admin.identifier,
       campaignId: record.id,
-      status: "draft email",
+      status: submission.defaultContentConfirmed
+        ? "draft email default_override"
+        : "draft email",
     });
 
     return NextResponse.json({
