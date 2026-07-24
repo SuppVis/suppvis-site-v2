@@ -312,7 +312,12 @@ export async function POST(
               smsPreviewGeneratedAt:
                 failedCampaign.sms_preview_generated_at || null,
               smsPreviewVersion: failedCampaign.sms_preview_version || 0,
+              smsTestProviderStatus:
+                failedCampaign.sms_test_provider_status || null,
+              smsTestSenderMasked:
+                failedCampaign.sms_test_sender_masked || null,
               smsTestStatus: failedCampaign.sms_test_status || null,
+              smsTestTransport: failedCampaign.sms_test_transport || null,
             }
           : null,
       });
@@ -324,6 +329,7 @@ export async function POST(
       messageSid: sendResult.messageSid,
       now: new Date().toISOString(),
       providerStatus: sendResult.status,
+      sender_masked: maskAdminSmsTestPhone(sendResult.from || "+16507025913"),
       smsDraftVersion: smsDraftVersion(campaign),
       test_attempt_id: attemptId,
       test_recipient_id: testRecipient.recipientId,
@@ -357,6 +363,7 @@ export async function POST(
       messageSid: sendResult.messageSid,
       providerStatus: sendResult.status,
       maskedPhone,
+      senderMasked: updated.sms_test_sender_masked,
       campaign: {
         id: updated.id,
         status: updated.status,
@@ -368,7 +375,9 @@ export async function POST(
         smsTestVersion: updated.sms_test_version || 0,
         smsTestMessageSid: updated.sms_test_message_sid,
         smsTestProviderStatus: updated.sms_test_provider_status,
+        smsTestSenderMasked: updated.sms_test_sender_masked,
         smsTestStatus: updated.sms_test_status,
+        smsTestTransport: updated.sms_test_transport,
       },
     });
   } catch (error) {

@@ -8,8 +8,6 @@ import {
   renderAdminSmsAnnouncement,
 } from "@/app/lib/server/messages/admin-sms";
 import {
-  isDefaultAdminEmailContent,
-  isDefaultAdminSmsContent,
   isUnsafeTestPlaceholder,
 } from "@/app/lib/admin-campaign-defaults";
 
@@ -282,28 +280,6 @@ function validateAdminCampaignNotPlaceholder(
     });
   }
 
-  if (
-    isDefaultAdminEmailContent(data) &&
-    !data.defaultContentConfirmed
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["defaultContentConfirmed"],
-      message: "Confirm before saving the default email content.",
-    });
-  }
-
-  if (
-    data.smsBody !== undefined &&
-    isDefaultAdminSmsContent(data.smsBody) &&
-    !data.defaultContentConfirmed
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["defaultContentConfirmed"],
-      message: "Confirm before saving the default text content.",
-    });
-  }
 }
 
 export const createAdminCampaignSchema = adminCampaignEmailContentSchema.superRefine(
@@ -337,16 +313,6 @@ export const updateAdminCampaignSmsSchema = z
       });
     }
 
-    if (
-      isDefaultAdminSmsContent(data.smsBody) &&
-      !data.defaultContentConfirmed
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["defaultContentConfirmed"],
-        message: "Confirm before saving the default text content.",
-      });
-    }
   });
 
 export const updateAdminCampaignSchema = updateAdminCampaignEmailSchema;

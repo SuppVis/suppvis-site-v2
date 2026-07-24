@@ -17,8 +17,6 @@ import {
   DEFAULT_ADMIN_EMAIL_SUBJECT,
   DEFAULT_ADMIN_MESSAGE_TYPE,
   DEFAULT_ADMIN_SMS_BODY,
-  isDefaultAdminEmailContent,
-  isDefaultAdminSmsContent,
   isUnsafeTestPlaceholder,
 } from "@/app/lib/admin-campaign-defaults";
 
@@ -77,7 +75,9 @@ type CampaignDraft = {
   smsDuplicateCount?: number;
   smsTestProviderStatus?: string | null;
   smsTestRecipientMasked?: string | null;
+  smsTestSenderMasked?: string | null;
   smsTestStatus?: string | null;
+  smsTestTransport?: string | null;
   smsTestMessageSid?: string | null;
   isPinned?: boolean;
   pinnedAt?: string | null;
@@ -107,6 +107,7 @@ type ProgressSummary = {
 
 type AudienceSummary = {
   confirmationPhrase: string;
+  countedAt?: string;
   duplicateCount: number;
   eligibleCount: number;
   excludedCount: number;
@@ -186,19 +187,19 @@ type BusyAction =
   | "test"
   | null;
 
-type DefaultSaveRequest = {
-  channel: "email" | "text";
-  sections: string[];
-};
-
 type NextActionKey =
-  | "approve"
+  | "emailBody"
+  | "emailCtaLabel"
+  | "emailCtaUrl"
+  | "emailHeading"
   | "emailPreview"
   | "emailSave"
+  | "emailSubject"
   | "emailTest"
   | "newAnnouncement"
   | "recipientCount"
   | "sendAnnouncement"
+  | "smsBody"
   | "startPhrase"
   | "smsPreview"
   | "smsSave"
@@ -692,6 +693,10 @@ export default function AdminCampaignDraft({
   const emailPreviewButtonRef = useRef<HTMLButtonElement | null>(null);
   const emailSaveRef = useRef<HTMLButtonElement | null>(null);
   const emailTestButtonRef = useRef<HTMLButtonElement | null>(null);
+  const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const emailCtaLabelRef = useRef<HTMLInputElement | null>(null);
+  const emailCtaUrlRef = useRef<HTMLInputElement | null>(null);
+  const emailHeadingFieldRef = useRef<HTMLInputElement | null>(null);
   const firstEmailFieldRef = useRef<HTMLInputElement | null>(null);
   const textWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const textHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -711,10 +716,10 @@ export default function AdminCampaignDraft({
   const newAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const recipientCountButtonRef = useRef<HTMLButtonElement | null>(null);
-  const approveButtonRef = useRef<HTMLButtonElement | null>(null);
   const startPhraseInputRef = useRef<HTMLInputElement | null>(null);
   const sendAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const workflowGuideScrollInProgressRef = useRef(false);
+  const workflowGuideActivityThrottleRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
@@ -726,8 +731,6 @@ export default function AdminCampaignDraft({
   const [guidanceHighlight, setGuidanceHighlight] =
     useState<NextActionKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignDraft | null>(null);
-  const [defaultSaveRequest, setDefaultSaveRequest] =
-    useState<DefaultSaveRequest | null>(null);
   const [drafts, setDrafts] = useState<CampaignDraft[]>([]);
   const [emailTestModalOpen, setEmailTestModalOpen] = useState(false);
   const [emailTestModalConfirmed, setEmailTestModalConfirmed] = useState(false);
@@ -736,6 +739,8 @@ export default function AdminCampaignDraft({
     Partial<Record<keyof FormValues, string>>
   >({});
   const [form, setForm] = useState<FormValues>(initialForm);
+  const [emailPreviewSnapshot, setEmailPreviewSnapshot] =
+    useState<FormValues>(initialForm);
   const [message, setMessage] = useState<{
     tone: "error" | "success" | "info";
     text: string;
@@ -745,6 +750,9 @@ export default function AdminCampaignDraft({
   const [progress, setProgress] = useState<ProgressSummary | null>(null);
   const [smsPreview, setSmsPreview] = useState<SmsPreview | null>(null);
   const [smsPreviewOutdated, setSmsPreviewOutdated] = useState(false);
+  const [smsPreviewSnapshot, setSmsPreviewSnapshot] = useState(
+    initialForm.smsBody,
+  );
   const [smsTestMessageSid, setSmsTestMessageSid] = useState<string | null>(null);
   const [smsTestModalState, setSmsTestModalState] =
     useState<SmsTestModalState>(null);
@@ -824,12 +832,12 @@ export default function AdminCampaignDraft({
     campaign?.smsSegmentCount,
   ]);
   const defaultEmailPreviewHtml = useMemo(
-    () => localEmailPreviewHtml(form),
-    [form],
+    () => localEmailPreviewHtml(emailPreviewSnapshot),
+    [emailPreviewSnapshot],
   );
   const defaultSmsPreview = useMemo(
-    () => localSmsPreview(form.smsBody),
-    [form.smsBody],
+    () => localSmsPreview(smsPreviewSnapshot),
+    [smsPreviewSnapshot],
   );
   const activeSmsPreview = smsPreview;
   const displaySmsPreview = activeSmsPreview || defaultSmsPreview;
@@ -863,6 +871,7 @@ export default function AdminCampaignDraft({
       campaign.smsTestMessageSid &&
       campaign.smsTestVersion &&
       campaign.smsTestVersion === smsDraftVersion &&
+      campaign.smsTestTransport === "sms" &&
       (campaign.smsTestStatus === "accepted" ||
         campaign.smsTestStatus === "delivered"),
   );
@@ -905,7 +914,6 @@ export default function AdminCampaignDraft({
     emailTestModalOpen ||
     smsTestModalOpen ||
     Boolean(deleteTarget) ||
-    Boolean(defaultSaveRequest) ||
     newAnnouncementConfirmOpen ||
     sentHistoryOpen ||
     idleWarningOpen;
@@ -929,8 +937,17 @@ export default function AdminCampaignDraft({
       }
 
       const rect = target.getBoundingClientRect();
-      const topOffset = options.block === "center" ? window.innerHeight * 0.2 : 24;
-      const top = Math.max(0, window.scrollY + rect.top - topOffset);
+      const block = options.block || "center";
+      const top =
+        block === "start"
+          ? Math.max(0, window.scrollY + rect.top - 24)
+          : Math.max(
+              0,
+              window.scrollY +
+                rect.top +
+                rect.height / 2 -
+                window.innerHeight / 2,
+            );
 
       window.scrollTo({
         top,
@@ -1007,19 +1024,20 @@ export default function AdminCampaignDraft({
   const clearSensitiveClientState = useCallback(() => {
     setAudience(null);
     setCampaign(null);
-    setDefaultSaveRequest(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
     setEmailTestModalConfirmed(false);
     setEmailPreviewOutdated(false);
     setFieldErrors({});
     setForm({ ...initialForm, smsEnabled: true });
+    setEmailPreviewSnapshot({ ...initialForm, smsEnabled: true });
     setMessage(null);
     setPreview(null);
     setPreviewMode("html");
     setProgress(null);
     setSmsPreview(null);
     setSmsPreviewOutdated(false);
+    setSmsPreviewSnapshot(initialForm.smsBody);
     setSmsTestMessageSid(null);
     setSmsTestModalOpen(false);
     setSmsTestModalConfirmed(false);
@@ -1086,14 +1104,6 @@ export default function AdminCampaignDraft({
 
   function isBlockedPlaceholder(value: string) {
     return isUnsafeTestPlaceholder(value);
-  }
-
-  function emailDefaultSections() {
-    return isDefaultAdminEmailContent(form) ? ["Email"] : [];
-  }
-
-  function textDefaultSections() {
-    return isDefaultAdminSmsContent(form.smsBody) ? ["Text"] : [];
   }
 
   function validateEmailBeforeSave() {
@@ -1277,6 +1287,51 @@ export default function AdminCampaignDraft({
       });
     };
   }, [recordAdminActivity, refreshIdleDeadline]);
+
+  useEffect(() => {
+    const activityEvents = [
+      "change",
+      "click",
+      "focusin",
+      "input",
+      "keydown",
+      "paste",
+      "pointerdown",
+      "pointermove",
+      "scroll",
+    ];
+
+    const onWorkflowActivity = (event: Event) => {
+      if (event.type === "scroll" && workflowGuideScrollInProgressRef.current) {
+        return;
+      }
+
+      if (event.type === "pointermove" || event.type === "scroll") {
+        const now = Date.now();
+
+        if (now - workflowGuideActivityThrottleRef.current < 1000) {
+          return;
+        }
+
+        workflowGuideActivityThrottleRef.current = now;
+      }
+
+      dismissFocusGuide();
+      setFocusGuideResetSignal((value) => value + 1);
+    };
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, onWorkflowActivity, {
+        passive: true,
+      });
+    });
+
+    return () => {
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, onWorkflowActivity);
+      });
+    };
+  }, [dismissFocusGuide]);
 
   useEffect(() => {
     if (heartbeatIntervalRef.current) {
@@ -1502,15 +1557,11 @@ export default function AdminCampaignDraft({
       key === "messageType" ||
       key === "subject"
     ) {
-      if (preview) {
-        setEmailPreviewOutdated(true);
-      }
+      setEmailPreviewOutdated(true);
       setTestSendMessageId(null);
     }
     if (key === "smsBody" || key === "smsEnabled") {
-      if (smsPreview) {
-        setSmsPreviewOutdated(true);
-      }
+      setSmsPreviewOutdated(true);
       setSmsTestMessageSid(null);
       setSmsTestRecipient(null);
       setSmsTestReadiness(null);
@@ -1538,19 +1589,20 @@ export default function AdminCampaignDraft({
   function beginNewAnnouncement() {
     setAudience(null);
     setCampaign(null);
-    setDefaultSaveRequest(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
     setEmailTestModalConfirmed(false);
     setEmailPreviewOutdated(false);
     setFieldErrors({});
     setForm({ ...initialForm, smsEnabled: true });
+    setEmailPreviewSnapshot({ ...initialForm, smsEnabled: true });
     setMessage(null);
     setPreview(null);
     setPreviewMode("html");
     setProgress(null);
     setSmsPreview(null);
     setSmsPreviewOutdated(false);
+    setSmsPreviewSnapshot(initialForm.smsBody);
     setSmsTestMessageSid(null);
     setSmsTestModalOpen(false);
     setSmsTestModalConfirmed(false);
@@ -1564,22 +1616,15 @@ export default function AdminCampaignDraft({
     setTestSendMessageId(null);
     setWorkflowStarted(true);
     window.setTimeout(() => {
-      scrollToElement(emailWorkspaceRef, { block: "start" });
+      scrollToElement(emailWorkspaceRef, { block: "center" });
       window.setTimeout(() => {
         firstEmailFieldRef.current?.focus({ preventScroll: true });
       }, usesReducedMotion() ? 0 : 350);
     }, usesReducedMotion() ? 0 : 350);
   }
 
-  async function createEmailDraft(defaultContentConfirmed = false) {
+  async function createEmailDraft() {
     if (!validateEmailBeforeSave()) {
-      return;
-    }
-
-    const defaultSections = emailDefaultSections();
-
-    if (defaultSections.length && !defaultContentConfirmed) {
-      setDefaultSaveRequest({ channel: "email", sections: defaultSections });
       return;
     }
 
@@ -1596,7 +1641,6 @@ export default function AdminCampaignDraft({
           body: form.body,
           ctaLabel: form.ctaLabel,
           ctaUrl: form.ctaUrl,
-          defaultContentConfirmed,
           heading: form.heading,
           messageType: form.messageType,
           subject: form.subject,
@@ -1623,19 +1667,12 @@ export default function AdminCampaignDraft({
     }
   }
 
-  async function saveEmailDraft(defaultContentConfirmed = false) {
+  async function saveEmailDraft() {
     if (!campaign) {
-      return createEmailDraft(defaultContentConfirmed);
+      return createEmailDraft();
     }
 
     if (!validateEmailBeforeSave()) {
-      return;
-    }
-
-    const defaultSections = emailDefaultSections();
-
-    if (defaultSections.length && !defaultContentConfirmed) {
-      setDefaultSaveRequest({ channel: "email", sections: defaultSections });
       return;
     }
 
@@ -1652,7 +1689,6 @@ export default function AdminCampaignDraft({
           body: form.body,
           ctaLabel: form.ctaLabel,
           ctaUrl: form.ctaUrl,
-          defaultContentConfirmed,
           expectedVersion: campaign.version,
           heading: form.heading,
           messageType: form.messageType,
@@ -1681,24 +1717,17 @@ export default function AdminCampaignDraft({
     }
   }
 
-  async function saveTextDraft(defaultContentConfirmed = false) {
+  async function saveTextDraft() {
     if (!campaign) {
       setMessage({
         tone: "error",
         text: "Save the email before saving the text message.",
       });
-      scrollToElement(emailWorkspaceRef, { block: "start" });
+      scrollToElement(emailWorkspaceRef, { block: "center" });
       return;
     }
 
     if (!validateTextBeforeSave()) {
-      return;
-    }
-
-    const defaultSections = textDefaultSections();
-
-    if (defaultSections.length && !defaultContentConfirmed) {
-      setDefaultSaveRequest({ channel: "text", sections: defaultSections });
       return;
     }
 
@@ -1713,7 +1742,6 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           expectedVersion: campaign.version,
-          defaultContentConfirmed,
           saveChannel: "sms",
           smsBody: form.smsBody,
         }),
@@ -1750,16 +1778,21 @@ export default function AdminCampaignDraft({
         cache: "no-store",
       });
       const payload = await parseJsonResponse(response);
+      const loadedForm = campaignToForm(payload.campaign);
       setCampaign(payload.campaign);
-      setForm(campaignToForm(payload.campaign));
+      setForm(loadedForm);
+      setEmailPreviewSnapshot(loadedForm);
       setFieldErrors({});
       setPreview(null);
       setSmsPreview(null);
+      setSmsPreviewSnapshot(loadedForm.smsBody);
+      setEmailPreviewOutdated(false);
+      setSmsPreviewOutdated(false);
       setSmsTestReadiness(null);
       setMessage({ tone: "info", text: "Announcement loaded." });
       setWorkflowStarted(true);
       await refreshSmsTestReadiness(payload.campaign);
-      delayedScrollToElement(emailWorkspaceRef, { block: "start" });
+      delayedScrollToElement(emailWorkspaceRef, { block: "center" });
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1812,10 +1845,12 @@ export default function AdminCampaignDraft({
         setEmailTestModalOpen(false);
         setFieldErrors({});
         setForm({ ...initialForm, smsEnabled: true });
+        setEmailPreviewSnapshot({ ...initialForm, smsEnabled: true });
         setPreview(null);
         setProgress(null);
         setSmsPreview(null);
         setSmsPreviewOutdated(false);
+        setSmsPreviewSnapshot(initialForm.smsBody);
         setSmsTestMessageSid(null);
         setSmsTestModalConfirmed(false);
         setSmsTestModalOpen(false);
@@ -1917,7 +1952,7 @@ export default function AdminCampaignDraft({
         text: "Save the email before generating its preview.",
       });
       setSaveHighlight("email");
-      scrollToElement(emailWorkspaceRef, { block: "start" });
+      scrollToElement(emailSaveRef, { block: "center" });
       window.setTimeout(() => setSaveHighlight(null), 1500);
       return;
     }
@@ -1944,6 +1979,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setPreview(payload.preview);
+      setEmailPreviewSnapshot(form);
       setEmailPreviewOutdated(false);
       if (payload.campaign) {
         updateCampaignFromPartial(payload.campaign);
@@ -1952,7 +1988,7 @@ export default function AdminCampaignDraft({
       setMessage({ tone: "success", text: "Preview generated." });
 
       if (workflowStarted) {
-        delayedScrollToElement(previewRef, { block: "start" });
+        delayedScrollToElement(previewRef, { block: "center" });
       }
     } catch (error) {
       setMessage({
@@ -1972,7 +2008,7 @@ export default function AdminCampaignDraft({
         text: "Save the text before generating its preview.",
       });
       setSaveHighlight("text");
-      scrollToElement(textWorkspaceRef, { block: "start" });
+      scrollToElement(textSaveRef, { block: "center" });
       window.setTimeout(() => setSaveHighlight(null), 1500);
       return;
     }
@@ -1999,6 +2035,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setSmsPreview(payload.preview);
+      setSmsPreviewSnapshot(form.smsBody);
       setSmsPreviewOutdated(false);
       if (payload.campaign) {
         updateCampaignFromPartial(payload.campaign);
@@ -2007,7 +2044,7 @@ export default function AdminCampaignDraft({
       setMessage({ tone: "success", text: "Text preview generated." });
 
       if (workflowStarted) {
-        delayedScrollToElement(smsPreviewRef, { block: "start" });
+        delayedScrollToElement(smsPreviewRef, { block: "center" });
       }
     } catch (error) {
       setMessage({
@@ -2050,7 +2087,7 @@ export default function AdminCampaignDraft({
         });
         setTestSendMessageId(payload.messageId || null);
         window.setTimeout(() => {
-          scrollToElement(textWorkspaceRef, { block: "start" });
+          scrollToElement(textWorkspaceRef, { block: "center" });
           window.setTimeout(() => {
             if (form.smsBody.trim()) {
               textHeadingRef.current?.focus({ preventScroll: true });
@@ -2172,7 +2209,7 @@ export default function AdminCampaignDraft({
           () => {
             closeSmsTestModal();
             delayedScrollToElement(deliveryRef, {
-              block: "start",
+              block: "center",
               delayMs: 250,
               skipIfModalOpen: false,
             });
@@ -2190,43 +2227,6 @@ export default function AdminCampaignDraft({
       setSmsTestModalState({
         tone: "error",
         message: errorText,
-      });
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function approveCampaign() {
-    if (!campaign || !canApprove || isBusy) {
-      return;
-    }
-
-    setBusyAction("approve");
-    setMessage(null);
-
-    try {
-      const response = await adminFetch(
-        `/api/admin/email-campaigns/${campaign.id}/approve`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ expectedVersion: campaign.version }),
-        },
-      );
-      const payload = await parseJsonResponse(response);
-      updateCampaignFromPartial(payload.campaign);
-      setMessage({
-        tone: "success",
-        text: "Announcement approved. Type the confirmation phrase when you are ready to queue it.",
-      });
-      await refreshDrafts();
-    } catch (error) {
-      setMessage({
-        tone: "error",
-        text:
-          error instanceof Error ? error.message : "Could not approve announcement.",
       });
     } finally {
       setBusyAction(null);
@@ -2278,19 +2278,57 @@ export default function AdminCampaignDraft({
       return;
     }
 
+    if (
+      !bulkSendEnabled ||
+      !bulkInfraReady ||
+      !smsProductionReady ||
+      !audience.eligibleCount ||
+      !audience.smsEligibleCount ||
+      startPhrase !== audience.confirmationPhrase
+    ) {
+      setMessage({
+        tone: "info",
+        text: !smsProductionReady
+          ? "Sending is not available yet because text delivery jobs are not connected."
+          : "Refresh recipients and type the exact confirmation phrase before sending.",
+      });
+      return;
+    }
+
     setBusyAction("start");
     setMessage(null);
 
     try {
+      let workingCampaign = campaign;
+
+      if (workingCampaign.status !== "approved") {
+        const approveResponse = await adminFetch(
+          `/api/admin/email-campaigns/${workingCampaign.id}/approve`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ expectedVersion: workingCampaign.version }),
+          },
+        );
+        const approvePayload = await parseJsonResponse(approveResponse);
+
+        if (approvePayload.campaign) {
+          workingCampaign = { ...workingCampaign, ...approvePayload.campaign };
+          updateCampaignFromPartial(approvePayload.campaign);
+        }
+      }
+
       const response = await adminFetch(
-        `/api/admin/email-campaigns/${campaign.id}/start`,
+        `/api/admin/email-campaigns/${workingCampaign.id}/start`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            expectedVersion: campaign.version,
+            expectedVersion: workingCampaign.version,
             confirmationPhrase: startPhrase,
           }),
         },
@@ -2341,15 +2379,8 @@ export default function AdminCampaignDraft({
   const emailTestReady = emailTestCurrent;
   const smsTestReady = smsTestAcceptedForCurrentDraft;
   const adminTestsReady = Boolean(emailTestReady && smsTestReady);
-  const canApprove = Boolean(
-    campaign?.status === "tested" &&
-      selectedChannelsSaved &&
-      previewsReady &&
-      adminTestsReady &&
-      audience,
-  );
   const canStart = Boolean(
-    campaign?.status === "approved" &&
+    (campaign?.status === "tested" || campaign?.status === "approved") &&
       selectedChannelsSaved &&
       previewsReady &&
       adminTestsReady &&
@@ -2361,6 +2392,7 @@ export default function AdminCampaignDraft({
     smsTestReadiness?.maskedPhone || smsTestRecipientMasked;
   const currentSmsProviderStatus =
     campaign?.smsTestProviderStatus || campaign?.smsTestStatus || null;
+  const currentSmsSender = campaign?.smsTestSenderMasked || null;
   const smsTestDisabledCopy = !smsSaved
     ? "Save the text message before sending a test."
     : !emailTestCurrent || smsReadinessReason === "email_test_required"
@@ -2385,8 +2417,7 @@ export default function AdminCampaignDraft({
                   : smsTestReadiness?.ready
                     ? ""
                     : "Checking text test readiness.";
-  const recipientsReviewed =
-    Boolean(audience) && (campaign?.status === "approved" || isSendStarted);
+  const recipientsReviewed = Boolean(audience);
   const announcementQueued =
     campaign?.status === "queueing" ||
     campaign?.status === "queued" ||
@@ -2461,8 +2492,8 @@ export default function AdminCampaignDraft({
           }.`
         : adminTestsReady
           ? audience
-            ? "Approve after reviewing recipient counts."
-            : "Refresh recipient counts before approval."
+            ? "Review the confirmation phrase."
+            : "Refresh recipient counts."
           : "Complete admin tests first.",
     },
     {
@@ -2476,8 +2507,8 @@ export default function AdminCampaignDraft({
       detail:
         announcementQueued
           ? "The worker continues independently."
-          : campaign?.status === "approved" && audience && selectedDeliveryReady
-            ? "Type the confirmation phrase to send."
+          : audience && selectedDeliveryReady
+            ? "Type the phrase, then approve and send."
             : !bulkInfraReady
               ? "Sending is not available while setup is being prepared."
               : "Text delivery jobs are not connected yet.",
@@ -2501,6 +2532,46 @@ export default function AdminCampaignDraft({
       };
     }
 
+    if (!form.subject.trim()) {
+      return {
+        key: "emailSubject",
+        label: "the Subject field",
+        ref: firstEmailFieldRef,
+      };
+    }
+
+    if (!form.heading.trim()) {
+      return {
+        key: "emailHeading",
+        label: "the Heading field",
+        ref: emailHeadingFieldRef,
+      };
+    }
+
+    if (!form.body.trim()) {
+      return {
+        key: "emailBody",
+        label: "the Email body field",
+        ref: emailBodyRef,
+      };
+    }
+
+    if (form.ctaUrl.trim() && !form.ctaLabel.trim()) {
+      return {
+        key: "emailCtaLabel",
+        label: "the Link text field",
+        ref: emailCtaLabelRef,
+      };
+    }
+
+    if (form.ctaLabel.trim() && !form.ctaUrl.trim()) {
+      return {
+        key: "emailCtaUrl",
+        label: "the Link URL field",
+        ref: emailCtaUrlRef,
+      };
+    }
+
     if (!emailSaved) {
       return {
         key: "emailSave",
@@ -2517,11 +2588,19 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (!emailTestReady && canRequestEmailTest) {
+    if (!emailTestReady) {
       return {
         key: "emailTest",
         label: "Send test email",
         ref: emailTestButtonRef,
+      };
+    }
+
+    if (!form.smsBody.trim()) {
+      return {
+        key: "smsBody",
+        label: "the Text message field",
+        ref: textBodyRef,
       };
     }
 
@@ -2541,7 +2620,7 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (!smsTestReady && canRequestSmsTest) {
+    if (!smsTestReady) {
       return {
         key: "smsTest",
         label: "Send test text",
@@ -2557,19 +2636,7 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (audience && campaign?.status !== "approved" && canApprove) {
-      return {
-        key: "approve",
-        label: "Approve announcement",
-        ref: approveButtonRef,
-      };
-    }
-
-    if (
-      audience &&
-      campaign?.status === "approved" &&
-      startPhrase !== audience.confirmationPhrase
-    ) {
+    if (audience && startPhrase !== audience.confirmationPhrase) {
       return {
         key: "startPhrase",
         label: "Type the confirmation phrase",
@@ -2579,13 +2646,17 @@ export default function AdminCampaignDraft({
 
     if (
       audience &&
-      campaign?.status === "approved" &&
       startPhrase === audience.confirmationPhrase &&
-      canStart
+      canStart &&
+      bulkSendEnabled &&
+      bulkInfraReady &&
+      smsProductionReady &&
+      Boolean(audience.eligibleCount) &&
+      Boolean(audience.smsEligibleCount)
     ) {
       return {
         key: "sendAnnouncement",
-        label: "Send announcement",
+        label: "Approve & send announcement",
         ref: sendAnnouncementButtonRef,
       };
     }
@@ -2596,17 +2667,22 @@ export default function AdminCampaignDraft({
     adminTestsReady,
     announcementQueued,
     audience,
-    campaign?.status,
-    canApprove,
-    canRequestEmailTest,
-    canRequestSmsTest,
+    bulkInfraReady,
+    bulkSendEnabled,
     canStart,
     emailPreviewOutdated,
     emailSaved,
     emailTestReady,
+    form.body,
+    form.ctaLabel,
+    form.ctaUrl,
+    form.heading,
+    form.smsBody,
+    form.subject,
     isSendStarted,
     preview,
     smsPreviewOutdated,
+    smsProductionReady,
     smsSaved,
     smsTestReady,
     startPhrase,
@@ -2680,6 +2756,17 @@ export default function AdminCampaignDraft({
       return "Click New announcement to start.";
     }
 
+    if (
+      action.key === "emailSubject" ||
+      action.key === "emailHeading" ||
+      action.key === "emailBody" ||
+      action.key === "emailCtaLabel" ||
+      action.key === "emailCtaUrl" ||
+      action.key === "smsBody"
+    ) {
+      return `Fill in ${action.label} next.`;
+    }
+
     return `Click ${action.label} next.`;
   }
 
@@ -2723,7 +2810,7 @@ export default function AdminCampaignDraft({
 
       if (below || above) {
         workflowGuideScrollInProgressRef.current = true;
-        scrollToElement(nextWorkflowAction.ref, { block: "start" });
+        scrollToElement(nextWorkflowAction.ref, { block: "center" });
         window.setTimeout(
           () => {
             workflowGuideScrollInProgressRef.current = false;
@@ -2836,15 +2923,6 @@ export default function AdminCampaignDraft({
         >
           {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
         </button>
-        <button
-          type="button"
-          ref={approveButtonRef}
-          onClick={approveCampaign}
-          disabled={!campaign || !canApprove || isBusy}
-          className={`${primaryButtonClass("blue")} ${guidedControlClass("approve")}`}
-        >
-          {busyAction === "approve" ? "Approving..." : "Approve announcement"}
-        </button>
       </div>
 
       {audience ? (
@@ -2878,52 +2956,49 @@ export default function AdminCampaignDraft({
             </div>
           </div>
           <p className="mt-3 text-xs text-text-muted">
-            Receiving both is not shown until a future safe email-phone join is
-            added.
+            Count refreshed
+            {audience.countedAt
+              ? ` at ${new Date(audience.countedAt).toLocaleTimeString()}`
+              : ""}
+            . Receiving both is not shown until a future safe email-phone join
+            is added.
           </p>
-          {campaign?.status === "approved" || isSendStarted ? (
-            <>
-              <label className="mt-4 block">
-                <span className="font-semibold text-text-primary">
-                  Type this phrase to send:
-                </span>
-                <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
-                  {audience.confirmationPhrase}
-                </code>
-                <input
-                  ref={startPhraseInputRef}
-                  value={startPhrase}
-                  onChange={(event) => setStartPhrase(event.target.value)}
-                  disabled={isSendStarted}
-                  className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("startPhrase")}`}
-                />
-              </label>
-              <button
-                type="button"
-                ref={sendAnnouncementButtonRef}
-                onClick={startCampaign}
-                disabled={
-                  !campaign ||
-                  !canStart ||
-                  !bulkSendEnabled ||
-                  !bulkInfraReady ||
-                  !smsProductionReady ||
-                  !audience.eligibleCount ||
-                  !audience.smsEligibleCount ||
-                  startPhrase !== audience.confirmationPhrase ||
-                  isBusy
-                }
-                className={`mt-4 ${primaryButtonClass("amber")} ${guidedControlClass("sendAnnouncement")}`}
-              >
-                {busyAction === "start" ? "Queueing..." : "Send announcement"}
-              </button>
-            </>
-          ) : (
-            <p className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-3 text-xs leading-5 text-text-muted">
-              Approve the announcement after reviewing these counts. The send
-              confirmation will appear after approval.
-            </p>
-          )}
+          <label className="mt-4 block">
+            <span className="font-semibold text-text-primary">
+              Type this phrase to approve and send:
+            </span>
+            <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
+              {audience.confirmationPhrase}
+            </code>
+            <input
+              ref={startPhraseInputRef}
+              value={startPhrase}
+              onChange={(event) => setStartPhrase(event.target.value)}
+              disabled={isSendStarted}
+              className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("startPhrase")}`}
+            />
+          </label>
+          <button
+            type="button"
+            ref={sendAnnouncementButtonRef}
+            onClick={startCampaign}
+            disabled={
+              !campaign ||
+              !canStart ||
+              !bulkSendEnabled ||
+              !bulkInfraReady ||
+              !smsProductionReady ||
+              !audience.eligibleCount ||
+              !audience.smsEligibleCount ||
+              startPhrase !== audience.confirmationPhrase ||
+              isBusy
+            }
+            className={`mt-4 ${primaryButtonClass("amber")} ${guidedControlClass("sendAnnouncement")}`}
+          >
+            {busyAction === "start"
+              ? "Queueing..."
+              : "Approve & send announcement"}
+          </button>
           {!smsProductionReady ? (
             <p className="mt-3 text-xs leading-5 text-yellow-100">
               Sending is not available yet because text delivery jobs are not
@@ -3186,7 +3261,9 @@ export default function AdminCampaignDraft({
       {focusGuideVisible && focusGuideDirection && nextWorkflowAction ? (
         <FocusGuideDirectionCue
           direction={focusGuideDirection}
-          onClick={() => scrollToElement(nextWorkflowAction.ref, { block: "start" })}
+          onClick={() =>
+            scrollToElement(nextWorkflowAction.ref, { block: "center" })
+          }
         >
           {focusGuideDirection === "above"
             ? "Next step is above"
@@ -3305,7 +3382,7 @@ export default function AdminCampaignDraft({
               onChange={(event) => updateField("subject", event.target.value)}
               maxLength={120}
               disabled={isSendStarted}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailSubject")}`}
             />
             {fieldErrors.subject ? (
               <span className="mt-2 block text-xs text-red-100">
@@ -3319,11 +3396,12 @@ export default function AdminCampaignDraft({
               Heading
             </span>
             <input
+              ref={emailHeadingFieldRef}
               value={form.heading}
               onChange={(event) => updateField("heading", event.target.value)}
               maxLength={160}
               disabled={isSendStarted}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailHeading")}`}
             />
             {fieldErrors.heading ? (
               <span className="mt-2 block text-xs text-red-100">
@@ -3335,12 +3413,13 @@ export default function AdminCampaignDraft({
           <label className="block">
             <span className="text-sm font-semibold text-text-primary">Body</span>
             <textarea
+              ref={emailBodyRef}
               value={form.body}
               onChange={(event) => updateField("body", event.target.value)}
               rows={10}
               maxLength={5000}
               disabled={isSendStarted}
-              className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className={`mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailBody")}`}
             />
             {fieldErrors.body ? (
               <span className="mt-2 block text-xs text-red-100">
@@ -3355,11 +3434,12 @@ export default function AdminCampaignDraft({
                 Link text
               </span>
               <input
+                ref={emailCtaLabelRef}
                 value={form.ctaLabel}
                 onChange={(event) => updateField("ctaLabel", event.target.value)}
                 maxLength={64}
                 disabled={isSendStarted}
-                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaLabel")}`}
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
                 The words shown on the email button, such as "Open TestFlight."
@@ -3370,11 +3450,12 @@ export default function AdminCampaignDraft({
                 Link URL
               </span>
               <input
+                ref={emailCtaUrlRef}
                 value={form.ctaUrl}
                 onChange={(event) => updateField("ctaUrl", event.target.value)}
                 maxLength={300}
                 disabled={isSendStarted}
-                className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaUrl")}`}
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
                 The secure web address opened by the button.
@@ -3474,7 +3555,9 @@ export default function AdminCampaignDraft({
                 Email preview
               </p>
               <h2 className="mt-1 text-sm font-semibold text-text-primary">
-                {preview?.subject || form.subject || "Untitled beta update"}
+                {preview?.subject ||
+                  emailPreviewSnapshot.subject ||
+                  "Untitled beta update"}
               </h2>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3512,7 +3595,7 @@ export default function AdminCampaignDraft({
             </div>
           </div>
 
-          {preview && emailPreviewOutdated ? (
+          {emailPreviewOutdated ? (
             <div className="mb-4 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs font-semibold text-yellow-50">
               Draft changed. Generate a new preview.
             </div>
@@ -3534,8 +3617,7 @@ export default function AdminCampaignDraft({
           ) : (
             <>
               <div className="mb-4 rounded-[8px] border border-accent/20 bg-accent/5 p-3 text-xs font-semibold text-teal-50">
-                Draft preview - Default content. Generate preview before
-                testing or approving.
+                Draft preview. Generate preview before testing or approving.
               </div>
               {previewMode === "html" ? (
                 <iframe
@@ -3547,12 +3629,12 @@ export default function AdminCampaignDraft({
               ) : (
                 <pre className="max-h-[620px] overflow-auto whitespace-pre-wrap rounded-[8px] border border-white/10 bg-[#0D1117] p-5 text-sm leading-6 text-text-secondary">
                   {[
-                    form.heading,
+                    emailPreviewSnapshot.heading,
                     "",
-                    form.body.trim(),
+                    emailPreviewSnapshot.body.trim(),
                     "",
-                    form.ctaLabel && form.ctaUrl
-                      ? `${form.ctaLabel}: ${form.ctaUrl}`
+                    emailPreviewSnapshot.ctaLabel && emailPreviewSnapshot.ctaUrl
+                      ? `${emailPreviewSnapshot.ctaLabel}: ${emailPreviewSnapshot.ctaUrl}`
                       : "",
                     "",
                     "You are receiving this because you joined the SuppVis beta.",
@@ -3634,7 +3716,7 @@ export default function AdminCampaignDraft({
                 rows={6}
                 maxLength={260}
               disabled={!canUseSmsControls}
-              className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className={`mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("smsBody")}`}
             />
               {fieldErrors.smsBody ? (
                 <span className="mt-2 block text-xs text-red-100">
@@ -3737,6 +3819,7 @@ export default function AdminCampaignDraft({
                 {currentSmsProviderStatus
                   ? ` Current provider status: ${currentSmsProviderStatus}.`
                   : ""}
+                {currentSmsSender ? ` Sender: ${currentSmsSender}.` : ""}
               </div>
             ) : null}
           </div>
@@ -3779,8 +3862,8 @@ export default function AdminCampaignDraft({
                 <div className="rounded-[18px] bg-accent/15 p-4 text-sm leading-6 text-teal-50">
                   {!activeSmsPreview ? (
                     <p className="mb-3 rounded-[8px] border border-accent/20 bg-accent/10 p-2 text-xs font-semibold text-teal-50">
-                      Draft preview - Default content. Generate preview before
-                      testing or approving.
+                      Draft preview. Generate preview before testing or
+                      approving.
                     </p>
                   ) : null}
                   {smsPreviewOutdated ? (
@@ -3858,56 +3941,6 @@ export default function AdminCampaignDraft({
               className={primaryButtonClass("teal")}
             >
               New announcement
-            </button>
-          </div>
-        </Modal>
-      ) : null}
-
-      {defaultSaveRequest ? (
-        <Modal
-          title="Use the default announcement?"
-          onClose={() => {
-            if (!isBusy) {
-              setDefaultSaveRequest(null);
-            }
-          }}
-        >
-          <p className="text-sm leading-6 text-text-secondary">
-            This announcement still uses the default example content. You can
-            continue, but confirm that you intend to save and use it.
-          </p>
-          <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
-              Default content detected
-            </p>
-            <p className="mt-2 text-sm font-semibold text-text-primary">
-              {defaultSaveRequest.sections.join(" and ")}
-            </p>
-          </div>
-          <div className="mt-5 flex flex-wrap justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setDefaultSaveRequest(null)}
-              disabled={isBusy}
-              className={primaryButtonClass("dark")}
-            >
-              Go back
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const request = defaultSaveRequest;
-                setDefaultSaveRequest(null);
-                if (request.channel === "email") {
-                  saveEmailDraft(true);
-                } else {
-                  saveTextDraft(true);
-                }
-              }}
-              disabled={isBusy}
-              className={primaryButtonClass("teal")}
-            >
-              Save default content
             </button>
           </div>
         </Modal>

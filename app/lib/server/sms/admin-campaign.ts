@@ -20,6 +20,7 @@ export function assertAdminSmsTestTwilioConfigured() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
   const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  const smsFromNumber = process.env.TWILIO_SMS_FROM_NUMBER?.trim();
   const statusCallbackUrl = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
   const webhookSignatureRequired =
     process.env.TWILIO_WEBHOOK_SIGNATURE_REQUIRED?.trim();
@@ -33,6 +34,10 @@ export function assertAdminSmsTestTwilioConfigured() {
   }
 
   if (!messagingServiceSid?.startsWith("MG")) {
+    throw new ServerConfigError("Twilio SMS test configuration is incomplete.");
+  }
+
+  if (smsFromNumber && !/^\+1\d{10}$/.test(smsFromNumber)) {
     throw new ServerConfigError("Twilio SMS test configuration is incomplete.");
   }
 

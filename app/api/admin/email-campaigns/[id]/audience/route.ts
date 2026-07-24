@@ -82,6 +82,7 @@ export async function POST(
 
     const emailAudience = await buildCampaignAudience();
     const smsAudience = await buildSmsCampaignAudience();
+    const countedAt = new Date().toISOString();
 
     await recordAdminCampaignAudit({
       action: "recipient_count_generated",
@@ -98,6 +99,7 @@ export async function POST(
         eligibleCount: emailAudience.eligibleCount,
         excludedCount: emailAudience.excludedCount,
         duplicateCount: emailAudience.duplicateCount,
+        countedAt,
         smsEligibleCount: smsAudience.eligibleCount,
         smsExcludedCount: smsAudience.excludedCount,
         smsDuplicateCount: smsAudience.duplicateCount,

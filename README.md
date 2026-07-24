@@ -101,6 +101,7 @@ Twilio SMS configuration:
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_MESSAGING_SERVICE_SID`
+- `TWILIO_SMS_FROM_NUMBER` - approved SMS long-code sender used with the Messaging Service, recommended `+16507025913`.
 - `TWILIO_WEBHOOK_SIGNATURE_REQUIRED` - keep `false` for local testing; production webhooks should require signatures before provider traffic is connected.
 - `TWILIO_STATUS_CALLBACK_URL` - recommended `https://www.suppvis.health/api/webhooks/twilio/status`.
 

@@ -41,6 +41,7 @@ export function hasCurrentSmsTestAccepted(campaign: EmailCampaignRecord) {
     campaign.sms_tested_at &&
       campaign.sms_test_message_sid &&
       campaign.sms_test_version === smsDraftVersion(campaign) &&
+      campaign.sms_test_transport === "sms" &&
       (status === "accepted" || status === "delivered"),
   );
 }

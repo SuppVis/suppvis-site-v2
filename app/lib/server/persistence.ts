@@ -337,7 +337,9 @@ export type EmailCampaignRecord = {
   sms_test_recipient_masked?: string | null;
   sms_test_message_sid?: string | null;
   sms_test_provider_status?: string | null;
+  sms_test_sender_masked?: string | null;
   sms_test_status?: string | null;
+  sms_test_transport?: string | null;
   sms_test_attempt_id?: string | null;
   sms_test_send_reserved_at?: string | null;
   sms_test_send_reserved_by?: string | null;
@@ -440,7 +442,9 @@ export type EmailCampaignSummary = Pick<
   | "sms_test_recipient_masked"
   | "sms_test_message_sid"
   | "sms_test_provider_status"
+  | "sms_test_sender_masked"
   | "sms_test_status"
+  | "sms_test_transport"
   | "sms_test_attempt_id"
   | "sms_character_count"
   | "sms_segment_count"
@@ -607,8 +611,12 @@ function emailCampaignFromAttributes(
       nullableStringAttribute(attributes?.sms_test_message_sid) || null,
     sms_test_provider_status:
       nullableStringAttribute(attributes?.sms_test_provider_status) || null,
+    sms_test_sender_masked:
+      nullableStringAttribute(attributes?.sms_test_sender_masked) || null,
     sms_test_status:
       nullableStringAttribute(attributes?.sms_test_status) || null,
+    sms_test_transport:
+      nullableStringAttribute(attributes?.sms_test_transport) || null,
     sms_test_attempt_id:
       nullableStringAttribute(attributes?.sms_test_attempt_id) || null,
     sms_test_send_reserved_at:
@@ -1679,7 +1687,9 @@ export async function updateEmailCampaignSmsDraft(input: {
       sms_test_recipient_masked: null,
       sms_test_message_sid: null,
       sms_test_provider_status: null,
+      sms_test_sender_masked: null,
       sms_test_status: null,
+      sms_test_transport: null,
       sms_test_attempt_id: null,
       sms_test_send_reserved_at: null,
       sms_test_send_reserved_by: null,
@@ -1765,7 +1775,9 @@ export async function updateEmailCampaignDraft(input: {
       sms_test_recipient_masked: null,
       sms_test_message_sid: null,
       sms_test_provider_status: null,
+      sms_test_sender_masked: null,
       sms_test_status: null,
+      sms_test_transport: null,
       sms_test_attempt_id: null,
       sms_test_send_reserved_at: null,
       sms_test_send_reserved_by: null,
@@ -2041,6 +2053,8 @@ export async function reserveEmailCampaignSmsTest(input: {
       sms_test_version: 0,
       sms_test_message_sid: null,
       sms_test_provider_status: null,
+      sms_test_sender_masked: null,
+      sms_test_transport: null,
       sms_test_attempt_id: input.test_attempt_id,
       updated_by: input.updated_by,
       updated_at: input.now,
@@ -2074,6 +2088,7 @@ export async function markEmailCampaignSmsTestSent(input: {
   messageSid?: string;
   now: string;
   providerStatus?: string;
+  sender_masked: string;
   smsDraftVersion: number;
   test_attempt_id: string;
   test_recipient_id: string;
@@ -2094,7 +2109,9 @@ export async function markEmailCampaignSmsTestSent(input: {
       sms_test_recipient_masked: input.test_recipient_masked,
       sms_test_message_sid: input.messageSid,
       sms_test_provider_status: input.providerStatus || null,
+      sms_test_sender_masked: input.sender_masked,
       sms_test_status: "accepted",
+      sms_test_transport: "sms",
       sms_test_attempt_id: input.test_attempt_id,
       sms_test_send_reserved_at: null,
       sms_test_send_reserved_by: null,
