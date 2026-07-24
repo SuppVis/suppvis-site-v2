@@ -10,6 +10,10 @@ import {
   isAdminEmailTestSendEnabled,
   sendAdminCampaignTestEmail,
 } from "@/app/lib/server/email/admin-campaign";
+import {
+  emailDraftVersion,
+  hasCurrentEmailPreview,
+} from "@/app/lib/server/email/campaign-readiness";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import { renderAdminCampaignEmail } from "@/app/lib/server/messages/admin-campaign";
 import {
@@ -60,6 +64,16 @@ export async function POST(
     }
 
     const adminEmail = adminEmailFromIdentifier(admin.identifier);
+
+    if (!hasCurrentEmailPreview(campaign)) {
+      throw new PublicApiError(
+        409,
+        "email_preview_required",
+        campaign.email_preview_generated_at
+          ? "The preview is out of date. Generate it again."
+          : "Generate the email preview before sending a test.",
+      );
+    }
 
     if (!areAdminCampaignsEnabled() || !isAdminEmailTestSendEnabled()) {
       await recordAdminCampaignAudit({
@@ -161,6 +175,7 @@ export async function POST(
     }
 
     const updated = await markEmailCampaignTestSent({
+      draftVersion: emailDraftVersion(campaign),
       id,
       expectedVersion: reserved.version,
       messageId: result.messageId,
@@ -197,7 +212,11 @@ export async function POST(
         id: updated.id,
         status: updated.status,
         version: updated.version,
+        emailDraftVersion: updated.email_draft_version || updated.version,
+        emailPreviewGeneratedAt: updated.email_preview_generated_at || null,
+        emailPreviewVersion: updated.email_preview_version || 0,
         testedAt: updated.tested_at,
+        emailTestVersion: updated.email_test_version || 0,
       },
     });
   } catch (error) {

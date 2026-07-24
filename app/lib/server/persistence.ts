@@ -292,7 +292,11 @@ export type EmailCampaignRecord = {
   created_at: string;
   updated_at: string;
   version: number;
+  email_draft_version?: number;
+  email_preview_generated_at?: string | null;
+  email_preview_version?: number;
   tested_at: string | null;
+  email_test_version?: number;
   approved_at: string | null;
   approved_by?: string | null;
   queueing_started_at?: string | null;
@@ -324,8 +328,11 @@ export type EmailCampaignRecord = {
   sms_body?: string;
   sms_rendered_body?: string;
   sms_draft_version?: number;
+  sms_preview_generated_at?: string | null;
+  sms_preview_version?: number;
   sms_saved_at?: string | null;
   sms_tested_at?: string | null;
+  sms_test_version?: number;
   sms_test_recipient_id?: string | null;
   sms_test_recipient_masked?: string | null;
   sms_test_message_sid?: string | null;
@@ -403,7 +410,11 @@ export type EmailCampaignSummary = Pick<
   | "created_at"
   | "updated_at"
   | "version"
+  | "email_draft_version"
+  | "email_preview_generated_at"
+  | "email_preview_version"
   | "tested_at"
+  | "email_test_version"
   | "approved_at"
   | "queueing_started_at"
   | "queued_at"
@@ -420,7 +431,11 @@ export type EmailCampaignSummary = Pick<
   | "skipped_count"
   | "sms_enabled"
   | "sms_saved_at"
+  | "sms_draft_version"
+  | "sms_preview_generated_at"
+  | "sms_preview_version"
   | "sms_tested_at"
+  | "sms_test_version"
   | "sms_test_recipient_id"
   | "sms_test_recipient_masked"
   | "sms_test_message_sid"
@@ -538,7 +553,12 @@ function emailCampaignFromAttributes(
     created_at: createdAt,
     updated_at: updatedAt,
     version,
+    email_draft_version: numberAttribute(attributes?.email_draft_version) || version,
+    email_preview_generated_at:
+      nullableStringAttribute(attributes?.email_preview_generated_at) || null,
+    email_preview_version: numberAttribute(attributes?.email_preview_version) || 0,
     tested_at: nullableStringAttribute(attributes?.tested_at) || null,
+    email_test_version: numberAttribute(attributes?.email_test_version) || 0,
     approved_at: nullableStringAttribute(attributes?.approved_at) || null,
     approved_by: nullableStringAttribute(attributes?.approved_by) || null,
     queueing_started_at:
@@ -573,8 +593,12 @@ function emailCampaignFromAttributes(
     sms_body: stringAttribute(attributes?.sms_body) || "",
     sms_rendered_body: stringAttribute(attributes?.sms_rendered_body) || "",
     sms_draft_version: numberAttribute(attributes?.sms_draft_version) || 0,
+    sms_preview_generated_at:
+      nullableStringAttribute(attributes?.sms_preview_generated_at) || null,
+    sms_preview_version: numberAttribute(attributes?.sms_preview_version) || 0,
     sms_saved_at: nullableStringAttribute(attributes?.sms_saved_at) || null,
     sms_tested_at: nullableStringAttribute(attributes?.sms_tested_at) || null,
+    sms_test_version: numberAttribute(attributes?.sms_test_version) || 0,
     sms_test_recipient_id:
       nullableStringAttribute(attributes?.sms_test_recipient_id) || null,
     sms_test_recipient_masked:
@@ -669,7 +693,11 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     created_at: record.created_at,
     updated_at: record.updated_at,
     version: record.version,
+    email_draft_version: record.email_draft_version || record.version,
+    email_preview_generated_at: record.email_preview_generated_at || null,
+    email_preview_version: record.email_preview_version || 0,
     tested_at: record.tested_at,
+    email_test_version: record.email_test_version || 0,
     approved_at: record.approved_at,
     queueing_started_at: record.queueing_started_at,
     queued_at: record.queued_at,
@@ -686,7 +714,11 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     skipped_count: record.skipped_count,
     sms_enabled: record.sms_enabled,
     sms_saved_at: record.sms_saved_at,
+    sms_draft_version: record.sms_draft_version || 0,
+    sms_preview_generated_at: record.sms_preview_generated_at || null,
+    sms_preview_version: record.sms_preview_version || 0,
     sms_tested_at: record.sms_tested_at,
+    sms_test_version: record.sms_test_version || 0,
     sms_test_recipient_id: record.sms_test_recipient_id,
     sms_test_recipient_masked: record.sms_test_recipient_masked,
     sms_test_message_sid: record.sms_test_message_sid,
@@ -1343,7 +1375,11 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       created_at: record.created_at,
       updated_at: record.updated_at,
       version: record.version,
+      email_draft_version: record.email_draft_version || record.version,
+      email_preview_generated_at: record.email_preview_generated_at || null,
+      email_preview_version: record.email_preview_version || 0,
       tested_at: record.tested_at,
+      email_test_version: record.email_test_version || 0,
       approved_at: record.approved_at,
       sent_at: record.sent_at,
       test_recipient: record.test_recipient,
@@ -1351,8 +1387,11 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       sms_body: record.sms_body || "",
       sms_rendered_body: record.sms_rendered_body || "",
       sms_draft_version: record.sms_draft_version || 0,
+      sms_preview_generated_at: record.sms_preview_generated_at || null,
+      sms_preview_version: record.sms_preview_version || 0,
       sms_saved_at: record.sms_saved_at || null,
       sms_tested_at: record.sms_tested_at || null,
+      sms_test_version: record.sms_test_version || 0,
       sms_test_recipient_id: record.sms_test_recipient_id || null,
       sms_test_recipient_masked: record.sms_test_recipient_masked || null,
       sms_test_message_sid: record.sms_test_message_sid || null,
@@ -1575,6 +1614,15 @@ export async function updateEmailCampaignEmailDraft(input: {
       body: input.body,
       cta_label: input.cta_label,
       cta_url: input.cta_url,
+      email_draft_version: nextVersion,
+      email_preview_generated_at: null,
+      email_preview_version: 0,
+      tested_at: null,
+      test_recipient: null,
+      test_message_id: null,
+      email_test_version: 0,
+      last_test_send_failed_at: null,
+      last_test_send_error_code: null,
       status: "draft",
       updated_by: input.updated_by,
       updated_at: input.now,
@@ -1622,8 +1670,11 @@ export async function updateEmailCampaignSmsDraft(input: {
       sms_body: input.sms_body,
       sms_rendered_body: input.sms_rendered_body,
       sms_draft_version: nextVersion,
+      sms_preview_generated_at: null,
+      sms_preview_version: 0,
       sms_saved_at: input.now,
       sms_tested_at: null,
+      sms_test_version: 0,
       sms_test_recipient_id: null,
       sms_test_recipient_masked: null,
       sms_test_message_sid: null,
@@ -1694,13 +1745,30 @@ export async function updateEmailCampaignDraft(input: {
       body: input.body,
       cta_label: input.cta_label,
       cta_url: input.cta_url,
+      email_draft_version: nextVersion,
+      email_preview_generated_at: null,
+      email_preview_version: 0,
+      tested_at: null,
+      test_recipient: null,
+      test_message_id: null,
+      email_test_version: 0,
       sms_enabled: Boolean(input.sms_enabled),
       sms_body: input.sms_enabled ? input.sms_body || "" : "",
       sms_rendered_body: input.sms_enabled ? input.sms_rendered_body || "" : "",
       sms_draft_version: smsDraftVersion,
+      sms_preview_generated_at: null,
+      sms_preview_version: 0,
       sms_saved_at: input.sms_enabled ? input.now : null,
-      sms_tested_at: input.sms_enabled ? undefined : null,
-      sms_test_recipient_id: input.sms_enabled ? undefined : null,
+      sms_tested_at: null,
+      sms_test_version: 0,
+      sms_test_recipient_id: null,
+      sms_test_recipient_masked: null,
+      sms_test_message_sid: null,
+      sms_test_provider_status: null,
+      sms_test_status: null,
+      sms_test_attempt_id: null,
+      sms_test_send_reserved_at: null,
+      sms_test_send_reserved_by: null,
       sms_character_count: input.sms_enabled ? input.sms_character_count || 0 : 0,
       sms_segment_count: input.sms_enabled ? input.sms_segment_count || 0 : 0,
       sms_encoding: input.sms_enabled ? input.sms_encoding || "GSM-7" : "GSM-7",
@@ -1734,6 +1802,90 @@ export async function updateEmailCampaignDraft(input: {
     : null;
 }
 
+export async function markEmailCampaignEmailPreviewGenerated(input: {
+  draftVersion: number;
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_email_preview_generated",
+    returnValues: "ALL_NEW",
+    set: {
+      email_preview_generated_at: input.now,
+      email_preview_version: input.draftVersion,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#emailDraftVersion) OR #emailDraftVersion = :draftVersion) AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#emailDraftVersion": "email_draft_version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draftVersion": input.draftVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignSmsPreviewGenerated(input: {
+  expectedVersion: number;
+  id: string;
+  now: string;
+  smsDraftVersion: number;
+  updated_by: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_sms_preview_generated",
+    returnValues: "ALL_NEW",
+    set: {
+      sms_preview_generated_at: input.now,
+      sms_preview_version: input.smsDraftVersion,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#smsDraftVersion) OR #smsDraftVersion = :smsDraftVersion) AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#smsDraftVersion": "sms_draft_version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":smsDraftVersion": input.smsDraftVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
 export async function markEmailCampaignTestReady(input: {
   expectedVersion: number;
   id: string;
@@ -1749,7 +1901,10 @@ export async function markEmailCampaignTestReady(input: {
     returnValues: "ALL_NEW",
     set: {
       status: "test_ready",
+      tested_at: null,
+      email_test_version: 0,
       test_recipient: input.test_recipient,
+      test_message_id: null,
       updated_by: input.updated_by,
       updated_at: input.now,
       version: nextVersion,
@@ -1775,6 +1930,7 @@ export async function markEmailCampaignTestReady(input: {
 }
 
 export async function markEmailCampaignTestSent(input: {
+  draftVersion: number;
   expectedVersion: number;
   id: string;
   messageId?: string;
@@ -1791,6 +1947,7 @@ export async function markEmailCampaignTestSent(input: {
     set: {
       status: "tested",
       tested_at: input.now,
+      email_test_version: input.draftVersion,
       test_recipient: input.test_recipient,
       test_message_id: input.messageId,
       updated_by: input.updated_by,
@@ -1832,6 +1989,9 @@ export async function markEmailCampaignTestFailed(input: {
     returnValues: "ALL_NEW",
     set: {
       status: "test_ready",
+      tested_at: null,
+      email_test_version: 0,
+      test_message_id: null,
       last_test_send_failed_at: input.now,
       last_test_send_error_code: input.errorCode,
       updated_by: input.updated_by,
@@ -1877,6 +2037,10 @@ export async function reserveEmailCampaignSmsTest(input: {
       sms_test_recipient_id: input.test_recipient_id,
       sms_test_recipient_masked: input.test_recipient_masked,
       sms_test_status: "sending",
+      sms_tested_at: null,
+      sms_test_version: 0,
+      sms_test_message_sid: null,
+      sms_test_provider_status: null,
       sms_test_attempt_id: input.test_attempt_id,
       updated_by: input.updated_by,
       updated_at: input.now,
@@ -1910,6 +2074,7 @@ export async function markEmailCampaignSmsTestSent(input: {
   messageSid?: string;
   now: string;
   providerStatus?: string;
+  smsDraftVersion: number;
   test_attempt_id: string;
   test_recipient_id: string;
   test_recipient_masked: string;
@@ -1922,7 +2087,9 @@ export async function markEmailCampaignSmsTestSent(input: {
     operation: "mark_email_campaign_sms_test_sent",
     returnValues: "ALL_NEW",
     set: {
+      status: "tested",
       sms_tested_at: input.now,
+      sms_test_version: input.smsDraftVersion,
       sms_test_recipient_id: input.test_recipient_id,
       sms_test_recipient_masked: input.test_recipient_masked,
       sms_test_message_sid: input.messageSid,
@@ -1974,6 +2141,9 @@ export async function markEmailCampaignSmsTestFailed(input: {
     set: {
       last_sms_test_send_failed_at: input.now,
       last_sms_test_send_error_code: input.errorCode,
+      sms_tested_at: null,
+      sms_test_version: 0,
+      sms_test_message_sid: null,
       sms_test_status: "failed",
       sms_test_attempt_id: input.test_attempt_id || null,
       sms_test_send_reserved_at: null,

@@ -356,10 +356,15 @@ export const adminCampaignIdSchema = z
   .trim()
   .regex(/^email_campaign_[0-9a-f-]{36}$/);
 
-export const adminCampaignPreviewSchema = adminCampaignEmailContentSchema;
+export const adminCampaignPreviewSchema = adminCampaignEmailContentSchema.extend({
+  campaignId: adminCampaignIdSchema.optional(),
+  expectedVersion: z.number().int().min(1).max(1_000_000).optional(),
+});
 
 export const adminCampaignSmsPreviewSchema = z
   .object({
+    campaignId: adminCampaignIdSchema.optional(),
+    expectedVersion: z.number().int().min(1).max(1_000_000).optional(),
     smsEnabled: z.boolean().optional().default(false),
     smsBody: adminCampaignSmsBodySchema,
   })

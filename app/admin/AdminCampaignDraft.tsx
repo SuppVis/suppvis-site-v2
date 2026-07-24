@@ -39,6 +39,10 @@ type CampaignDraft = {
   createdAt?: string;
   updatedAt: string;
   version: number;
+  emailDraftVersion?: number;
+  emailPreviewGeneratedAt?: string | null;
+  emailPreviewVersion?: number;
+  emailTestVersion?: number;
   testedAt?: string | null;
   approvedAt?: string | null;
   queueingStartedAt?: string | null;
@@ -60,8 +64,11 @@ type CampaignDraft = {
   smsBody?: string;
   smsRenderedBody?: string;
   smsDraftVersion?: number;
+  smsPreviewGeneratedAt?: string | null;
+  smsPreviewVersion?: number;
   smsSavedAt?: string | null;
   smsTestedAt?: string | null;
+  smsTestVersion?: number;
   smsCharacterCount?: number;
   smsSegmentCount?: number;
   smsEncoding?: "GSM-7" | "Unicode";
@@ -134,14 +141,18 @@ type SmsTestReadiness = {
   ready: boolean;
   reason:
     | "admin_campaigns_disabled"
+    | "email_test_required"
     | "mapping_invalid"
     | "mapping_missing"
     | "ready"
+    | "sms_preview_required"
     | "sms_test_disabled"
     | "stale_version"
     | "text_not_saved"
     | "twilio_config_incomplete";
   sessionAuthorized: boolean;
+  emailTestCurrent?: boolean;
+  smsPreviewCurrent?: boolean;
   textSaved: boolean;
   twilioConfigured: boolean;
   versionMatches: boolean;
@@ -204,7 +215,8 @@ type SmsTestModalState =
 const ADMIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const ADMIN_IDLE_WARNING_MS = 30 * 1000;
 const ADMIN_HEARTBEAT_INTERVAL_MS = 90 * 1000;
-const FOCUS_GUIDE_IDLE_MS = 10 * 1000;
+const FOCUS_GUIDE_INITIAL_IDLE_MS = 30 * 1000;
+const FOCUS_GUIDE_STEP_IDLE_MS = 10 * 1000;
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -702,14 +714,15 @@ export default function AdminCampaignDraft({
   const approveButtonRef = useRef<HTMLButtonElement | null>(null);
   const startPhraseInputRef = useRef<HTMLInputElement | null>(null);
   const sendAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
+  const workflowGuideScrollInProgressRef = useRef(false);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
-  const [activitySignal, setActivitySignal] = useState(0);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
   const [focusGuideVisible, setFocusGuideVisible] = useState(false);
   const [focusGuideDirection, setFocusGuideDirection] = useState<
     "above" | "below" | null
   >(null);
+  const [focusGuideResetSignal, setFocusGuideResetSignal] = useState(0);
   const [guidanceHighlight, setGuidanceHighlight] =
     useState<NextActionKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignDraft | null>(null);
@@ -789,10 +802,6 @@ export default function AdminCampaignDraft({
     campaign && !emailChangedSinceSave && hasSavedSmsDraft,
   );
   const smsSaved = hasSavedSmsDraft;
-  const canApprove =
-    campaign?.status === "tested" && selectedChannelsSaved && Boolean(audience);
-  const canStart =
-    campaign?.status === "approved" && selectedChannelsSaved && Boolean(audience);
   const persistedSmsPreview = useMemo<SmsPreview | null>(() => {
     if (!campaign?.smsEnabled || !campaign.smsRenderedBody) {
       return null;
@@ -828,14 +837,46 @@ export default function AdminCampaignDraft({
     smsPreview && !smsPreviewOutdated ? smsPreview : persistedSmsPreview;
   const canUseSmsControls = textWorkspaceUnlocked && !isSendStarted;
   const smsProductionSendConnected = false;
+  const emailDraftVersion = campaign?.emailDraftVersion || campaign?.version || 0;
+  const smsDraftVersion = campaign?.smsDraftVersion || 0;
+  const emailPreviewCurrent = Boolean(
+    campaign &&
+      preview &&
+      !emailPreviewOutdated &&
+      campaign.emailPreviewGeneratedAt &&
+      campaign.emailPreviewVersion === emailDraftVersion,
+  );
+  const smsPreviewCurrent = Boolean(
+    campaign &&
+      smsPreview &&
+      !smsPreviewOutdated &&
+      campaign.smsPreviewGeneratedAt &&
+      campaign.smsPreviewVersion === smsDraftVersion,
+  );
+  const emailTestCurrent = Boolean(
+    campaign?.testedAt &&
+      campaign.emailTestVersion &&
+      campaign.emailTestVersion === emailDraftVersion,
+  );
+  const smsTestAcceptedForCurrentDraft = Boolean(
+    campaign?.smsTestedAt &&
+      campaign.smsTestMessageSid &&
+      campaign.smsTestVersion &&
+      campaign.smsTestVersion === smsDraftVersion &&
+      (campaign.smsTestStatus === "accepted" ||
+        campaign.smsTestStatus === "delivered"),
+  );
   const canRequestEmailTest =
     Boolean(campaign) &&
     emailSaved &&
+    emailPreviewCurrent &&
     testSendEnabled &&
     !isSendStarted;
   const canRequestSmsTest =
     Boolean(campaign) &&
     smsSaved &&
+    emailTestCurrent &&
+    smsPreviewCurrent &&
     Boolean(smsTestReadiness?.ready) &&
     !isSendStarted;
   const smsProductionReady =
@@ -954,16 +995,13 @@ export default function AdminCampaignDraft({
 
   const recordAdminActivity = useCallback(
     (options: { allowDuringWarning?: boolean } = {}) => {
-      dismissFocusGuide();
-
       if (idleWarningOpen && !options.allowDuringWarning) {
         return;
       }
 
       refreshIdleDeadline();
-      setActivitySignal((current) => current + 1);
     },
-    [dismissFocusGuide, idleWarningOpen, refreshIdleDeadline],
+    [idleWarningOpen, refreshIdleDeadline],
   );
 
   const clearSensitiveClientState = useCallback(() => {
@@ -1181,6 +1219,8 @@ export default function AdminCampaignDraft({
         ready: false,
         reason: "sms_test_disabled",
         sessionAuthorized: false,
+        emailTestCurrent: false,
+        smsPreviewCurrent: false,
         textSaved: false,
         twilioConfigured: false,
         versionMatches: false,
@@ -1265,6 +1305,36 @@ export default function AdminCampaignDraft({
       }
     };
   }, [idleWarningOpen, touchAdminSession]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      const remaining = idleDeadlineRef.current - Date.now();
+
+      if (remaining <= 0) {
+        handleIdleSignOut().catch(() => undefined);
+        return;
+      }
+
+      if (remaining <= ADMIN_IDLE_WARNING_MS && !idleWarningOpen) {
+        previousFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        setIdleCountdown(Math.max(0, Math.ceil(remaining / 1000)));
+        setIdleWarningOpen(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [handleIdleSignOut, idleWarningOpen]);
 
   useEffect(() => {
     if (idleTimerRef.current) {
@@ -1863,8 +1933,10 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           body: form.body,
+          campaignId: campaign?.id,
           ctaLabel: form.ctaLabel,
           ctaUrl: form.ctaUrl,
+          expectedVersion: campaign?.version,
           heading: form.heading,
           messageType: form.messageType,
           subject: form.subject,
@@ -1873,6 +1945,10 @@ export default function AdminCampaignDraft({
       const payload = await parseJsonResponse(response);
       setPreview(payload.preview);
       setEmailPreviewOutdated(false);
+      if (payload.campaign) {
+        updateCampaignFromPartial(payload.campaign);
+        await refreshSmsTestReadiness({ ...campaign, ...payload.campaign });
+      }
       setMessage({ tone: "success", text: "Preview generated." });
 
       if (workflowStarted) {
@@ -1915,6 +1991,8 @@ export default function AdminCampaignDraft({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          campaignId: campaign?.id,
+          expectedVersion: campaign?.version,
           smsBody: form.smsBody,
           smsEnabled: true,
         }),
@@ -1922,6 +2000,10 @@ export default function AdminCampaignDraft({
       const payload = await parseJsonResponse(response);
       setSmsPreview(payload.preview);
       setSmsPreviewOutdated(false);
+      if (payload.campaign) {
+        updateCampaignFromPartial(payload.campaign);
+        await refreshSmsTestReadiness({ ...campaign, ...payload.campaign });
+      }
       setMessage({ tone: "success", text: "Text preview generated." });
 
       if (workflowStarted) {
@@ -2255,15 +2337,24 @@ export default function AdminCampaignDraft({
         ? "border-red-400/25 bg-red-400/10 text-red-100"
         : "border-white/10 bg-[#080D12] text-text-secondary";
 
-  const previewsReady = Boolean(
-    preview &&
-      activeSmsPreview &&
-      !emailPreviewOutdated &&
-      !smsPreviewOutdated,
-  );
-  const emailTestReady = Boolean(campaign?.testedAt);
-  const smsTestReady = Boolean(campaign?.smsTestedAt);
+  const previewsReady = Boolean(emailPreviewCurrent && smsPreviewCurrent);
+  const emailTestReady = emailTestCurrent;
+  const smsTestReady = smsTestAcceptedForCurrentDraft;
   const adminTestsReady = Boolean(emailTestReady && smsTestReady);
+  const canApprove = Boolean(
+    campaign?.status === "tested" &&
+      selectedChannelsSaved &&
+      previewsReady &&
+      adminTestsReady &&
+      audience,
+  );
+  const canStart = Boolean(
+    campaign?.status === "approved" &&
+      selectedChannelsSaved &&
+      previewsReady &&
+      adminTestsReady &&
+      audience,
+  );
   const selectedDeliveryReady = bulkInfraReady && smsProductionReady;
   const smsReadinessReason = smsTestReadiness?.reason;
   const currentSmsTestMaskedPhone =
@@ -2272,6 +2363,10 @@ export default function AdminCampaignDraft({
     campaign?.smsTestProviderStatus || campaign?.smsTestStatus || null;
   const smsTestDisabledCopy = !smsSaved
     ? "Save the text message before sending a test."
+    : !emailTestCurrent || smsReadinessReason === "email_test_required"
+      ? "Send the email test before sending a text test."
+      : !smsPreviewCurrent || smsReadinessReason === "sms_preview_required"
+        ? "Generate the text preview before sending a test."
     : smsReadinessReason === "sms_test_disabled" || !smsTestSendEnabled
       ? "Text testing is disabled in Production."
       : smsReadinessReason === "mapping_invalid" || smsTestRecipientConfigError
@@ -2518,12 +2613,75 @@ export default function AdminCampaignDraft({
     workflowStarted,
   ]);
 
+  useEffect(() => {
+    if (!focusGuideVisible || !nextWorkflowAction) {
+      return;
+    }
+
+    const dismissOnIntentionalInteraction = (event: Event) => {
+      if (
+        event.type !== "mousemove" &&
+        event.type !== "click" &&
+        event.type !== "keydown" &&
+        event.type !== "pointerdown" &&
+        event.type !== "input" &&
+        event.type !== "focusin"
+      ) {
+        return;
+      }
+
+      dismissFocusGuide();
+      setFocusGuideResetSignal((value) => value + 1);
+    };
+
+    window.addEventListener("mousemove", dismissOnIntentionalInteraction, {
+      passive: true,
+    });
+    window.addEventListener("click", dismissOnIntentionalInteraction, {
+      passive: true,
+    });
+    window.addEventListener("keydown", dismissOnIntentionalInteraction);
+    window.addEventListener("pointerdown", dismissOnIntentionalInteraction, {
+      passive: true,
+    });
+    window.addEventListener("input", dismissOnIntentionalInteraction, {
+      passive: true,
+    });
+    window.addEventListener("focusin", dismissOnIntentionalInteraction, {
+      passive: true,
+    });
+
+    return () => {
+      window.removeEventListener("mousemove", dismissOnIntentionalInteraction);
+      window.removeEventListener("click", dismissOnIntentionalInteraction);
+      window.removeEventListener("keydown", dismissOnIntentionalInteraction);
+      window.removeEventListener("pointerdown", dismissOnIntentionalInteraction);
+      window.removeEventListener("input", dismissOnIntentionalInteraction);
+      window.removeEventListener("focusin", dismissOnIntentionalInteraction);
+    };
+  }, [dismissFocusGuide, focusGuideVisible, nextWorkflowAction]);
+
   const guidedControlClass = (key: NextActionKey) =>
     focusGuideVisible && nextWorkflowAction?.key === key
-      ? "relative z-[65] ring-2 ring-accent ring-offset-2 ring-offset-[#05090D] shadow-[0_0_44px_rgba(36,196,182,0.42)]"
+      ? "relative z-[65] ring-2 ring-accent ring-offset-2 ring-offset-[#05090D] shadow-[0_0_28px_rgba(36,196,182,0.72),0_0_80px_rgba(36,196,182,0.28)]"
       : guidanceHighlight === key
         ? "ring-2 ring-accent ring-offset-2 ring-offset-[#0D1117] shadow-[0_0_34px_rgba(36,196,182,0.32)]"
         : "";
+
+  function workflowCueText(action: {
+    key: NextActionKey;
+    label: string;
+  }) {
+    if (action.key === "startPhrase") {
+      return "Type the confirmation phrase next.";
+    }
+
+    if (action.key === "newAnnouncement") {
+      return "Click New announcement to start.";
+    }
+
+    return `Click ${action.label} next.`;
+  }
 
   useEffect(() => {
     if (focusGuideTimeoutRef.current) {
@@ -2535,7 +2693,6 @@ export default function AdminCampaignDraft({
     setFocusGuideDirection(null);
 
     if (
-      !workflowStarted ||
       anyModalOpen ||
       isBusy ||
       !nextWorkflowAction ||
@@ -2543,6 +2700,11 @@ export default function AdminCampaignDraft({
     ) {
       return;
     }
+
+    const delay =
+      !workflowStarted && nextWorkflowAction.key === "newAnnouncement"
+        ? FOCUS_GUIDE_INITIAL_IDLE_MS
+        : FOCUS_GUIDE_STEP_IDLE_MS;
 
     focusGuideTimeoutRef.current = window.setTimeout(() => {
       const target = nextWorkflowAction.ref.current;
@@ -2558,7 +2720,24 @@ export default function AdminCampaignDraft({
       setFocusGuideDirection(below ? "below" : above ? "above" : null);
       setFocusGuideVisible(true);
       focusGuideTimeoutRef.current = null;
-    }, FOCUS_GUIDE_IDLE_MS);
+
+      if (below || above) {
+        workflowGuideScrollInProgressRef.current = true;
+        scrollToElement(nextWorkflowAction.ref, { block: "start" });
+        window.setTimeout(
+          () => {
+            workflowGuideScrollInProgressRef.current = false;
+            const nextRect = target.getBoundingClientRect();
+            const stillBelow = nextRect.top > window.innerHeight - 96;
+            const stillAbove = nextRect.bottom < 96;
+            setFocusGuideDirection(
+              stillBelow ? "below" : stillAbove ? "above" : null,
+            );
+          },
+          usesReducedMotion() ? 0 : 750,
+        );
+      }
+    }, delay);
 
     return () => {
       if (focusGuideTimeoutRef.current) {
@@ -2567,11 +2746,13 @@ export default function AdminCampaignDraft({
       }
     };
   }, [
-    activitySignal,
     announcementQueued,
     anyModalOpen,
+    focusGuideResetSignal,
     isBusy,
-    nextWorkflowAction,
+    nextWorkflowAction?.key,
+    scrollToElement,
+    usesReducedMotion,
     workflowStarted,
   ]);
 
@@ -2996,10 +3177,10 @@ export default function AdminCampaignDraft({
 
   return (
     <>
-      {focusGuideVisible && workflowStarted ? (
+      {focusGuideVisible ? (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-[60] bg-black/35 backdrop-blur-[1px] transition-opacity motion-reduce:transition-none"
+          className="pointer-events-none fixed inset-0 z-[60] bg-black/30 backdrop-brightness-75 transition-opacity motion-reduce:transition-none"
         />
       ) : null}
       {focusGuideVisible && focusGuideDirection && nextWorkflowAction ? (
@@ -3007,9 +3188,11 @@ export default function AdminCampaignDraft({
           direction={focusGuideDirection}
           onClick={() => scrollToElement(nextWorkflowAction.ref, { block: "start" })}
         >
-          {focusGuideDirection === "above" ? "Next step is above" : "Next step is below"}
+          {focusGuideDirection === "above"
+            ? "Next step is above"
+            : "Next step is below"}
           {": "}
-          {nextWorkflowAction.label}
+          {workflowCueText(nextWorkflowAction)}
         </FocusGuideDirectionCue>
       ) : null}
       <section

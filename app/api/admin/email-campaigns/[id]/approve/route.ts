@@ -3,6 +3,12 @@ import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit"
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
+  hasCurrentAdminTests,
+  hasCurrentEmailPreview,
+  hasCurrentSmsPreview,
+  hasSavedSmsDraft,
+} from "@/app/lib/server/email/campaign-readiness";
+import {
   approveEmailCampaign,
   getEmailCampaign,
   type EmailCampaignRecord,
@@ -57,24 +63,39 @@ export async function POST(
       );
     }
 
-    if (current.status !== "tested") {
+    if (!hasCurrentEmailPreview(current)) {
       throw new PublicApiError(
         409,
-        "campaign_not_tested",
-        "Send a test email before approving this announcement.",
+        "email_preview_required",
+        current.email_preview_generated_at
+          ? "The email preview is out of date. Generate it again."
+          : "Generate the email preview before approving this announcement.",
       );
     }
 
-    if (
-      !current.sms_enabled ||
-      !current.sms_saved_at ||
-      !current.sms_body ||
-      !current.sms_rendered_body
-    ) {
+    if (!hasSavedSmsDraft(current)) {
       throw new PublicApiError(
         409,
         "sms_draft_not_saved",
         "Save the text message before approving this announcement.",
+      );
+    }
+
+    if (!hasCurrentSmsPreview(current)) {
+      throw new PublicApiError(
+        409,
+        "sms_preview_required",
+        current.sms_preview_generated_at
+          ? "The text preview is out of date. Generate it again."
+          : "Generate the text preview before approving this announcement.",
+      );
+    }
+
+    if (!hasCurrentAdminTests(current)) {
+      throw new PublicApiError(
+        409,
+        "campaign_not_tested",
+        "Complete both admin tests before approving this announcement.",
       );
     }
 

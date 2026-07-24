@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
+import {
+  hasCurrentAdminTests,
+  hasCurrentEmailPreview,
+  hasCurrentSmsPreview,
+  hasSavedSmsDraft,
+} from "@/app/lib/server/email/campaign-readiness";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import { getEmailCampaign } from "@/app/lib/server/persistence";
 import { enforceRateLimit } from "@/app/lib/server/request";
@@ -38,29 +44,39 @@ export async function POST(
       );
     }
 
-    if (
-      campaign.status !== "tested" &&
-      campaign.status !== "approved" &&
-      campaign.status !== "queued" &&
-      campaign.status !== "sending"
-    ) {
+    if (!hasCurrentEmailPreview(campaign)) {
       throw new PublicApiError(
         409,
-        "campaign_not_ready",
-        "Send the admin tests before reviewing recipients.",
+        "email_preview_required",
+        campaign.email_preview_generated_at
+          ? "The email preview is out of date. Generate it again."
+          : "Generate the email preview before reviewing recipients.",
       );
     }
 
-    if (
-      !campaign.sms_enabled ||
-      !campaign.sms_saved_at ||
-      !campaign.sms_body ||
-      !campaign.sms_rendered_body
-    ) {
+    if (!hasSavedSmsDraft(campaign)) {
       throw new PublicApiError(
         409,
         "sms_draft_not_saved",
         "Save the text message before reviewing recipients.",
+      );
+    }
+
+    if (!hasCurrentSmsPreview(campaign)) {
+      throw new PublicApiError(
+        409,
+        "sms_preview_required",
+        campaign.sms_preview_generated_at
+          ? "The text preview is out of date. Generate it again."
+          : "Generate the text preview before reviewing recipients.",
+      );
+    }
+
+    if (!hasCurrentAdminTests(campaign)) {
+      throw new PublicApiError(
+        409,
+        "campaign_not_ready",
+        "Complete both admin tests before reviewing recipients.",
       );
     }
 

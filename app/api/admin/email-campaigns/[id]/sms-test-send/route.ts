@@ -9,6 +9,11 @@ import {
 } from "@/app/lib/server/errors";
 import { areAdminCampaignsEnabled } from "@/app/lib/server/email/admin-campaign";
 import {
+  hasCurrentEmailTest,
+  hasCurrentSmsPreview,
+  smsDraftVersion,
+} from "@/app/lib/server/email/campaign-readiness";
+import {
   getEmailCampaign,
   markEmailCampaignSmsTestFailed,
   markEmailCampaignSmsTestSent,
@@ -129,6 +134,24 @@ export async function POST(
         409,
         "campaign_conflict",
         "This announcement changed in another session. Reload it and try again.",
+      );
+    }
+
+    if (!hasCurrentEmailTest(campaign)) {
+      throw new PublicApiError(
+        409,
+        "email_test_required",
+        "Send the email test before sending a text test.",
+      );
+    }
+
+    if (!hasCurrentSmsPreview(campaign)) {
+      throw new PublicApiError(
+        409,
+        "sms_preview_required",
+        campaign.sms_preview_generated_at
+          ? "The preview is out of date. Generate it again."
+          : "Generate the text preview before sending a test.",
       );
     }
 
@@ -285,6 +308,10 @@ export async function POST(
               id: failedCampaign.id,
               status: failedCampaign.status,
               version: failedCampaign.version,
+              smsDraftVersion: failedCampaign.sms_draft_version || 0,
+              smsPreviewGeneratedAt:
+                failedCampaign.sms_preview_generated_at || null,
+              smsPreviewVersion: failedCampaign.sms_preview_version || 0,
               smsTestStatus: failedCampaign.sms_test_status || null,
             }
           : null,
@@ -297,6 +324,7 @@ export async function POST(
       messageSid: sendResult.messageSid,
       now: new Date().toISOString(),
       providerStatus: sendResult.status,
+      smsDraftVersion: smsDraftVersion(campaign),
       test_attempt_id: attemptId,
       test_recipient_id: testRecipient.recipientId,
       test_recipient_masked: maskedPhone,
@@ -333,7 +361,11 @@ export async function POST(
         id: updated.id,
         status: updated.status,
         version: updated.version,
+        smsDraftVersion: updated.sms_draft_version || 0,
+        smsPreviewGeneratedAt: updated.sms_preview_generated_at || null,
+        smsPreviewVersion: updated.sms_preview_version || 0,
         smsTestedAt: updated.sms_tested_at,
+        smsTestVersion: updated.sms_test_version || 0,
         smsTestMessageSid: updated.sms_test_message_sid,
         smsTestProviderStatus: updated.sms_test_provider_status,
         smsTestStatus: updated.sms_test_status,

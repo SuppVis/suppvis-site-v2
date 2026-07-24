@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
+import {
+  hasCurrentAdminTests,
+  hasCurrentEmailPreview,
+  hasCurrentSmsPreview,
+} from "@/app/lib/server/email/campaign-readiness";
 import { isAdminEmailBulkInfraReady } from "@/app/lib/server/email/campaign-queue";
 import {
   areAdminCampaignsEnabled,
@@ -109,6 +114,22 @@ export async function POST(
         409,
         "sms_draft_not_saved",
         "Save the text message before sending this announcement.",
+      );
+    }
+
+    if (!hasCurrentEmailPreview(campaign) || !hasCurrentSmsPreview(campaign)) {
+      throw new PublicApiError(
+        409,
+        "preview_stale",
+        "Generate current email and text previews before sending.",
+      );
+    }
+
+    if (!hasCurrentAdminTests(campaign)) {
+      throw new PublicApiError(
+        409,
+        "campaign_not_tested",
+        "Complete both admin tests before sending.",
       );
     }
 
