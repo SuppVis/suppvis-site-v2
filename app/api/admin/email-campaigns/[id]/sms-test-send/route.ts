@@ -73,6 +73,12 @@ function buildAdminSmsTestStatusCallbackUrl(campaignId: string) {
   return url.toString();
 }
 
+function smsTestJson(body: unknown, init?: ResponseInit) {
+  const response = NextResponse.json(body, init);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
@@ -143,7 +149,7 @@ export async function POST(
         });
       });
 
-      return NextResponse.json({
+      return smsTestJson({
         ok: true,
         status: "disabled",
         code: "sms_test_send_disabled",
@@ -269,7 +275,7 @@ export async function POST(
 
       const failedCampaign = await getEmailCampaign(id);
 
-      return NextResponse.json({
+      return smsTestJson({
         ok: true,
         status: "failed",
         code: errorCode,
@@ -317,7 +323,7 @@ export async function POST(
       });
     });
 
-    return NextResponse.json({
+    return smsTestJson({
       ok: true,
       status: "sent",
       messageSid: sendResult.messageSid,

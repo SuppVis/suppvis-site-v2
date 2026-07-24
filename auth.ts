@@ -7,12 +7,14 @@ import {
 } from "@/app/lib/server/admin-access";
 
 const microsoftAuthConfigured = isMicrosoftAuthConfigured();
+const ADMIN_SESSION_ABSOLUTE_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   session: {
     strategy: "jwt",
-    maxAge: 5 * 60,
+    maxAge: ADMIN_SESSION_ABSOLUTE_MAX_AGE_SECONDS,
+    updateAge: 60,
   },
   pages: {
     signIn: "/admin/sign-in",
@@ -54,12 +56,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async jwt({ token, user }) {
       const email = user?.email || token.email;
+      if (user || typeof token.adminSessionStartedAt !== "number") {
+        token.adminSessionStartedAt = Date.now();
+      }
       token.isSuppvisAdmin = isAdminEmailAllowed(email);
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.isSuppvisAdmin = Boolean(token.isSuppvisAdmin);
+        session.user.adminSessionStartedAt =
+          typeof token.adminSessionStartedAt === "number"
+            ? token.adminSessionStartedAt
+            : undefined;
       }
       return session;
     },

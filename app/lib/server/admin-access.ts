@@ -1,5 +1,7 @@
 import type { Session } from "next-auth";
 
+export const ADMIN_SESSION_ABSOLUTE_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
 export type AdminAccess =
   | {
       ok: true;
@@ -49,6 +51,16 @@ export function getAdminAccess(session: Session | null): AdminAccess {
 
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) {
+    return { ok: false, reason: "not_authenticated" };
+  }
+
+  const startedAt = session?.user?.adminSessionStartedAt;
+
+  if (
+    typeof startedAt !== "number" ||
+    !Number.isFinite(startedAt) ||
+    Date.now() - startedAt > ADMIN_SESSION_ABSOLUTE_MAX_AGE_MS
+  ) {
     return { ok: false, reason: "not_authenticated" };
   }
 

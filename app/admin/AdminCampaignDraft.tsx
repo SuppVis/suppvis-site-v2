@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { signOut } from "next-auth/react";
 import {
   DEFAULT_ADMIN_EMAIL_BODY,
   DEFAULT_ADMIN_EMAIL_CTA_LABEL,
@@ -178,6 +179,32 @@ type DefaultSaveRequest = {
   channel: "email" | "text";
   sections: string[];
 };
+
+type NextActionKey =
+  | "approve"
+  | "emailPreview"
+  | "emailSave"
+  | "emailTest"
+  | "newAnnouncement"
+  | "recipientCount"
+  | "sendAnnouncement"
+  | "startPhrase"
+  | "smsPreview"
+  | "smsSave"
+  | "smsTest";
+
+type SmsTestModalState =
+  | {
+      message: string;
+      providerStatus?: string | null;
+      tone: "error" | "info" | "success";
+    }
+  | null;
+
+const ADMIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const ADMIN_IDLE_WARNING_MS = 30 * 1000;
+const ADMIN_HEARTBEAT_INTERVAL_MS = 90 * 1000;
+const FOCUS_GUIDE_IDLE_MS = 10 * 1000;
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -543,10 +570,12 @@ function HistoryIcon() {
 
 function Modal({
   children,
+  maxWidth = "max-w-lg",
   onClose,
   title,
 }: {
   children: ReactNode;
+  maxWidth?: string;
   onClose: () => void;
   title: string;
 }) {
@@ -557,45 +586,59 @@ function Modal({
       aria-modal="true"
       aria-labelledby="admin-modal-title"
     >
-      <div className="w-full max-w-lg rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50">
-        <div className="flex items-start justify-between gap-4">
-          <h2
-            id="admin-modal-title"
-            className="font-headline text-2xl font-bold text-text-primary"
-          >
-            {title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-white/10 px-3 py-1 text-sm text-text-secondary transition hover:border-accent/50 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-          >
-            Close
-          </button>
-        </div>
+      <div
+        className={`w-full ${maxWidth} rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50`}
+      >
+        <h2
+          id="admin-modal-title"
+          className="font-headline text-2xl font-bold text-text-primary"
+        >
+          {title}
+        </h2>
         <div className="mt-4">{children}</div>
       </div>
     </div>
   );
 }
 
-function ContinueCue({
+function FocusGuideDirectionCue({
   children,
+  direction,
   onClick,
 }: {
   children: ReactNode;
+  direction: "above" | "below";
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="mt-5 inline-flex items-center gap-2 rounded-full border border-accent/35 bg-accent/10 px-4 py-2 text-xs font-semibold text-accent opacity-95 shadow-[0_0_22px_rgba(36,196,182,0.16)] transition duration-200 hover:border-accent/70 hover:bg-accent/15 hover:shadow-[0_0_28px_rgba(36,196,182,0.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 motion-reduce:transition-none"
+      aria-label={`Next step is ${direction}`}
+      className={`fixed left-1/2 z-[70] -translate-x-1/2 rounded-full border border-accent/45 bg-[#071413]/95 px-4 py-2 text-xs font-bold text-accent shadow-[0_0_30px_rgba(36,196,182,0.28)] transition duration-200 hover:border-accent hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 motion-reduce:transition-none ${
+        direction === "above" ? "top-4" : "bottom-4"
+      }`}
     >
-      {children}
+      {direction === "above" ? (
+        <svg
+          aria-hidden="true"
+          className="mr-2 inline h-3.5 w-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+        >
+          <path d="M12 19V5" />
+          <path d="m5 12 7-7 7 7" />
+        </svg>
+      ) : null}
+      <span>{children}</span>
+      {direction === "below" ? (
       <svg
         aria-hidden="true"
-        className="h-3.5 w-3.5"
+          className="ml-2 inline h-3.5 w-3.5"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -606,6 +649,7 @@ function ContinueCue({
         <path d="M12 5v14" />
         <path d="m19 12-7 7-7-7" />
       </svg>
+      ) : null}
     </button>
   );
 }
@@ -633,23 +677,41 @@ export default function AdminCampaignDraft({
 }) {
   const topRef = useRef<HTMLElement | null>(null);
   const emailWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const emailPreviewButtonRef = useRef<HTMLButtonElement | null>(null);
   const emailSaveRef = useRef<HTMLButtonElement | null>(null);
+  const emailTestButtonRef = useRef<HTMLButtonElement | null>(null);
   const firstEmailFieldRef = useRef<HTMLInputElement | null>(null);
   const textWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const textHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const textBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const textPreviewButtonRef = useRef<HTMLButtonElement | null>(null);
   const textSaveRef = useRef<HTMLButtonElement | null>(null);
+  const textTestButtonRef = useRef<HTMLButtonElement | null>(null);
   const deliveryRef = useRef<HTMLElement | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const smsPreviewRef = useRef<HTMLDivElement | null>(null);
-  const continueCueTimeoutRef = useRef<number | null>(null);
+  const focusGuideTimeoutRef = useRef<number | null>(null);
+  const focusGuidePointerThrottleRef = useRef(0);
+  const heartbeatIntervalRef = useRef<number | null>(null);
+  const idleDeadlineRef = useRef<number>(Date.now() + ADMIN_IDLE_TIMEOUT_MS);
+  const idleTimerRef = useRef<number | null>(null);
+  const lastHeartbeatAtRef = useRef(0);
   const newAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const recipientCountButtonRef = useRef<HTMLButtonElement | null>(null);
+  const approveButtonRef = useRef<HTMLButtonElement | null>(null);
+  const startPhraseInputRef = useRef<HTMLInputElement | null>(null);
+  const sendAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
+  const [activitySignal, setActivitySignal] = useState(0);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
-  const [continueCue, setContinueCue] = useState<
-    "delivery" | "save" | "text" | null
+  const [focusGuideVisible, setFocusGuideVisible] = useState(false);
+  const [focusGuideDirection, setFocusGuideDirection] = useState<
+    "above" | "below" | null
   >(null);
+  const [guidanceHighlight, setGuidanceHighlight] =
+    useState<NextActionKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CampaignDraft | null>(null);
   const [defaultSaveRequest, setDefaultSaveRequest] =
     useState<DefaultSaveRequest | null>(null);
@@ -671,6 +733,8 @@ export default function AdminCampaignDraft({
   const [smsPreview, setSmsPreview] = useState<SmsPreview | null>(null);
   const [smsPreviewOutdated, setSmsPreviewOutdated] = useState(false);
   const [smsTestMessageSid, setSmsTestMessageSid] = useState<string | null>(null);
+  const [smsTestModalState, setSmsTestModalState] =
+    useState<SmsTestModalState>(null);
   const [smsTestModalConfirmed, setSmsTestModalConfirmed] = useState(false);
   const [smsTestModalOpen, setSmsTestModalOpen] = useState(false);
   const [smsTestRecipient, setSmsTestRecipient] = useState<string | null>(null);
@@ -689,6 +753,8 @@ export default function AdminCampaignDraft({
   );
   const [sentHistoryOpen, setSentHistoryOpen] = useState(false);
   const [workflowStarted, setWorkflowStarted] = useState(false);
+  const [idleWarningOpen, setIdleWarningOpen] = useState(false);
+  const [idleCountdown, setIdleCountdown] = useState(30);
 
   const isBusy = Boolean(busyAction);
   const status = useMemo(() => statusLabel(campaign?.status), [campaign]);
@@ -800,7 +866,8 @@ export default function AdminCampaignDraft({
     Boolean(deleteTarget) ||
     Boolean(defaultSaveRequest) ||
     newAnnouncementConfirmOpen ||
-    sentHistoryOpen;
+    sentHistoryOpen ||
+    idleWarningOpen;
 
   const usesReducedMotion = useCallback(
     () =>
@@ -865,21 +932,101 @@ export default function AdminCampaignDraft({
     [anyModalOpen, scrollToElement, usesReducedMotion],
   );
 
-  function scheduleContinueCue(cue: "delivery" | "save" | "text") {
-    if (!workflowStarted || anyModalOpen) {
-      return;
-    }
+  const dismissFocusGuide = useCallback(() => {
+    setFocusGuideVisible(false);
+    setFocusGuideDirection(null);
+  }, []);
 
-    if (continueCueTimeoutRef.current) {
-      window.clearTimeout(continueCueTimeoutRef.current);
-    }
+  const refreshIdleDeadline = useCallback(() => {
+    idleDeadlineRef.current = Date.now() + ADMIN_IDLE_TIMEOUT_MS;
+  }, []);
 
-    setContinueCue(null);
-    continueCueTimeoutRef.current = window.setTimeout(() => {
-      setContinueCue(cue);
-      continueCueTimeoutRef.current = null;
-    }, usesReducedMotion() ? 0 : 4000);
-  }
+  const touchAdminSession = useCallback(async () => {
+    const response = await adminFetch("/api/admin/session/touch", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+    await parseJsonResponse(response);
+    lastHeartbeatAtRef.current = Date.now();
+  }, []);
+
+  const recordAdminActivity = useCallback(
+    (options: { allowDuringWarning?: boolean } = {}) => {
+      dismissFocusGuide();
+
+      if (idleWarningOpen && !options.allowDuringWarning) {
+        return;
+      }
+
+      refreshIdleDeadline();
+      setActivitySignal((current) => current + 1);
+    },
+    [dismissFocusGuide, idleWarningOpen, refreshIdleDeadline],
+  );
+
+  const clearSensitiveClientState = useCallback(() => {
+    setAudience(null);
+    setCampaign(null);
+    setDefaultSaveRequest(null);
+    setDeleteTarget(null);
+    setEmailTestModalOpen(false);
+    setEmailTestModalConfirmed(false);
+    setEmailPreviewOutdated(false);
+    setFieldErrors({});
+    setForm({ ...initialForm, smsEnabled: true });
+    setMessage(null);
+    setPreview(null);
+    setPreviewMode("html");
+    setProgress(null);
+    setSmsPreview(null);
+    setSmsPreviewOutdated(false);
+    setSmsTestMessageSid(null);
+    setSmsTestModalOpen(false);
+    setSmsTestModalConfirmed(false);
+    setSmsTestModalState(null);
+    setSmsTestRecipient(null);
+    setSmsTestReadiness(null);
+    setGuidanceHighlight(null);
+    setSaveHighlight(null);
+    setSentHistoryOpen(false);
+    setStartPhrase("");
+    setTestSendMessageId(null);
+    setWorkflowStarted(false);
+  }, []);
+
+  const handleIdleSignOut = useCallback(async () => {
+    clearSensitiveClientState();
+    setIdleWarningOpen(false);
+    await signOut({
+      callbackUrl: "/admin",
+      redirect: true,
+    });
+  }, [clearSensitiveClientState]);
+
+  const staySignedIn = useCallback(async () => {
+    setBusyAction("refresh");
+    try {
+      await touchAdminSession();
+      setIdleWarningOpen(false);
+      setIdleCountdown(30);
+      recordAdminActivity({ allowDuringWarning: true });
+      window.setTimeout(
+        () => previousFocusRef.current?.focus({ preventScroll: true }),
+        usesReducedMotion() ? 0 : 50,
+      );
+    } catch {
+      await handleIdleSignOut();
+    } finally {
+      setBusyAction((current) => (current === "refresh" ? null : current));
+    }
+  }, [
+    handleIdleSignOut,
+    recordAdminActivity,
+    touchAdminSession,
+    usesReducedMotion,
+  ]);
 
   function sortVisibleDrafts(nextDrafts: CampaignDraft[]) {
     const visible = nextDrafts.slice(0, 20);
@@ -1052,9 +1199,129 @@ export default function AdminCampaignDraft({
   }, []);
 
   useEffect(() => {
+    refreshIdleDeadline();
+
+    const activityEvents = [
+      "click",
+      "focusin",
+      "input",
+      "keydown",
+      "pointerdown",
+      "pointermove",
+      "scroll",
+    ];
+
+    const onActivity = (event: Event) => {
+      if (event.type === "pointermove" || event.type === "scroll") {
+        const now = Date.now();
+
+        if (now - focusGuidePointerThrottleRef.current < 1000) {
+          return;
+        }
+
+        focusGuidePointerThrottleRef.current = now;
+      }
+
+      recordAdminActivity();
+    };
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, onActivity, {
+        passive: true,
+      });
+    });
+
     return () => {
-      if (continueCueTimeoutRef.current) {
-        window.clearTimeout(continueCueTimeoutRef.current);
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, onActivity);
+      });
+    };
+  }, [recordAdminActivity, refreshIdleDeadline]);
+
+  useEffect(() => {
+    if (heartbeatIntervalRef.current) {
+      window.clearInterval(heartbeatIntervalRef.current);
+    }
+
+    heartbeatIntervalRef.current = window.setInterval(() => {
+      const now = Date.now();
+
+      if (
+        idleWarningOpen ||
+        document.visibilityState !== "visible" ||
+        now >= idleDeadlineRef.current ||
+        now - lastHeartbeatAtRef.current < ADMIN_HEARTBEAT_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      touchAdminSession().catch(() => undefined);
+    }, ADMIN_HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      if (heartbeatIntervalRef.current) {
+        window.clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+    };
+  }, [idleWarningOpen, touchAdminSession]);
+
+  useEffect(() => {
+    if (idleTimerRef.current) {
+      window.clearInterval(idleTimerRef.current);
+    }
+
+    idleTimerRef.current = window.setInterval(() => {
+      if (idleWarningOpen) {
+        return;
+      }
+
+      const remaining = idleDeadlineRef.current - Date.now();
+
+      if (remaining <= ADMIN_IDLE_WARNING_MS) {
+        previousFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        setIdleCountdown(Math.max(0, Math.ceil(remaining / 1000)));
+        setIdleWarningOpen(true);
+      }
+    }, 1000);
+
+    return () => {
+      if (idleTimerRef.current) {
+        window.clearInterval(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+    };
+  }, [idleWarningOpen]);
+
+  useEffect(() => {
+    if (!idleWarningOpen) {
+      return;
+    }
+
+    const countdown = window.setInterval(() => {
+      const remainingSeconds = Math.max(
+        0,
+        Math.ceil((idleDeadlineRef.current - Date.now()) / 1000),
+      );
+
+      setIdleCountdown(remainingSeconds);
+
+      if (remainingSeconds <= 0) {
+        window.clearInterval(countdown);
+        handleIdleSignOut().catch(() => undefined);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(countdown);
+  }, [handleIdleSignOut, idleWarningOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (focusGuideTimeoutRef.current) {
+        window.clearTimeout(focusGuideTimeoutRef.current);
       }
     };
   }, []);
@@ -1066,6 +1333,7 @@ export default function AdminCampaignDraft({
     setEmailPreviewOutdated(false);
     setSmsTestMessageSid(null);
     setSmsTestRecipient(null);
+    setSmsTestModalState(null);
     setAudience(null);
     setStartPhrase("");
     setProgress(null);
@@ -1104,36 +1372,53 @@ export default function AdminCampaignDraft({
   }, [campaign?.id, campaign?.status, isSendStarted]);
 
   useEffect(() => {
-    if (!continueCue) {
+    if (!campaign?.id || !campaign.smsTestMessageSid) {
       return;
     }
 
-    const target =
-      continueCue === "text"
-        ? textWorkspaceRef.current
-        : continueCue === "save"
-          ? textSaveRef.current
-          : deliveryRef.current;
+    const smsStatus = (
+      campaign.smsTestStatus ||
+      campaign.smsTestProviderStatus ||
+      ""
+    ).toLowerCase();
 
-    if (!target) {
+    if (
+      smsStatus === "delivered" ||
+      smsStatus === "failed" ||
+      smsStatus === "undelivered"
+    ) {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setContinueCue(null);
+    let canceled = false;
+    const interval = window.setInterval(async () => {
+      try {
+        const response = await adminFetch(
+          `/api/admin/email-campaigns/${campaign.id}`,
+          {
+            cache: "no-store",
+          },
+        );
+        const payload = await parseJsonResponse(response);
+
+        if (!canceled && payload.campaign) {
+          updateCampaignFromPartial(payload.campaign);
         }
-      },
-      {
-        threshold: 0.25,
-      },
-    );
+      } catch {
+        // The next explicit admin action will surface authorization or network issues.
+      }
+    }, 5000);
 
-    observer.observe(target);
-
-    return () => observer.disconnect();
-  }, [continueCue]);
+    return () => {
+      canceled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    campaign?.id,
+    campaign?.smsTestMessageSid,
+    campaign?.smsTestProviderStatus,
+    campaign?.smsTestStatus,
+  ]);
 
   function updateField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -1159,6 +1444,7 @@ export default function AdminCampaignDraft({
       setSmsTestMessageSid(null);
       setSmsTestRecipient(null);
       setSmsTestReadiness(null);
+      setSmsTestModalState(null);
     }
   }
 
@@ -1182,7 +1468,6 @@ export default function AdminCampaignDraft({
   function beginNewAnnouncement() {
     setAudience(null);
     setCampaign(null);
-    setContinueCue(null);
     setDefaultSaveRequest(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
@@ -1199,8 +1484,10 @@ export default function AdminCampaignDraft({
     setSmsTestMessageSid(null);
     setSmsTestModalOpen(false);
     setSmsTestModalConfirmed(false);
+    setSmsTestModalState(null);
     setSmsTestRecipient(null);
     setSmsTestReadiness(null);
+    setGuidanceHighlight(null);
     setSaveHighlight(null);
     setSentHistoryOpen(false);
     setStartPhrase("");
@@ -1254,8 +1541,8 @@ export default function AdminCampaignDraft({
         ).toLocaleTimeString()}.`,
       });
       await refreshDrafts();
-      delayedScrollToElement(textWorkspaceRef, { block: "start" });
-      scheduleContinueCue("text");
+      setGuidanceHighlight("emailPreview");
+      window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1312,8 +1599,8 @@ export default function AdminCampaignDraft({
         ).toLocaleTimeString()}.`,
       });
       await refreshDrafts();
-      delayedScrollToElement(textWorkspaceRef, { block: "start" });
-      scheduleContinueCue("text");
+      setGuidanceHighlight("emailPreview");
+      window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1371,8 +1658,8 @@ export default function AdminCampaignDraft({
       });
       await refreshDrafts();
       await refreshSmsTestReadiness(payload.campaign);
-      delayedScrollToElement(deliveryRef, { block: "start" });
-      scheduleContinueCue("delivery");
+      setGuidanceHighlight("smsPreview");
+      window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
       setMessage({
         tone: "error",
@@ -1450,7 +1737,6 @@ export default function AdminCampaignDraft({
       if (deletingOpenAnnouncement) {
         setAudience(null);
         setCampaign(null);
-        setContinueCue(null);
         setEmailPreviewOutdated(false);
         setEmailTestModalConfirmed(false);
         setEmailTestModalOpen(false);
@@ -1463,6 +1749,7 @@ export default function AdminCampaignDraft({
         setSmsTestMessageSid(null);
         setSmsTestModalConfirmed(false);
         setSmsTestModalOpen(false);
+        setSmsTestModalState(null);
         setSmsTestRecipient(null);
         setSmsTestReadiness(null);
         setStartPhrase("");
@@ -1590,7 +1877,6 @@ export default function AdminCampaignDraft({
 
       if (workflowStarted) {
         delayedScrollToElement(previewRef, { block: "start" });
-        scheduleContinueCue("text");
       }
     } catch (error) {
       setMessage({
@@ -1640,7 +1926,6 @@ export default function AdminCampaignDraft({
 
       if (workflowStarted) {
         delayedScrollToElement(smsPreviewRef, { block: "start" });
-        scheduleContinueCue("save");
       }
     } catch (error) {
       setMessage({
@@ -1716,6 +2001,16 @@ export default function AdminCampaignDraft({
     }
   }
 
+  function closeSmsTestModal() {
+    setSmsTestModalOpen(false);
+    setSmsTestModalConfirmed(false);
+    setSmsTestModalState(null);
+    window.setTimeout(
+      () => textTestButtonRef.current?.focus({ preventScroll: true }),
+      usesReducedMotion() ? 0 : 50,
+    );
+  }
+
   async function requestSmsTestSend() {
     if (
       !campaign ||
@@ -1728,6 +2023,10 @@ export default function AdminCampaignDraft({
 
     setBusyAction("smsTest");
     setMessage(null);
+    setSmsTestModalState({
+      tone: "info",
+      message: "Sending test...",
+    });
 
     try {
       const response = await adminFetch(
@@ -1743,21 +2042,40 @@ export default function AdminCampaignDraft({
         },
       );
       const payload = await parseJsonResponse(response);
-      setMessage({
-        tone:
-          payload.status === "sent"
-            ? "success"
-            : payload.status === "failed"
-              ? "error"
-              : "info",
-        text:
-          payload.message ||
-          (payload.status === "sent"
-            ? "Text test accepted by Twilio."
-            : "Text testing is not enabled."),
-      });
-      setSmsTestModalConfirmed(false);
-      setSmsTestModalOpen(false);
+
+      if (payload.status === "sent" && payload.messageSid) {
+        const providerStatus = payload.providerStatus || "queued";
+        setMessage({
+          tone: "success",
+          text: `Text test accepted by Twilio for ${
+            payload.maskedPhone || currentSmsTestMaskedPhone || "your test number"
+          }. Provider status: ${providerStatus}.`,
+        });
+        setSmsTestModalState({
+          tone: "success",
+          message: "Accepted by Twilio.",
+          providerStatus,
+        });
+      } else {
+        setMessage({
+          tone: payload.status === "failed" ? "error" : "info",
+          text:
+            payload.message ||
+            (payload.status === "failed"
+              ? "The test text could not be sent right now."
+              : "Text testing is not enabled."),
+        });
+        setSmsTestModalState({
+          tone: payload.status === "failed" ? "error" : "info",
+          message:
+            payload.message ||
+            (payload.status === "failed"
+              ? "The test text could not be sent right now."
+              : "Text testing is not enabled."),
+          providerStatus: payload.providerStatus || null,
+        });
+      }
+
       setSmsTestRecipient(payload.maskedPhone || null);
       setSmsTestMessageSid(payload.messageSid || null);
 
@@ -1766,13 +2084,30 @@ export default function AdminCampaignDraft({
         await refreshSmsTestReadiness(payload.campaign);
       }
       await refreshDrafts();
+
+      if (payload.status === "sent" && payload.messageSid) {
+        window.setTimeout(
+          () => {
+            closeSmsTestModal();
+            delayedScrollToElement(deliveryRef, {
+              block: "start",
+              delayMs: 250,
+              skipIfModalOpen: false,
+            });
+          },
+          usesReducedMotion() ? 0 : 950,
+        );
+      }
     } catch (error) {
+      const errorText =
+        error instanceof Error ? error.message : "Could not send test text.";
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Could not send test text.",
+        text: errorText,
+      });
+      setSmsTestModalState({
+        tone: "error",
+        message: errorText,
       });
     } finally {
       setBusyAction(null);
@@ -1933,6 +2268,8 @@ export default function AdminCampaignDraft({
   const smsReadinessReason = smsTestReadiness?.reason;
   const currentSmsTestMaskedPhone =
     smsTestReadiness?.maskedPhone || smsTestRecipientMasked;
+  const currentSmsProviderStatus =
+    campaign?.smsTestProviderStatus || campaign?.smsTestStatus || null;
   const smsTestDisabledCopy = !smsSaved
     ? "Save the text message before sending a test."
     : smsReadinessReason === "sms_test_disabled" || !smsTestSendEnabled
@@ -2052,6 +2389,222 @@ export default function AdminCampaignDraft({
     },
   ] as const;
 
+  const nextWorkflowAction = useMemo<{
+    key: NextActionKey;
+    label: string;
+    ref: { current: HTMLElement | null };
+  } | null>(() => {
+    if (announcementQueued || isSendStarted) {
+      return null;
+    }
+
+    if (!workflowStarted) {
+      return {
+        key: "newAnnouncement",
+        label: "New announcement",
+        ref: newAnnouncementButtonRef,
+      };
+    }
+
+    if (!emailSaved) {
+      return {
+        key: "emailSave",
+        label: "Save email",
+        ref: emailSaveRef,
+      };
+    }
+
+    if (!preview || emailPreviewOutdated) {
+      return {
+        key: "emailPreview",
+        label: "Generate email preview",
+        ref: emailPreviewButtonRef,
+      };
+    }
+
+    if (!emailTestReady && canRequestEmailTest) {
+      return {
+        key: "emailTest",
+        label: "Send test email",
+        ref: emailTestButtonRef,
+      };
+    }
+
+    if (!smsSaved) {
+      return {
+        key: "smsSave",
+        label: "Save text",
+        ref: textSaveRef,
+      };
+    }
+
+    if (!activeSmsPreview || smsPreviewOutdated) {
+      return {
+        key: "smsPreview",
+        label: "Generate text preview",
+        ref: textPreviewButtonRef,
+      };
+    }
+
+    if (!smsTestReady && canRequestSmsTest) {
+      return {
+        key: "smsTest",
+        label: "Send test text",
+        ref: textTestButtonRef,
+      };
+    }
+
+    if (adminTestsReady && !audience) {
+      return {
+        key: "recipientCount",
+        label: "Refresh recipient count",
+        ref: recipientCountButtonRef,
+      };
+    }
+
+    if (audience && campaign?.status !== "approved" && canApprove) {
+      return {
+        key: "approve",
+        label: "Approve announcement",
+        ref: approveButtonRef,
+      };
+    }
+
+    if (
+      audience &&
+      campaign?.status === "approved" &&
+      startPhrase !== audience.confirmationPhrase
+    ) {
+      return {
+        key: "startPhrase",
+        label: "Type the confirmation phrase",
+        ref: startPhraseInputRef,
+      };
+    }
+
+    if (
+      audience &&
+      campaign?.status === "approved" &&
+      startPhrase === audience.confirmationPhrase &&
+      canStart
+    ) {
+      return {
+        key: "sendAnnouncement",
+        label: "Send announcement",
+        ref: sendAnnouncementButtonRef,
+      };
+    }
+
+    return null;
+  }, [
+    activeSmsPreview,
+    adminTestsReady,
+    announcementQueued,
+    audience,
+    campaign?.status,
+    canApprove,
+    canRequestEmailTest,
+    canRequestSmsTest,
+    canStart,
+    emailPreviewOutdated,
+    emailSaved,
+    emailTestReady,
+    isSendStarted,
+    preview,
+    smsPreviewOutdated,
+    smsSaved,
+    smsTestReady,
+    startPhrase,
+    workflowStarted,
+  ]);
+
+  const guidedControlClass = (key: NextActionKey) =>
+    focusGuideVisible && nextWorkflowAction?.key === key
+      ? "relative z-[65] ring-2 ring-accent ring-offset-2 ring-offset-[#05090D] shadow-[0_0_44px_rgba(36,196,182,0.42)]"
+      : guidanceHighlight === key
+        ? "ring-2 ring-accent ring-offset-2 ring-offset-[#0D1117] shadow-[0_0_34px_rgba(36,196,182,0.32)]"
+        : "";
+
+  useEffect(() => {
+    if (focusGuideTimeoutRef.current) {
+      window.clearTimeout(focusGuideTimeoutRef.current);
+      focusGuideTimeoutRef.current = null;
+    }
+
+    setFocusGuideVisible(false);
+    setFocusGuideDirection(null);
+
+    if (
+      !workflowStarted ||
+      anyModalOpen ||
+      isBusy ||
+      !nextWorkflowAction ||
+      announcementQueued
+    ) {
+      return;
+    }
+
+    focusGuideTimeoutRef.current = window.setTimeout(() => {
+      const target = nextWorkflowAction.ref.current;
+
+      if (!target || anyModalOpen || isBusy) {
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      const below = rect.top > window.innerHeight - 96;
+      const above = rect.bottom < 96;
+
+      setFocusGuideDirection(below ? "below" : above ? "above" : null);
+      setFocusGuideVisible(true);
+      focusGuideTimeoutRef.current = null;
+    }, FOCUS_GUIDE_IDLE_MS);
+
+    return () => {
+      if (focusGuideTimeoutRef.current) {
+        window.clearTimeout(focusGuideTimeoutRef.current);
+        focusGuideTimeoutRef.current = null;
+      }
+    };
+  }, [
+    activitySignal,
+    announcementQueued,
+    anyModalOpen,
+    isBusy,
+    nextWorkflowAction,
+    workflowStarted,
+  ]);
+
+  useEffect(() => {
+    if (!focusGuideVisible || !nextWorkflowAction?.ref.current) {
+      return;
+    }
+
+    const updateDirection = () => {
+      const target = nextWorkflowAction.ref.current;
+
+      if (!target) {
+        setFocusGuideDirection(null);
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      const below = rect.top > window.innerHeight - 96;
+      const above = rect.bottom < 96;
+
+      setFocusGuideDirection(below ? "below" : above ? "above" : null);
+    };
+
+    updateDirection();
+    window.addEventListener("resize", updateDirection);
+    window.addEventListener("scroll", updateDirection, { passive: true });
+
+    return () => {
+      window.removeEventListener("resize", updateDirection);
+      window.removeEventListener("scroll", updateDirection);
+    };
+  }, [focusGuideVisible, nextWorkflowAction]);
+
   const stepTone = {
     active:
       "border-accent/70 bg-accent/15 text-teal-50 shadow-[0_0_30px_rgba(36,196,182,0.16)]",
@@ -2089,6 +2642,7 @@ export default function AdminCampaignDraft({
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"
+          ref={recipientCountButtonRef}
           onClick={calculateAudience}
           disabled={
             !campaign ||
@@ -2097,15 +2651,16 @@ export default function AdminCampaignDraft({
             !adminTestsReady ||
             (campaign.status !== "tested" && campaign.status !== "approved")
           }
-          className={primaryButtonClass("dark")}
+          className={`${primaryButtonClass("dark")} ${guidedControlClass("recipientCount")}`}
         >
           {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
         </button>
         <button
           type="button"
+          ref={approveButtonRef}
           onClick={approveCampaign}
           disabled={!campaign || !canApprove || isBusy}
-          className={primaryButtonClass("blue")}
+          className={`${primaryButtonClass("blue")} ${guidedControlClass("approve")}`}
         >
           {busyAction === "approve" ? "Approving..." : "Approve announcement"}
         </button>
@@ -2155,14 +2710,16 @@ export default function AdminCampaignDraft({
                   {audience.confirmationPhrase}
                 </code>
                 <input
+                  ref={startPhraseInputRef}
                   value={startPhrase}
                   onChange={(event) => setStartPhrase(event.target.value)}
                   disabled={isSendStarted}
-                  className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("startPhrase")}`}
                 />
               </label>
               <button
                 type="button"
+                ref={sendAnnouncementButtonRef}
                 onClick={startCampaign}
                 disabled={
                   !campaign ||
@@ -2175,7 +2732,7 @@ export default function AdminCampaignDraft({
                   startPhrase !== audience.confirmationPhrase ||
                   isBusy
                 }
-                className={`mt-4 ${primaryButtonClass("amber")}`}
+                className={`mt-4 ${primaryButtonClass("amber")} ${guidedControlClass("sendAnnouncement")}`}
               >
                 {busyAction === "start" ? "Queueing..." : "Send announcement"}
               </button>
@@ -2439,6 +2996,22 @@ export default function AdminCampaignDraft({
 
   return (
     <>
+      {focusGuideVisible && workflowStarted ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-[60] bg-black/35 backdrop-blur-[1px] transition-opacity motion-reduce:transition-none"
+        />
+      ) : null}
+      {focusGuideVisible && focusGuideDirection && nextWorkflowAction ? (
+        <FocusGuideDirectionCue
+          direction={focusGuideDirection}
+          onClick={() => scrollToElement(nextWorkflowAction.ref, { block: "start" })}
+        >
+          {focusGuideDirection === "above" ? "Next step is above" : "Next step is below"}
+          {": "}
+          {nextWorkflowAction.label}
+        </FocusGuideDirectionCue>
+      ) : null}
       <section
         ref={topRef}
         tabIndex={-1}
@@ -2479,7 +3052,7 @@ export default function AdminCampaignDraft({
             type="button"
             onClick={startAnotherAnnouncement}
             disabled={isBusy}
-            className={`${primaryButtonClass("teal")} min-h-16 w-full max-w-xl px-10 text-lg shadow-[0_0_34px_rgba(36,196,182,0.26)] hover:shadow-[0_0_46px_rgba(36,196,182,0.36)]`}
+            className={`${primaryButtonClass("teal")} min-h-16 w-full max-w-xl px-10 text-lg shadow-[0_0_34px_rgba(36,196,182,0.26)] hover:shadow-[0_0_46px_rgba(36,196,182,0.36)] ${guidedControlClass("newAnnouncement")}`}
           >
             New announcement
           </button>
@@ -2650,7 +3223,7 @@ export default function AdminCampaignDraft({
               saveHighlight === "email"
                 ? "ring-2 ring-accent ring-offset-2 ring-offset-[#0D1117]"
                 : ""
-            }`}
+            } ${guidedControlClass("emailSave")}`}
           >
             {busyAction === "saveEmail" ? "Saving..." : "Save email"}
           </button>
@@ -2659,20 +3232,22 @@ export default function AdminCampaignDraft({
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             type="button"
+            ref={emailPreviewButtonRef}
             onClick={generatePreview}
             disabled={!emailSaved || isBusy}
-            className={primaryButtonClass("blue")}
+            className={`${primaryButtonClass("blue")} ${guidedControlClass("emailPreview")}`}
           >
             {busyAction === "preview" ? "Generating..." : "Generate preview"}
           </button>
           <button
             type="button"
+            ref={emailTestButtonRef}
             onClick={() => {
               setEmailTestModalConfirmed(false);
               setEmailTestModalOpen(true);
             }}
             disabled={!canRequestEmailTest || isBusy}
-            className={primaryButtonClass("amber")}
+            className={`${primaryButtonClass("amber")} ${guidedControlClass("emailTest")}`}
           >
             {busyAction === "test" ? "Sending test..." : "Send test to myself"}
           </button>
@@ -2810,12 +3385,6 @@ export default function AdminCampaignDraft({
       </div>
       </section>
 
-      {continueCue === "text" ? (
-        <ContinueCue onClick={() => scrollToElement(textWorkspaceRef)}>
-          Continue to the text message
-        </ContinueCue>
-      ) : null}
-
       <section className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
         <div
           ref={textWorkspaceRef}
@@ -2913,7 +3482,7 @@ export default function AdminCampaignDraft({
                   saveHighlight === "text"
                     ? "ring-2 ring-accent ring-offset-2 ring-offset-[#0D1117]"
                     : ""
-                }`}
+                } ${guidedControlClass("smsSave")}`}
               >
                 {busyAction === "saveSms" ? "Saving..." : "Save text"}
               </button>
@@ -2943,9 +3512,10 @@ export default function AdminCampaignDraft({
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
+                ref={textPreviewButtonRef}
                 onClick={generateSmsPreview}
                 disabled={!smsSaved || !canUseSmsControls || isBusy}
-                className={primaryButtonClass("blue")}
+                className={`${primaryButtonClass("blue")} ${guidedControlClass("smsPreview")}`}
               >
                 {busyAction === "smsPreview"
                   ? "Generating..."
@@ -2953,12 +3523,14 @@ export default function AdminCampaignDraft({
               </button>
               <button
                 type="button"
+                ref={textTestButtonRef}
                 onClick={() => {
                   setSmsTestModalConfirmed(false);
+                  setSmsTestModalState(null);
                   setSmsTestModalOpen(true);
                 }}
                 disabled={!canRequestSmsTest || isBusy}
-                className={primaryButtonClass("amber")}
+                className={`${primaryButtonClass("amber")} ${guidedControlClass("smsTest")}`}
               >
                 {busyAction === "smsTest"
                   ? "Sending test..."
@@ -2972,10 +3544,16 @@ export default function AdminCampaignDraft({
               </div>
             ) : null}
 
-            {smsTestRecipient ? (
+            {smsTestRecipient || campaign?.smsTestRecipientMasked ? (
               <div className="rounded-[8px] border border-accent/25 bg-accent/10 p-4 text-sm leading-6 text-teal-50">
-                Test text accepted by Twilio for {smsTestRecipient}.
-                {smsTestMessageSid ? " Message SID recorded." : ""}
+                Test text accepted by Twilio for{" "}
+                {smsTestRecipient || campaign?.smsTestRecipientMasked}.
+                {smsTestMessageSid || campaign?.smsTestMessageSid
+                  ? " Message SID recorded."
+                  : ""}
+                {currentSmsProviderStatus
+                  ? ` Current provider status: ${currentSmsProviderStatus}.`
+                  : ""}
               </div>
             ) : null}
           </div>
@@ -3045,18 +3623,6 @@ export default function AdminCampaignDraft({
           </p>
         </div>
       </section>
-
-      {continueCue === "save" ? (
-        <ContinueCue onClick={() => scrollToElement(textSaveRef)}>
-          Continue to admin tests
-        </ContinueCue>
-      ) : null}
-
-      {continueCue === "delivery" ? (
-        <ContinueCue onClick={() => scrollToElement(deliveryRef)}>
-          Continue to subscriber delivery
-        </ContinueCue>
-      ) : null}
 
       {selectedChannelsSaved ? (
       <section className="mt-5">
@@ -3222,11 +3788,11 @@ export default function AdminCampaignDraft({
 
       {smsTestModalOpen ? (
         <Modal
+          maxWidth="max-w-2xl"
           title="Send test text?"
           onClose={() => {
             if (!isBusy) {
-              setSmsTestModalOpen(false);
-              setSmsTestModalConfirmed(false);
+              closeSmsTestModal();
             }
           }}
         >
@@ -3234,20 +3800,23 @@ export default function AdminCampaignDraft({
             This sends exactly one test text to the configured admin test
             number for your signed-in account.
           </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1.65fr)_minmax(180px,0.95fr)]">
+            <div className="min-w-0 rounded-[8px] border border-white/10 bg-[#080D12] p-3">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                 Admin
               </p>
-              <p className="mt-1 break-words text-sm font-semibold text-text-primary">
+              <p
+                className="mt-1 truncate whitespace-nowrap text-sm font-semibold text-text-primary"
+                title={adminEmail}
+              >
                 {adminEmail}
               </p>
             </div>
-            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
+            <div className="min-w-0 rounded-[8px] border border-white/10 bg-[#080D12] p-3">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                 Test number
               </p>
-              <p className="mt-1 text-sm font-semibold text-text-primary">
+              <p className="mt-1 truncate whitespace-nowrap text-sm font-semibold text-text-primary">
                 {currentSmsTestMaskedPhone ||
                   "No admin test number is configured for this account."}
               </p>
@@ -3292,13 +3861,28 @@ export default function AdminCampaignDraft({
               test number.
             </span>
           </label>
+          {smsTestModalState ? (
+            <div
+              className={`mt-4 rounded-[8px] border p-3 text-sm leading-6 ${
+                smsTestModalState.tone === "success"
+                  ? "border-accent/25 bg-accent/10 text-teal-50"
+                  : smsTestModalState.tone === "error"
+                    ? "border-red-400/25 bg-red-400/10 text-red-100"
+                    : "border-white/10 bg-[#080D12] text-text-secondary"
+              }`}
+            >
+              <p>{smsTestModalState.message}</p>
+              {smsTestModalState.providerStatus ? (
+                <p className="mt-1 text-xs opacity-80">
+                  Provider status: {smsTestModalState.providerStatus}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-5 flex flex-wrap justify-end gap-3">
             <button
               type="button"
-              onClick={() => {
-                setSmsTestModalOpen(false);
-                setSmsTestModalConfirmed(false);
-              }}
+              onClick={closeSmsTestModal}
               disabled={isBusy}
               className={primaryButtonClass("dark")}
             >
@@ -3311,6 +3895,44 @@ export default function AdminCampaignDraft({
               className={primaryButtonClass("amber")}
             >
               {busyAction === "smsTest" ? "Sending test..." : "Send test text"}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {idleWarningOpen ? (
+        <Modal
+          title="Your session is about to expire"
+          onClose={() => undefined}
+        >
+          <p className="text-sm leading-6 text-text-secondary">
+            You will be signed out due to inactivity. Unsaved changes may be
+            lost.
+          </p>
+          <div className="mt-4 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-5 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-yellow-100">
+              Seconds remaining
+            </p>
+            <p className="mt-2 font-headline text-5xl font-bold text-text-primary">
+              {idleCountdown}
+            </p>
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => handleIdleSignOut().catch(() => undefined)}
+              disabled={isBusy}
+              className={primaryButtonClass("dark")}
+            >
+              Sign out now
+            </button>
+            <button
+              type="button"
+              onClick={() => staySignedIn().catch(() => undefined)}
+              disabled={isBusy}
+              className={primaryButtonClass("teal")}
+            >
+              Stay signed in
             </button>
           </div>
         </Modal>
