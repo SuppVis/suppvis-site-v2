@@ -79,6 +79,7 @@ export async function buildSmsCampaignAudience(): Promise<SmsCampaignAudience> {
 
   return {
     candidates,
+    totalCount: candidates.length,
     eligibleCount,
     excludedCount: candidates.length - eligibleCount,
     duplicateCount,

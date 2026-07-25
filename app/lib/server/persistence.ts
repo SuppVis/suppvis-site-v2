@@ -4,7 +4,6 @@ import {
   putDynamoItem,
   queryDynamoItems,
   queryDynamoItemsPage,
-  scanDynamoItemsPage,
   updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
@@ -395,6 +394,7 @@ export type EmailCampaignRecipientRecord = {
 };
 
 export type CampaignAudienceCount = {
+  totalCount: number;
   eligibleCount: number;
   excludedCount: number;
   duplicateCount: number;
@@ -1287,69 +1287,85 @@ export function canSendSmsToSubscriber(
 
 export async function listSmsSubscribersForAnnouncement(limit = 5000) {
   const subscribers: SmsSubscriberRecord[] = [];
-  let lastEvaluatedKey: Record<string, unknown> | undefined;
+  const statuses: SmsSubscriberStatus[] = [
+    "pending_verification",
+    "subscribed",
+    "unsubscribed",
+    "failed",
+    "invalid",
+    "opt_out_provider",
+  ];
 
-  do {
-    const page = await scanDynamoItemsPage({
-      tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
-      projectionExpression:
-        "#id, phone_number_raw, phone_number_e164, #status, sms_informational_consent, sms_marketing_consent, sms_consent_timestamp, sms_consent_source, sms_consent_version, sms_global_opt_out, sms_global_opt_out_at, opt_out_timestamp, opt_out_source, last_opt_out_keyword, resubscribed_at, created_at, updated_at",
-      expressionAttributeNames: {
-        "#id": "id",
-        "#status": "status",
-      },
-      exclusiveStartKey: lastEvaluatedKey,
-      limit: 250,
-      operation: "list_sms_subscribers_for_announcement",
-    });
+  for (const statusValue of statuses) {
+    let lastEvaluatedKey: Record<string, unknown> | undefined;
 
-    for (const item of page.items) {
-      const id = stringAttribute(item.id);
-      const phone = stringAttribute(item.phone_number_e164);
-      const status = smsSubscriberStatusAttribute(item.status);
-      const createdAt = stringAttribute(item.created_at);
-      const updatedAt = stringAttribute(item.updated_at);
+    do {
+      const page = await queryDynamoItemsPage({
+        tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+        indexName: "status-updated_at-index",
+        keyConditionExpression: "#status = :status",
+        projectionExpression:
+          "#id, phone_number_raw, phone_number_e164, #status, sms_informational_consent, sms_marketing_consent, sms_consent_timestamp, sms_consent_source, sms_consent_version, sms_global_opt_out, sms_global_opt_out_at, opt_out_timestamp, opt_out_source, last_opt_out_keyword, resubscribed_at, created_at, updated_at",
+        expressionAttributeNames: {
+          "#id": "id",
+          "#status": "status",
+        },
+        expressionAttributeValues: {
+          ":status": statusValue,
+        },
+        exclusiveStartKey: lastEvaluatedKey,
+        limit: 250,
+        operation: "list_sms_subscribers_for_announcement_by_status",
+      });
 
-      if (!id || !phone || !status || !createdAt || !updatedAt) {
-        continue;
+      for (const item of page.items) {
+        const id = stringAttribute(item.id);
+        const phone = stringAttribute(item.phone_number_e164);
+        const status = smsSubscriberStatusAttribute(item.status);
+        const createdAt = stringAttribute(item.created_at);
+        const updatedAt = stringAttribute(item.updated_at);
+
+        if (!id || !phone || !status || !createdAt || !updatedAt) {
+          continue;
+        }
+
+        subscribers.push(
+          smsSubscriberFromAttributes(item, {
+            id,
+            phone_number_raw: stringAttribute(item.phone_number_raw) || phone,
+            phone_number_e164: phone,
+            status,
+            sms_informational_consent:
+              booleanAttribute(item.sms_informational_consent) || false,
+            sms_informational_consent_at: null,
+            sms_marketing_consent:
+              booleanAttribute(item.sms_marketing_consent) || false,
+            sms_marketing_consent_at: null,
+            sms_consent_timestamp:
+              stringAttribute(item.sms_consent_timestamp) || createdAt,
+            sms_consent_source:
+              stringAttribute(item.sms_consent_source) || "unknown",
+            sms_consent_version:
+              stringAttribute(item.sms_consent_version) || "unknown",
+            sms_global_opt_out:
+              booleanAttribute(item.sms_global_opt_out) || false,
+            sms_global_opt_out_at:
+              nullableStringAttribute(item.sms_global_opt_out_at) || null,
+            opt_out_timestamp:
+              nullableStringAttribute(item.opt_out_timestamp) || null,
+            created_at: createdAt,
+            updated_at: updatedAt,
+          }),
+        );
+
+        if (subscribers.length >= limit) {
+          return subscribers;
+        }
       }
 
-      subscribers.push(
-        smsSubscriberFromAttributes(item, {
-          id,
-          phone_number_raw: stringAttribute(item.phone_number_raw) || phone,
-          phone_number_e164: phone,
-          status,
-          sms_informational_consent:
-            booleanAttribute(item.sms_informational_consent) || false,
-          sms_informational_consent_at: null,
-          sms_marketing_consent:
-            booleanAttribute(item.sms_marketing_consent) || false,
-          sms_marketing_consent_at: null,
-          sms_consent_timestamp:
-            stringAttribute(item.sms_consent_timestamp) || createdAt,
-          sms_consent_source:
-            stringAttribute(item.sms_consent_source) || "unknown",
-          sms_consent_version:
-            stringAttribute(item.sms_consent_version) || "unknown",
-          sms_global_opt_out:
-            booleanAttribute(item.sms_global_opt_out) || false,
-          sms_global_opt_out_at:
-            nullableStringAttribute(item.sms_global_opt_out_at) || null,
-          opt_out_timestamp:
-            nullableStringAttribute(item.opt_out_timestamp) || null,
-          created_at: createdAt,
-          updated_at: updatedAt,
-        }),
-      );
-
-      if (subscribers.length >= limit) {
-        return subscribers;
-      }
-    }
-
-    lastEvaluatedKey = page.lastEvaluatedKey;
-  } while (lastEvaluatedKey);
+      lastEvaluatedKey = page.lastEvaluatedKey;
+    } while (lastEvaluatedKey);
+  }
 
   return subscribers;
 }

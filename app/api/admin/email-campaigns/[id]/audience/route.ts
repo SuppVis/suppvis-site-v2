@@ -17,6 +17,22 @@ import { adminCampaignIdSchema } from "@/app/lib/server/validation";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function confirmationPhraseForCounts(emailCount: number, smsCount: number) {
+  if (emailCount > 0 && smsCount > 0) {
+    return `SEND EMAIL TO ${emailCount} AND TEXT TO ${smsCount}`;
+  }
+
+  if (emailCount > 0) {
+    return `SEND EMAIL TO ${emailCount}`;
+  }
+
+  if (smsCount > 0) {
+    return `SEND TEXT TO ${smsCount}`;
+  }
+
+  return "";
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
@@ -91,15 +107,20 @@ export async function POST(
       status: `email=${emailAudience.eligibleCount} sms=${smsAudience.eligibleCount}`,
     });
 
-    const confirmationPhrase = `SEND EMAIL TO ${emailAudience.eligibleCount} AND TEXT TO ${smsAudience.eligibleCount}`;
+    const confirmationPhrase = confirmationPhraseForCounts(
+      emailAudience.eligibleCount,
+      smsAudience.eligibleCount,
+    );
 
     return NextResponse.json({
       ok: true,
       audience: {
+        totalCount: emailAudience.totalCount,
         eligibleCount: emailAudience.eligibleCount,
         excludedCount: emailAudience.excludedCount,
         duplicateCount: emailAudience.duplicateCount,
         countedAt,
+        smsTotalCount: smsAudience.totalCount,
         smsEligibleCount: smsAudience.eligibleCount,
         smsExcludedCount: smsAudience.excludedCount,
         smsDuplicateCount: smsAudience.duplicateCount,

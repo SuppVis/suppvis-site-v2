@@ -111,9 +111,11 @@ type AudienceSummary = {
   duplicateCount: number;
   eligibleCount: number;
   excludedCount: number;
+  totalCount?: number;
   smsDuplicateCount?: number;
   smsEligibleCount?: number;
   smsExcludedCount?: number;
+  smsTotalCount?: number;
   smsIncluded?: boolean;
   receivingBothCount?: number | null;
 };
@@ -213,9 +215,19 @@ type SmsTestModalState =
     }
   | null;
 
-const ADMIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-const ADMIN_IDLE_WARNING_MS = 30 * 1000;
+const ADMIN_IDLE_TIMEOUT_MS = 6 * 60 * 1000;
+const ADMIN_IDLE_WARNING_AFTER_MS = 60 * 1000;
+const ADMIN_IDLE_WARNING_DURATION_MS =
+  ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_AFTER_MS;
 const ADMIN_HEARTBEAT_INTERVAL_MS = 90 * 1000;
+
+function formatIdleCountdown(milliseconds: number) {
+  const remainingSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
 const FOCUS_GUIDE_INITIAL_IDLE_MS = 30 * 1000;
 const FOCUS_GUIDE_STEP_IDLE_MS = 10 * 1000;
 
@@ -775,7 +787,9 @@ export default function AdminCampaignDraft({
   const [sentHistoryOpen, setSentHistoryOpen] = useState(false);
   const [workflowStarted, setWorkflowStarted] = useState(false);
   const [idleWarningOpen, setIdleWarningOpen] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(30);
+  const [idleCountdown, setIdleCountdown] = useState(
+    formatIdleCountdown(ADMIN_IDLE_WARNING_DURATION_MS),
+  );
 
   const isBusy = Boolean(busyAction);
   const status = useMemo(() => statusLabel(campaign?.status), [campaign]);
@@ -1010,16 +1024,30 @@ export default function AdminCampaignDraft({
     lastHeartbeatAtRef.current = Date.now();
   }, []);
 
-  const recordAdminActivity = useCallback(
-    (options: { allowDuringWarning?: boolean } = {}) => {
-      if (idleWarningOpen && !options.allowDuringWarning) {
-        return;
-      }
+  const touchAdminSessionIfNeeded = useCallback(() => {
+    const now = Date.now();
 
-      refreshIdleDeadline();
-    },
-    [idleWarningOpen, refreshIdleDeadline],
-  );
+    if (
+      document.visibilityState !== "visible" ||
+      now >= idleDeadlineRef.current ||
+      now - lastHeartbeatAtRef.current < 60_000
+    ) {
+      return;
+    }
+
+    touchAdminSession().catch(() => undefined);
+  }, [touchAdminSession]);
+
+  const recordAdminActivity = useCallback(() => {
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+
+    refreshIdleDeadline();
+    setIdleCountdown(formatIdleCountdown(ADMIN_IDLE_WARNING_DURATION_MS));
+    setIdleWarningOpen(false);
+    touchAdminSessionIfNeeded();
+  }, [refreshIdleDeadline, touchAdminSessionIfNeeded]);
 
   const clearSensitiveClientState = useCallback(() => {
     setAudience(null);
@@ -1060,29 +1088,6 @@ export default function AdminCampaignDraft({
       redirect: true,
     });
   }, [clearSensitiveClientState]);
-
-  const staySignedIn = useCallback(async () => {
-    setBusyAction("refresh");
-    try {
-      await touchAdminSession();
-      setIdleWarningOpen(false);
-      setIdleCountdown(30);
-      recordAdminActivity({ allowDuringWarning: true });
-      window.setTimeout(
-        () => previousFocusRef.current?.focus({ preventScroll: true }),
-        usesReducedMotion() ? 0 : 50,
-      );
-    } catch {
-      await handleIdleSignOut();
-    } finally {
-      setBusyAction((current) => (current === "refresh" ? null : current));
-    }
-  }, [
-    handleIdleSignOut,
-    recordAdminActivity,
-    touchAdminSession,
-    usesReducedMotion,
-  ]);
 
   function sortVisibleDrafts(nextDrafts: CampaignDraft[]) {
     const visible = nextDrafts.slice(0, 20);
@@ -1370,16 +1375,17 @@ export default function AdminCampaignDraft({
       const remaining = idleDeadlineRef.current - Date.now();
 
       if (remaining <= 0) {
+        setIdleCountdown("0:00");
         handleIdleSignOut().catch(() => undefined);
         return;
       }
 
-      if (remaining <= ADMIN_IDLE_WARNING_MS && !idleWarningOpen) {
+      if (remaining <= ADMIN_IDLE_WARNING_DURATION_MS) {
         previousFocusRef.current =
           document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
-        setIdleCountdown(Math.max(0, Math.ceil(remaining / 1000)));
+        setIdleCountdown(formatIdleCountdown(remaining));
         setIdleWarningOpen(true);
       }
     };
@@ -1397,20 +1403,26 @@ export default function AdminCampaignDraft({
     }
 
     idleTimerRef.current = window.setInterval(() => {
-      if (idleWarningOpen) {
+      const remaining = idleDeadlineRef.current - Date.now();
+
+      if (remaining <= 0) {
+        setIdleCountdown("0:00");
+        handleIdleSignOut().catch(() => undefined);
         return;
       }
 
-      const remaining = idleDeadlineRef.current - Date.now();
-
-      if (remaining <= ADMIN_IDLE_WARNING_MS) {
+      if (remaining <= ADMIN_IDLE_WARNING_DURATION_MS) {
         previousFocusRef.current =
           document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
-        setIdleCountdown(Math.max(0, Math.ceil(remaining / 1000)));
+        setIdleCountdown(formatIdleCountdown(remaining));
         setIdleWarningOpen(true);
+        return;
       }
+
+      setIdleWarningOpen(false);
+      setIdleCountdown(formatIdleCountdown(ADMIN_IDLE_WARNING_DURATION_MS));
     }, 1000);
 
     return () => {
@@ -1419,29 +1431,7 @@ export default function AdminCampaignDraft({
         idleTimerRef.current = null;
       }
     };
-  }, [idleWarningOpen]);
-
-  useEffect(() => {
-    if (!idleWarningOpen) {
-      return;
-    }
-
-    const countdown = window.setInterval(() => {
-      const remainingSeconds = Math.max(
-        0,
-        Math.ceil((idleDeadlineRef.current - Date.now()) / 1000),
-      );
-
-      setIdleCountdown(remainingSeconds);
-
-      if (remainingSeconds <= 0) {
-        window.clearInterval(countdown);
-        handleIdleSignOut().catch(() => undefined);
-      }
-    }, 1000);
-
-    return () => window.clearInterval(countdown);
-  }, [handleIdleSignOut, idleWarningOpen]);
+  }, [handleIdleSignOut]);
 
   useEffect(() => {
     return () => {
@@ -2258,9 +2248,7 @@ export default function AdminCampaignDraft({
       const nextAudience = await calculateAudienceForCampaign(campaign.id);
       setMessage({
         tone: "success",
-        text: `Email: ${nextAudience.eligibleCount} eligible. Text: ${
-          nextAudience.smsEligibleCount || 0
-        } eligible.`,
+        text: "Recipient counts refreshed.",
       });
     } catch (error) {
       setMessage({
@@ -2279,18 +2267,15 @@ export default function AdminCampaignDraft({
     }
 
     if (
-      !bulkSendEnabled ||
-      !bulkInfraReady ||
-      !smsProductionReady ||
-      !audience.eligibleCount ||
-      !audience.smsEligibleCount ||
-      startPhrase !== audience.confirmationPhrase
+      !hasAnyEligibleAudience ||
+      !selectedDeliveryReady ||
+      !confirmationPhraseMatches
     ) {
       setMessage({
         tone: "info",
-        text: !smsProductionReady
-          ? "Sending is not available yet because text delivery jobs are not connected."
-          : "Refresh recipients and type the exact confirmation phrase before sending.",
+        text:
+          deliveryBlockedReason ||
+          "Refresh recipients and type the exact confirmation phrase before sending.",
       });
       return;
     }
@@ -2345,7 +2330,7 @@ export default function AdminCampaignDraft({
       } else {
         setMessage({
           tone: "success",
-          text: "Announcement queued for eligible email and text subscribers.",
+          text: `Announcement queued. ${payload.emailQueuedCount || 0} email recipients queued. ${payload.smsQueuedCount || 0} text recipients queued.`,
         });
         window.setTimeout(() => {
           scrollToElement(topRef, { block: "start", focus: true });
@@ -2386,7 +2371,34 @@ export default function AdminCampaignDraft({
       adminTestsReady &&
       audience,
   );
-  const selectedDeliveryReady = bulkInfraReady && smsProductionReady;
+  const emailAudienceCount = audience?.eligibleCount || 0;
+  const smsAudienceCount = audience?.smsEligibleCount || 0;
+  const hasAnyEligibleAudience = emailAudienceCount > 0 || smsAudienceCount > 0;
+  const emailProductionReady = bulkSendEnabled && bulkInfraReady;
+  const emailDeliveryRequired = emailAudienceCount > 0;
+  const smsDeliveryRequired = smsAudienceCount > 0;
+  const selectedDeliveryReady = Boolean(
+    hasAnyEligibleAudience &&
+      (!emailDeliveryRequired || emailProductionReady) &&
+      (!smsDeliveryRequired || smsProductionReady),
+  );
+  const confirmationPhraseMatches = Boolean(
+    audience?.confirmationPhrase &&
+      startPhrase === audience.confirmationPhrase,
+  );
+  const deliveryBlockedReason = !audience
+    ? "Refresh recipient counts first."
+    : !hasAnyEligibleAudience
+      ? "No eligible subscribers are currently available."
+      : emailDeliveryRequired && !emailProductionReady
+        ? "Email delivery is still being prepared."
+        : smsDeliveryRequired && !smsProductionReady
+          ? "Text delivery jobs are not connected yet."
+          : !canStart
+            ? "Complete both previews and admin tests first."
+            : !confirmationPhraseMatches
+              ? "Type the exact confirmation phrase."
+              : "";
   const smsReadinessReason = smsTestReadiness?.reason;
   const currentSmsTestMaskedPhone =
     smsTestReadiness?.maskedPhone || smsTestRecipientMasked;
@@ -2501,7 +2513,7 @@ export default function AdminCampaignDraft({
       state:
         announcementQueued
           ? "completed"
-          : campaign?.status === "approved" && audience && selectedDeliveryReady
+          : audience && selectedDeliveryReady
             ? "active"
             : "blocked",
       detail:
@@ -2509,9 +2521,7 @@ export default function AdminCampaignDraft({
           ? "The worker continues independently."
           : audience && selectedDeliveryReady
             ? "Type the phrase, then approve and send."
-            : !bulkInfraReady
-              ? "Sending is not available while setup is being prepared."
-              : "Text delivery jobs are not connected yet.",
+            : deliveryBlockedReason || "Refresh recipient counts first.",
     },
   ] as const;
 
@@ -2646,13 +2656,9 @@ export default function AdminCampaignDraft({
 
     if (
       audience &&
-      startPhrase === audience.confirmationPhrase &&
       canStart &&
-      bulkSendEnabled &&
-      bulkInfraReady &&
-      smsProductionReady &&
-      Boolean(audience.eligibleCount) &&
-      Boolean(audience.smsEligibleCount)
+      selectedDeliveryReady &&
+      confirmationPhraseMatches
     ) {
       return {
         key: "sendAnnouncement",
@@ -2670,6 +2676,7 @@ export default function AdminCampaignDraft({
     bulkInfraReady,
     bulkSendEnabled,
     canStart,
+    confirmationPhraseMatches,
     emailPreviewOutdated,
     emailSaved,
     emailTestReady,
@@ -2681,8 +2688,8 @@ export default function AdminCampaignDraft({
     form.subject,
     isSendStarted,
     preview,
+    selectedDeliveryReady,
     smsPreviewOutdated,
-    smsProductionReady,
     smsSaved,
     smsTestReady,
     startPhrase,
@@ -2899,12 +2906,108 @@ export default function AdminCampaignDraft({
           </p>
         </div>
         <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
-          {!bulkInfraReady || !smsProductionReady
-            ? "Setup incomplete"
-            : isSendStarted
+          {isSendStarted
               ? status
-              : "Ready to send"}
+              : audience
+                ? hasAnyEligibleAudience
+                  ? "Audience counted"
+                  : "No eligible subscribers"
+                : "Count needed"}
         </span>
+      </div>
+
+      <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold text-text-primary">
+              Current beta audience
+            </p>
+            <p className="mt-1 text-xs text-text-muted">
+              Counts are refreshed from the current subscriber databases.
+            </p>
+          </div>
+          <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-text-muted">
+            Last refreshed:{" "}
+            {audience?.countedAt
+              ? new Date(audience.countedAt).toLocaleString()
+              : "Never"}
+          </span>
+        </div>
+
+        <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+            <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+              Email subscribers
+            </dt>
+            <dd className="mt-1 text-2xl font-bold text-text-primary">
+              {audience ? audience.eligibleCount : "-"}
+            </dd>
+            <p className="mt-1 text-xs text-text-muted">
+              {audience
+                ? `${audience.excludedCount} excluded or suppressed${audience.duplicateCount ? `, ${audience.duplicateCount} duplicates` : ""}`
+                : "No recipient count has been generated yet."}
+            </p>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+            <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+              Text subscribers
+            </dt>
+            <dd className="mt-1 text-2xl font-bold text-text-primary">
+              {audience ? audience.smsEligibleCount || 0 : "-"}
+            </dd>
+            <p className="mt-1 text-xs text-text-muted">
+              {audience
+                ? `${audience.smsExcludedCount || 0} excluded or suppressed${audience.smsDuplicateCount ? `, ${audience.smsDuplicateCount} duplicates` : ""}`
+                : "No recipient count has been generated yet."}
+            </p>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+            <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+              Eligible for both
+            </dt>
+            <dd className="mt-1 text-2xl font-bold text-text-primary">
+              {audience?.receivingBothCount ?? "-"}
+            </dd>
+            <p className="mt-1 text-xs text-text-muted">
+              A safe email-phone join is not enabled yet.
+            </p>
+          </div>
+          <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
+            <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+              Total records checked
+            </dt>
+            <dd className="mt-1 text-2xl font-bold text-text-primary">
+              {audience
+                ? (audience.totalCount || 0) + (audience.smsTotalCount || 0)
+                : "-"}
+            </dd>
+            <p className="mt-1 text-xs text-text-muted">
+              Email and text sources are counted separately.
+            </p>
+          </div>
+        </dl>
+
+        {audience ? (
+          <div
+            className={`mt-4 rounded-[8px] border p-3 text-sm ${
+              hasAnyEligibleAudience
+                ? "border-accent/20 bg-accent/10 text-teal-50"
+                : "border-yellow-400/20 bg-yellow-400/10 text-yellow-100"
+            }`}
+          >
+            {!hasAnyEligibleAudience
+              ? "There are currently no eligible beta subscribers. The announcement cannot be sent yet."
+              : emailAudienceCount > 0 && smsAudienceCount > 0
+                ? `Email will be sent to ${emailAudienceCount} eligible subscriber${emailAudienceCount === 1 ? "" : "s"}. Text will be sent to ${smsAudienceCount} eligible subscriber${smsAudienceCount === 1 ? "" : "s"}.`
+                : emailAudienceCount > 0
+                  ? `Email will be sent to ${emailAudienceCount} eligible subscriber${emailAudienceCount === 1 ? "" : "s"}. No eligible text subscribers were found.`
+                  : `Text will be sent to ${smsAudienceCount} eligible subscriber${smsAudienceCount === 1 ? "" : "s"}. No eligible email subscribers were found.`}
+          </div>
+        ) : (
+          <p className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-3 text-sm text-text-muted">
+            No recipient count has been generated yet.
+          </p>
+        )}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -2925,99 +3028,58 @@ export default function AdminCampaignDraft({
         </button>
       </div>
 
-      {audience ? (
-        <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
-              <p className="font-semibold text-text-primary">
-                Email recipients
-              </p>
-              <p className="mt-1">
-                {audience.eligibleCount} eligible subscribers.
-              </p>
-              <p className="text-xs text-text-muted">
-                {audience.excludedCount} excluded or suppressed records.
-                {audience.duplicateCount
-                  ? ` ${audience.duplicateCount} duplicate email records skipped.`
-                  : ""}
-              </p>
-            </div>
-            <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
-              <p className="font-semibold text-text-primary">Text recipients</p>
-              <p className="mt-1">
-                {audience.smsEligibleCount || 0} eligible subscribers.
-              </p>
-              <p className="text-xs text-text-muted">
-                {audience.smsExcludedCount || 0} text records excluded.
-                {audience.smsDuplicateCount
-                  ? ` ${audience.smsDuplicateCount} duplicate phone records skipped.`
-                  : ""}
-              </p>
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-text-muted">
-            Count refreshed
-            {audience.countedAt
-              ? ` at ${new Date(audience.countedAt).toLocaleTimeString()}`
-              : ""}
-            . Receiving both is not shown until a future safe email-phone join
-            is added.
-          </p>
-          <label className="mt-4 block">
-            <span className="font-semibold text-text-primary">
-              Type this phrase to approve and send:
-            </span>
-            <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
-              {audience.confirmationPhrase}
-            </code>
-            <input
-              ref={startPhraseInputRef}
-              value={startPhrase}
-              onChange={(event) => setStartPhrase(event.target.value)}
-              disabled={isSendStarted}
-              className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("startPhrase")}`}
-            />
-          </label>
-          <button
-            type="button"
-            ref={sendAnnouncementButtonRef}
-            onClick={startCampaign}
+      <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
+        <label className="block">
+          <span className="font-semibold text-text-primary">
+            Confirmation phrase
+          </span>
+          <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
+            {audience?.confirmationPhrase || "No eligible subscribers"}
+          </code>
+          <input
+            ref={startPhraseInputRef}
+            value={startPhrase}
+            onChange={(event) => setStartPhrase(event.target.value)}
             disabled={
-              !campaign ||
-              !canStart ||
-              !bulkSendEnabled ||
-              !bulkInfraReady ||
-              !smsProductionReady ||
-              !audience.eligibleCount ||
-              !audience.smsEligibleCount ||
-              startPhrase !== audience.confirmationPhrase ||
-              isBusy
+              isSendStarted || !audience || !hasAnyEligibleAudience || isBusy
             }
-            className={`mt-4 ${primaryButtonClass("amber")} ${guidedControlClass("sendAnnouncement")}`}
-          >
-            {busyAction === "start"
-              ? "Queueing..."
-              : "Approve & send announcement"}
-          </button>
-          {!smsProductionReady ? (
-            <p className="mt-3 text-xs leading-5 text-yellow-100">
-              Sending is not available yet because text delivery jobs are not
-              connected.
-            </p>
-          ) : null}
-          {!bulkInfraReady ? (
-            <p className="mt-3 text-xs leading-5 text-yellow-100">
-              Sending is not available while setup is being prepared.
-            </p>
-          ) : null}
-          {audience.eligibleCount === 0 || !audience.smsEligibleCount ? (
-            <p className="mt-3 text-xs leading-5 text-yellow-100">
-              Both email and text need at least one eligible recipient before
-              sending.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+            placeholder={
+              audience
+                ? hasAnyEligibleAudience
+                  ? "Type the exact phrase above"
+                  : "No eligible subscribers"
+                : "Refresh recipient counts first"
+            }
+            className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("startPhrase")}`}
+          />
+        </label>
+        <button
+          type="button"
+          ref={sendAnnouncementButtonRef}
+          onClick={startCampaign}
+          disabled={
+            !campaign ||
+            !canStart ||
+            !selectedDeliveryReady ||
+            !confirmationPhraseMatches ||
+            isBusy
+          }
+          className={`mt-4 ${primaryButtonClass("amber")} ${guidedControlClass("sendAnnouncement")}`}
+        >
+          {busyAction === "start"
+            ? "Queueing..."
+            : "Approve & send announcement"}
+        </button>
+        {deliveryBlockedReason ? (
+          <p className="mt-3 text-xs leading-5 text-yellow-100">
+            {deliveryBlockedReason}
+          </p>
+        ) : (
+          <p className="mt-3 text-xs leading-5 text-accent">
+            The announcement is ready to send.
+          </p>
+        )}
+      </div>
 
       {progress ? (
         <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4 text-sm leading-6 text-text-secondary">
@@ -4127,30 +4189,15 @@ export default function AdminCampaignDraft({
           </p>
           <div className="mt-4 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-5 text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-yellow-100">
-              Seconds remaining
+              Time remaining
             </p>
             <p className="mt-2 font-headline text-5xl font-bold text-text-primary">
               {idleCountdown}
             </p>
           </div>
-          <div className="mt-5 flex flex-wrap justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => handleIdleSignOut().catch(() => undefined)}
-              disabled={isBusy}
-              className={primaryButtonClass("dark")}
-            >
-              Sign out now
-            </button>
-            <button
-              type="button"
-              onClick={() => staySignedIn().catch(() => undefined)}
-              disabled={isBusy}
-              className={primaryButtonClass("teal")}
-            >
-              Stay signed in
-            </button>
-          </div>
+          <p className="mt-4 text-sm leading-6 text-text-secondary">
+            Move your mouse, type, or scroll to continue your session.
+          </p>
         </Modal>
       ) : null}
 

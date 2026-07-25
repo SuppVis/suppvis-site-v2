@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import {
   getAdminAccess,
   isMicrosoftAuthConfigured,
@@ -18,11 +18,6 @@ export const metadata: Metadata = {
     follow: false,
   },
 };
-
-async function signOutAction() {
-  "use server";
-  await signOut({ redirectTo: "/admin/sign-in" });
-}
 
 function AdminBlocked({
   title,
@@ -110,11 +105,9 @@ export default async function AdminPage() {
             <p className="font-semibold text-text-primary">
               {maskAdminEmail(access.email)}
             </p>
-            <form action={signOutAction} className="mt-3">
-              <button className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-text-primary transition hover:border-accent/60 hover:text-accent">
-                Sign out
-              </button>
-            </form>
+            <p className="mt-2 text-xs leading-5 text-text-muted">
+              Admin access expires after six idle minutes.
+            </p>
           </div>
         </header>
 

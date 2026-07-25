@@ -45,6 +45,7 @@ export async function buildCampaignAudience(): Promise<CampaignAudience> {
 
   return {
     candidates,
+    totalCount: candidates.length,
     eligibleCount,
     excludedCount: candidates.length - eligibleCount,
     duplicateCount,
