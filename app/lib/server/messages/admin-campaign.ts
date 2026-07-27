@@ -102,7 +102,9 @@ export function renderAdminCampaignEmail({
   subject,
   unsubscribeUrl,
 }: AdminCampaignRenderInput): AdminCampaignRenderedEmail {
-  const brandIconUrl = escapeHtml(buildPublicAssetUrl("/favicon.svg", appBaseUrl));
+  const brandIconUrl = escapeHtml(
+    buildPublicAssetUrl("/email/suppvis-logo.png", appBaseUrl),
+  );
   const displayLabel = adminCampaignMessageTypeDisplayLabel(messageType);
   const previewText = bodyParagraphs(body)[0]?.slice(0, 180) || heading;
   const bodyHtml = [

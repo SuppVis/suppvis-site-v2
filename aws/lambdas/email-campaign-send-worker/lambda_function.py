@@ -91,7 +91,7 @@ def render_email(campaign, subscriber):
     cta_label = str(campaign.get("cta_label") or "").strip()
     cta_url = str(campaign.get("cta_url") or "").strip()
     app_base_url = os.environ["APP_BASE_URL"].rstrip("/")
-    brand_icon_url = html.escape(f"{app_base_url}/favicon.svg")
+    brand_icon_url = html.escape(f"{app_base_url}/email/suppvis-logo.png")
     message_type_labels = {
         "beta_update": "BETA ANNOUNCEMENT",
         "feedback_request": "FEEDBACK REQUEST",

@@ -9,6 +9,7 @@ import {
   updateEmailCampaignSmsDraft,
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
+import { campaignReadinessResponse } from "@/app/lib/server/email/campaign-readiness";
 import {
   enforceRateLimit,
   readJsonBody,
@@ -101,6 +102,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
+    readiness: campaignReadinessResponse(record),
     isPinned: record.is_pinned || false,
     pinnedAt: record.pinned_at || null,
   };

@@ -102,8 +102,35 @@ type CampaignDraft = {
   audienceBothEligible?: number | null;
   audienceLastErrorCode?: string | null;
   audienceLastErrorAt?: string | null;
+  readiness?: CampaignReadiness;
   isPinned?: boolean;
   pinnedAt?: string | null;
+};
+
+type CampaignReadiness = {
+  audienceCurrent: boolean;
+  emailPreviewCurrent: boolean;
+  emailSavedCurrent: boolean;
+  emailTestCurrent: boolean;
+  readyForFinalSend: boolean;
+  readyForRecipientRefresh: boolean;
+  reasonCodes: Array<
+    | "audience_missing"
+    | "audience_stale"
+    | "email_draft_missing"
+    | "email_preview_missing"
+    | "email_preview_stale"
+    | "email_test_missing"
+    | "email_test_stale"
+    | "text_draft_missing"
+    | "text_preview_missing"
+    | "text_preview_stale"
+    | "text_test_missing"
+    | "text_test_stale"
+  >;
+  textPreviewCurrent: boolean;
+  textSavedCurrent: boolean;
+  textTestCurrent: boolean;
 };
 
 type ProgressSummary = {
@@ -671,6 +698,7 @@ function localParagraphs(body: string) {
 
 function localEmailPreviewHtml(form: FormValues) {
   const label = messageTypeEmailLabel(form.messageType);
+  const brandIconUrl = "https://www.suppvis.health/email/suppvis-logo.png";
   const bodyHtml = [
     ...localParagraphs(form.body).map((paragraph) =>
       `<p style="margin:0 0 18px 0;color:#9BAFBF;font-size:16px;line-height:1.65;">${paragraph
@@ -717,7 +745,9 @@ function localEmailPreviewHtml(form: FormValues) {
                       )}</div>
                     </td>
                     <td align="right" style="vertical-align:middle;">
-                      <div style="display:inline-flex;width:42px;height:42px;align-items:center;justify-content:center;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);color:#14B8A6;font-size:20px;font-weight:800;">S</div>
+                      <div style="display:inline-block;width:42px;height:42px;border:1px solid rgba(20,184,166,0.42);border-radius:14px;background:rgba(20,184,166,0.10);overflow:hidden;">
+                        <img src="${brandIconUrl}" width="42" height="42" alt="SuppVis" style="display:block;width:42px;height:42px;border:0;outline:none;text-decoration:none;" />
+                      </div>
                     </td>
                   </tr>
                 </table>
@@ -1251,16 +1281,27 @@ export default function AdminCampaignDraft({
         form.messageType !== campaign.messageType ||
         form.subject !== campaign.subject),
   );
-  const emailSaved = Boolean(campaign && !emailChangedSinceSave);
+  const persistedReadiness = campaign?.readiness;
+  const persistedEmailSaved =
+    persistedReadiness?.emailSavedCurrent ??
+    Boolean(campaign?.subject && campaign?.heading && campaign?.body);
+  const emailSaved = Boolean(
+    campaign && !emailChangedSinceSave && persistedEmailSaved,
+  );
   const textWorkspaceUnlocked = workflowStarted || Boolean(campaign);
   const smsChangedSinceSave = Boolean(
     campaign && (!campaign.smsEnabled || campaign.smsBody !== form.smsBody),
   );
+  const persistedTextSaved =
+    persistedReadiness?.textSavedCurrent ??
+    Boolean(
+      campaign?.smsEnabled &&
+        campaign.smsSavedAt &&
+        campaign.smsBody &&
+        campaign.smsRenderedBody,
+    );
   const hasSavedSmsDraft = Boolean(
-    campaign?.smsEnabled &&
-      campaign.smsSavedAt &&
-      campaign.smsBody &&
-      !smsChangedSinceSave,
+    campaign && !smsChangedSinceSave && persistedTextSaved,
   );
   const selectedChannelsSaved = Boolean(
     campaign && !emailChangedSinceSave && hasSavedSmsDraft,
@@ -1306,30 +1347,48 @@ export default function AdminCampaignDraft({
     campaign &&
       !emailPreviewOutdated &&
       !emailChangedSinceSave &&
-      campaign.emailPreviewGeneratedAt &&
-      campaign.emailPreviewVersion === emailDraftVersion,
+      (persistedReadiness?.emailPreviewCurrent ??
+        Boolean(
+          campaign.emailPreviewGeneratedAt &&
+            campaign.emailPreviewVersion === emailDraftVersion,
+        )),
   );
   const smsPreviewCurrent = Boolean(
     campaign &&
       !smsPreviewOutdated &&
       !smsChangedSinceSave &&
-      campaign.smsPreviewGeneratedAt &&
-      campaign.smsPreviewVersion === smsDraftVersion,
+      (persistedReadiness?.textPreviewCurrent ??
+        Boolean(
+          campaign.smsPreviewGeneratedAt &&
+            campaign.smsPreviewVersion === smsDraftVersion,
+        )),
   );
   const emailTestCurrent = Boolean(
-    campaign?.testedAt &&
-      campaign.testMessageId &&
-      campaign.emailTestVersion &&
-      campaign.emailTestVersion === emailDraftVersion,
+    campaign &&
+      !emailChangedSinceSave &&
+      !emailPreviewOutdated &&
+      (persistedReadiness?.emailTestCurrent ??
+        Boolean(
+          campaign.testedAt &&
+            campaign.testMessageId &&
+            campaign.emailTestVersion &&
+            campaign.emailTestVersion === emailDraftVersion,
+        )),
   );
   const smsTestAcceptedForCurrentDraft = Boolean(
-    campaign?.smsTestedAt &&
-      campaign.smsTestMessageSid &&
-      campaign.smsTestVersion &&
-      campaign.smsTestVersion === smsDraftVersion &&
-      campaign.smsTestTransport === "sms" &&
-      (campaign.smsTestStatus === "accepted" ||
-        campaign.smsTestStatus === "delivered"),
+    campaign &&
+      !smsChangedSinceSave &&
+      !smsPreviewOutdated &&
+      (persistedReadiness?.textTestCurrent ??
+        Boolean(
+          campaign.smsTestedAt &&
+            campaign.smsTestMessageSid &&
+            campaign.smsTestVersion &&
+            campaign.smsTestVersion === smsDraftVersion &&
+            campaign.smsTestTransport === "sms" &&
+            (campaign.smsTestStatus === "accepted" ||
+              campaign.smsTestStatus === "delivered"),
+        )),
   );
   const canRequestEmailTest =
     Boolean(campaign) &&
@@ -2961,7 +3020,7 @@ export default function AdminCampaignDraft({
       : null;
   const currentAudience = audience || persistedAudience;
   const canStart = Boolean(
-    (campaign?.status === "tested" || campaign?.status === "approved") &&
+    campaign &&
       selectedChannelsSaved &&
       previewsReady &&
       adminTestsReady &&
@@ -2991,6 +3050,41 @@ export default function AdminCampaignDraft({
       (!emailDeliveryRequired || emailProductionReady) &&
       (!smsDeliveryRequired || smsProductionReady),
   );
+  function readinessBlockerCopy() {
+    if (!emailSaved) {
+      return "Save the email before sending.";
+    }
+
+    if (!smsSaved) {
+      return "Save the text message before sending.";
+    }
+
+    if (!emailPreviewCurrent) {
+      return campaign?.emailPreviewGeneratedAt
+        ? "Email preview is out of date."
+        : "Generate the email preview first.";
+    }
+
+    if (!smsPreviewCurrent) {
+      return campaign?.smsPreviewGeneratedAt
+        ? "Text preview is out of date."
+        : "Generate the text preview first.";
+    }
+
+    if (!emailTestReady) {
+      return campaign?.testedAt || campaign?.testMessageId
+        ? "Email test is out of date."
+        : "Send the email test first.";
+    }
+
+    if (!smsTestReady) {
+      return campaign?.smsTestedAt || campaign?.smsTestMessageSid
+        ? "Text test is out of date."
+        : "Send the text test first.";
+    }
+
+    return "Refresh recipient counts first.";
+  }
   const confirmationPhraseMatches = Boolean(
     currentAudience?.confirmationPhrase &&
       startPhrase === currentAudience.confirmationPhrase,
@@ -3008,7 +3102,7 @@ export default function AdminCampaignDraft({
           : smsDeliveryRequired && !smsProductionReady
             ? "Text delivery queue is not ready yet."
             : !canStart
-              ? "Complete both previews and admin tests first."
+              ? readinessBlockerCopy()
               : !confirmationPhraseMatches
                 ? "Type the exact confirmation phrase."
                 : "";
@@ -3754,15 +3848,45 @@ export default function AdminCampaignDraft({
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
-                Email safe error
+                Email query issue
               </dt>
-              <dd>{currentAudience?.diagnostics?.emailErrorCode || "None"}</dd>
+              <dd>
+                {currentAudience?.diagnostics?.emailErrorCode ? (
+                  <>
+                    <span>
+                      {audienceErrorCopy(
+                        currentAudience.diagnostics.emailErrorCode,
+                      )}
+                    </span>
+                    <span className="mt-1 block font-mono text-xs text-text-muted">
+                      {currentAudience.diagnostics.emailErrorCode}
+                    </span>
+                  </>
+                ) : (
+                  "None"
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
-                Text safe error
+                Text query issue
               </dt>
-              <dd>{currentAudience?.diagnostics?.smsErrorCode || "None"}</dd>
+              <dd>
+                {currentAudience?.diagnostics?.smsErrorCode ? (
+                  <>
+                    <span>
+                      {audienceErrorCopy(
+                        currentAudience.diagnostics.smsErrorCode,
+                      )}
+                    </span>
+                    <span className="mt-1 block font-mono text-xs text-text-muted">
+                      {currentAudience.diagnostics.smsErrorCode}
+                    </span>
+                  </>
+                ) : (
+                  "None"
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
@@ -3789,8 +3913,7 @@ export default function AdminCampaignDraft({
             !campaign ||
             isBusy ||
             !selectedChannelsSaved ||
-            !adminTestsReady ||
-            (campaign.status !== "tested" && campaign.status !== "approved")
+            !adminTestsReady
           }
           className={`${primaryButtonClass("dark")} ${guidedControlClass("recipientCount")}`}
         >

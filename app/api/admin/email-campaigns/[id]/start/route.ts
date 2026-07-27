@@ -7,9 +7,7 @@ import {
 } from "@/app/lib/server/admin/audience";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
 import {
-  hasCurrentAdminTests,
-  hasCurrentEmailPreview,
-  hasCurrentSmsPreview,
+  getEmailCampaignReadiness,
 } from "@/app/lib/server/email/campaign-readiness";
 import {
   enqueueEmailCampaignRecipient,
@@ -92,12 +90,9 @@ export async function POST(
       );
     }
 
-    if (
-      !campaign.sms_enabled ||
-      !campaign.sms_saved_at ||
-      !campaign.sms_body ||
-      !campaign.sms_rendered_body
-    ) {
+    const readiness = getEmailCampaignReadiness(campaign);
+
+    if (!readiness.text_saved_current) {
       throw new PublicApiError(
         409,
         "sms_draft_not_saved",
@@ -105,7 +100,7 @@ export async function POST(
       );
     }
 
-    if (!hasCurrentEmailPreview(campaign) || !hasCurrentSmsPreview(campaign)) {
+    if (!readiness.email_preview_current || !readiness.text_preview_current) {
       throw new PublicApiError(
         409,
         "preview_stale",
@@ -113,7 +108,7 @@ export async function POST(
       );
     }
 
-    if (!hasCurrentAdminTests(campaign)) {
+    if (!readiness.email_test_current || !readiness.text_test_current) {
       throw new PublicApiError(
         409,
         "campaign_not_tested",

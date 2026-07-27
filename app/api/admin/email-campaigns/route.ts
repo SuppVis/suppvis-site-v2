@@ -9,6 +9,7 @@ import {
   listSentEmailCampaignSummaries,
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
+import { campaignReadinessResponse } from "@/app/lib/server/email/campaign-readiness";
 import {
   enforceRateLimit,
   readJsonBody,
@@ -95,6 +96,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
+    readiness: campaignReadinessResponse(record),
     isPinned: record.is_pinned || false,
     pinnedAt: record.pinned_at || null,
   };
@@ -185,6 +187,7 @@ export async function GET(request: NextRequest) {
           audienceBothEligible: draft.audience_both_eligible ?? null,
           audienceLastErrorCode: draft.audience_last_error_code || null,
           audienceLastErrorAt: draft.audience_last_error_at || null,
+          readiness: campaignReadinessResponse(draft),
         })),
       });
     }
@@ -264,6 +267,7 @@ export async function GET(request: NextRequest) {
         audienceBothEligible: draft.audience_both_eligible ?? null,
         audienceLastErrorCode: draft.audience_last_error_code || null,
         audienceLastErrorAt: draft.audience_last_error_at || null,
+        readiness: campaignReadinessResponse(draft),
         isPinned: draft.is_pinned || false,
         pinnedAt: draft.pinned_at || null,
       })),

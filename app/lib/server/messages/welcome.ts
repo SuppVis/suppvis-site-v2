@@ -176,7 +176,9 @@ function buildBrandedEmailHtml({
   bodyHtml,
   footerHtml,
 }: BrandedEmailHtmlInput) {
-  const brandIconUrl = escapeHtml(buildPublicAssetUrl("/favicon.svg", appBaseUrl));
+  const brandIconUrl = escapeHtml(
+    buildPublicAssetUrl("/email/suppvis-logo.png", appBaseUrl),
+  );
 
   return `<!doctype html>
 <html lang="en">

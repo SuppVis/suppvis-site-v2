@@ -7,6 +7,7 @@ import {
   confirmationPhraseForCounts,
 } from "@/app/lib/server/admin/audience";
 import {
+  campaignReadinessResponse,
   hasCurrentAdminTests,
   hasCurrentEmailPreview,
   hasCurrentSmsPreview,
@@ -48,6 +49,7 @@ function audienceCampaignResponse(record: EmailCampaignRecord) {
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
+    readiness: campaignReadinessResponse(record),
   };
 }
 

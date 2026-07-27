@@ -3,6 +3,7 @@ import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit"
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
+  campaignReadinessResponse,
   hasCurrentAdminTests,
   hasCurrentEmailPreview,
   hasCurrentSmsPreview,
@@ -31,6 +32,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     status: record.status,
     version: record.version,
     approvedAt: record.approved_at,
+    readiness: campaignReadinessResponse(record),
   };
 }
 
