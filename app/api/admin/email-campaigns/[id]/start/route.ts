@@ -42,6 +42,7 @@ import {
   isAdminSmsBulkInfraReady,
   isAdminSmsBulkSendEnabled,
 } from "@/app/lib/server/sms/admin-campaign";
+import { enqueueSmsCampaignRecipient } from "@/app/lib/server/sms/campaign-queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -209,31 +210,28 @@ export async function POST(
       });
     }
 
-    if (smsRecipientsRequired) {
+    if (smsRecipientsRequired && !smsReady) {
       await recordAdminCampaignAudit({
         action: "sms_production_send_blocked",
         adminIdentifier: admin.identifier,
         campaignId: id,
-        status: smsReady
-          ? "sms_worker_not_connected"
-          : "sms_feature_flags_disabled",
+        status: "sms_feature_flags_disabled",
       });
 
       return NextResponse.json({
         ok: true,
         status: "disabled",
         code: "sms_production_send_disabled",
-        message: smsReady
-          ? "Sending is not available yet because text delivery jobs are not connected."
-          : "Sending is not available yet because the text delivery system is still being prepared.",
+        message:
+          "Sending is not available yet because the text delivery system is still being prepared.",
       });
     }
 
-    if (!emailAudience) {
+    if (!emailAudience || !smsAudience) {
       throw new PublicApiError(
         503,
-        "email_audience_unavailable",
-        "Email recipient counts could not be refreshed.",
+        "audience_unavailable",
+        "Recipient counts could not be refreshed.",
       );
     }
 
@@ -254,6 +252,7 @@ export async function POST(
     }
 
     let queuedEmailCount = 0;
+    let queuedSmsCount = 0;
 
     try {
       for (const candidate of emailAudience.candidates) {
@@ -262,6 +261,7 @@ export async function POST(
         if (candidate.decision.eligible) {
           await createEmailCampaignRecipient({
             campaignId: id,
+            channel: "email",
             subscriberId: candidate.subscriber.id,
             now: queuedAt,
             status: "queueing",
@@ -284,6 +284,46 @@ export async function POST(
         } else {
           await createEmailCampaignRecipient({
             campaignId: id,
+            channel: "email",
+            subscriberId: candidate.subscriber.id,
+            now: queuedAt,
+            status: "skipped",
+            eligibilityDecision: "excluded",
+            skipReason: candidate.decision.reason,
+          });
+        }
+      }
+
+      for (const candidate of smsAudience.candidates) {
+        const queuedAt = new Date().toISOString();
+
+        if (candidate.decision.eligible) {
+          await createEmailCampaignRecipient({
+            campaignId: id,
+            channel: "sms",
+            subscriberId: candidate.subscriber.id,
+            now: queuedAt,
+            status: "queueing",
+            eligibilityDecision: "eligible",
+          });
+
+          const sqsMessage = await enqueueSmsCampaignRecipient({
+            campaignId: id,
+            subscriberId: candidate.subscriber.id,
+          });
+
+          await markEmailCampaignRecipientQueued({
+            campaignId: id,
+            subscriberId: candidate.subscriber.id,
+            now: new Date().toISOString(),
+            sqsMessageId: sqsMessage.MessageId,
+          });
+
+          queuedSmsCount += 1;
+        } else {
+          await createEmailCampaignRecipient({
+            campaignId: id,
+            channel: "sms",
             subscriberId: candidate.subscriber.id,
             now: queuedAt,
             status: "skipped",
@@ -301,20 +341,24 @@ export async function POST(
         eligibleCount: emailAudience?.eligibleCount || 0,
         excludedCount: emailAudience?.excludedCount || 0,
         queuedCount: queuedEmailCount,
+        smsEligibleCount: smsAudience?.eligibleCount || 0,
+        smsExcludedCount: smsAudience?.excludedCount || 0,
+        smsDuplicateCount: smsAudience?.duplicateCount || 0,
+        smsQueuedCount: queuedSmsCount,
       });
 
       await recordAdminCampaignAudit({
         action: "campaign_queued",
         adminIdentifier: admin.identifier,
         campaignId: id,
-        status: `email=${queuedEmailCount} sms=0`,
+        status: `email=${queuedEmailCount} sms=${queuedSmsCount}`,
       });
 
       return NextResponse.json({
         ok: true,
         status: "queued",
         emailQueuedCount: queuedEmailCount,
-        smsQueuedCount: 0,
+        smsQueuedCount: queuedSmsCount,
         campaign: queuedCampaign,
         message: "Announcement queued.",
       });

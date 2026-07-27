@@ -43,6 +43,18 @@ type UpdateInput = {
   operation: string;
 };
 
+type IncrementInput = {
+  tableEnvName: string;
+  key: DynamoRecord;
+  add: Record<string, number>;
+  set?: DynamoRecord;
+  conditionExpression?: string;
+  conditionAttributeNames?: Record<string, string>;
+  conditionAttributeValues?: DynamoRecord;
+  returnValues?: "ALL_NEW" | "UPDATED_NEW" | "NONE";
+  operation: string;
+};
+
 type QueryInput = {
   tableEnvName: string;
   indexName?: string;
@@ -308,6 +320,92 @@ export async function updateDynamoItem(input: UpdateInput) {
     }
 
     console.error("[dynamodb] update failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError();
+  }
+}
+
+export async function incrementDynamoItem(input: IncrementInput) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+  const keyAttributeNames = new Set(Object.keys(input.key));
+  const expressionAttributeNames: Record<string, string> = {
+    ...(input.conditionAttributeNames || {}),
+  };
+  const expressionAttributeValues: Record<string, unknown> = {
+    ...(input.conditionAttributeValues || {}),
+  };
+  const addParts: string[] = [];
+  const setParts: string[] = [];
+  let index = 0;
+
+  for (const [name, value] of definedEntries(input.add)) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
+    const nameKey = `#a${index}`;
+    const valueKey = `:a${index}`;
+    expressionAttributeNames[nameKey] = name;
+    expressionAttributeValues[valueKey] = value;
+    addParts.push(`${nameKey} ${valueKey}`);
+    index += 1;
+  }
+
+  for (const [name, value] of definedEntries(input.set || {})) {
+    if (keyAttributeNames.has(name)) {
+      continue;
+    }
+
+    const nameKey = `#s${index}`;
+    const valueKey = `:s${index}`;
+    expressionAttributeNames[nameKey] = name;
+    expressionAttributeValues[valueKey] = value;
+    setParts.push(`${nameKey} = ${valueKey}`);
+    index += 1;
+  }
+
+  const updateExpression = [
+    addParts.length ? `ADD ${addParts.join(", ")}` : "",
+    setParts.length ? `SET ${setParts.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (!updateExpression) {
+    throw new ServerConfigError(`No attributes configured for ${input.operation}`);
+  }
+
+  try {
+    const result = await getDocumentClient().send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: input.key,
+        UpdateExpression: updateExpression,
+        ConditionExpression: input.conditionExpression,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: input.returnValues,
+      }),
+    );
+
+    return {
+      wrote: true,
+      attributes: result.Attributes as DynamoRecord | undefined,
+    };
+  } catch (error) {
+    if (
+      input.conditionExpression &&
+      error instanceof Error &&
+      error.name === "ConditionalCheckFailedException"
+    ) {
+      return { wrote: false };
+    }
+
+    console.error("[dynamodb] increment failed", {
       operation: input.operation,
       tableEnvName: input.tableEnvName,
       errorName: error instanceof Error ? error.name : "UnknownError",

@@ -1,4 +1,5 @@
 import { ServerConfigError } from "@/app/lib/server/errors";
+import { hasAdminSmsCampaignQueue } from "./campaign-queue";
 
 export function areAdminSmsAnnouncementsEnabled() {
   return process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true";
@@ -13,7 +14,20 @@ export function isAdminSmsBulkSendEnabled() {
 }
 
 export function isAdminSmsBulkInfraReady() {
-  return process.env.ADMIN_SMS_BULK_SEND_INFRA_READY === "true";
+  return (
+    process.env.ADMIN_SMS_BULK_SEND_INFRA_READY === "true" &&
+    hasAdminSmsCampaignQueue() &&
+    hasAdminSmsTwilioConfig()
+  );
+}
+
+function hasAdminSmsTwilioConfig() {
+  try {
+    assertAdminSmsTestTwilioConfigured();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function assertAdminSmsTestTwilioConfigured() {

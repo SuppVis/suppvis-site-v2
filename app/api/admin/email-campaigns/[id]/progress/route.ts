@@ -76,8 +76,8 @@ export async function GET(
       progress: {
         campaignStatus: campaign.status,
         completedAt: campaign.completed_at,
-        eligible: campaign.eligible_count || 0,
-        excluded: campaign.excluded_count || 0,
+        eligible: (campaign.eligible_count || 0) + (campaign.sms_eligible_count || 0),
+        excluded: (campaign.excluded_count || 0) + (campaign.sms_excluded_count || 0),
         isActive: ACTIVE_STATUSES.has(campaign.status),
         counts,
         updatedAt: campaign.updated_at,

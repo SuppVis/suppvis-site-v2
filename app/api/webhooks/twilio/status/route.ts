@@ -4,6 +4,7 @@ import {
   ServerConfigError,
 } from "@/app/lib/server/errors";
 import {
+  recordEmailCampaignSmsRecipientProviderStatus,
   recordEmailCampaignSmsTestProviderStatus,
   recordSmsProviderStatus,
 } from "@/app/lib/server/persistence";
@@ -106,6 +107,41 @@ export async function POST(request: NextRequest) {
       }
 
       console.info("[twilio] admin sms test status callback received", {
+        messageSid: parsed.data.MessageSid,
+        providerStatus,
+        status: updateStatus,
+      });
+
+      return emptyResponse();
+    }
+
+    if (messageType === "admin_campaign_sms") {
+      const campaignId = request.nextUrl.searchParams.get("campaign");
+      const subscriberId = request.nextUrl.searchParams.get("subscriber");
+      let updateStatus = "missing_campaign_or_subscriber";
+
+      if (isEmailCampaignId(campaignId) && isSmsSubscriberId(subscriberId)) {
+        const now = new Date().toISOString();
+        const result = await recordEmailCampaignSmsRecipientProviderStatus({
+          campaignId,
+          subscriberId,
+          messageSid: parsed.data.MessageSid,
+          providerStatus,
+          errorCode: parsed.data.ErrorCode,
+          now,
+        });
+        await recordSmsProviderStatus({
+          id: subscriberId,
+          messageSid: parsed.data.MessageSid,
+          providerStatus,
+          errorCode: parsed.data.ErrorCode,
+          errorMessageSafe: safeErrorMessage(parsed.data.ErrorMessage),
+          now,
+        });
+        updateStatus = result.wrote ? "recorded" : "recipient_missing_or_mismatch";
+      }
+
+      console.info("[twilio] announcement sms status callback received", {
         messageSid: parsed.data.MessageSid,
         providerStatus,
         status: updateStatus,

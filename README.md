@@ -83,8 +83,9 @@ Admin console auth:
 - `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for future subscriber SMS announcement delivery. It is not required for the one-admin SMS test modal.
 - `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for one-admin SMS tests through the protected admin modal; keep `false` until Twilio and admin mappings are verified.
 - `ADMIN_SMS_TEST_RECIPIENTS` - sensitive server-only mapping from normalized admin email to one approved U.S. E.164 test phone, such as `admin1@suppvis.health=+1XXXXXXXXXX,admin2@suppvis.health=+1XXXXXXXXXX`. Do not expose with `NEXT_PUBLIC_`.
-- `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for future subscriber SMS announcement sending.
-- `ADMIN_SMS_BULK_SEND_INFRA_READY` - default-off readiness gate for future SMS queue/worker infrastructure.
+- `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for subscriber SMS announcement sending.
+- `ADMIN_SMS_BULK_SEND_INFRA_READY` - default-off readiness gate for the SMS announcement queue, worker, IAM, Twilio configuration, and callback path.
+- `ADMIN_SMS_CAMPAIGN_QUEUE_URL` - SQS queue URL for production SMS announcement jobs; leave unset until `suppvis-sms-announcement-send-worker` is active.
 
 Welcome templates:
 
@@ -212,9 +213,9 @@ The `/admin` route is intentionally not linked from public navigation, but hidde
 - Server-side authorization checks on the admin page.
 - Disabled send flags until each sending phase is approved.
 
-The current admin console supports combined email-plus-text announcement draft persistence, recent draft loading, server-rendered HTML/plain-text email previews, customer-care beta text drafting/previews, one-recipient admin email test sends, protected one-recipient admin text tests when enabled, approval, recipient counting, draft archiving, and a queued production email-send route that remains blocked unless `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true`.
+The current admin console supports combined email-plus-text announcement draft persistence, recent draft loading, server-rendered HTML/plain-text email previews, customer-care beta text drafting/previews, one-recipient admin email test sends, protected one-recipient admin text tests when enabled, approval, recipient counting, draft archiving, and queued production delivery through channel-specific email and SMS jobs.
 
-Admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Admin SMS tests derive the destination only from the authenticated admin's `ADMIN_SMS_TEST_RECIPIENTS` mapping; the browser cannot submit a phone number, and test sends do not create subscriber consent or enter the production SMS audience. Subscriber SMS announcement sending is not implemented or live in this phase; it remains blocked by separate `ADMIN_SMS_*` gates and missing queue/worker infrastructure.
+Admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Admin SMS tests derive the destination only from the authenticated admin's `ADMIN_SMS_TEST_RECIPIENTS` mapping; the browser cannot submit a phone number, and test sends do not create subscriber consent or enter the production SMS audience. Subscriber SMS announcement sending is queued through `ADMIN_SMS_CAMPAIGN_QUEUE_URL` and stays blocked until `ADMIN_SMS_ANNOUNCEMENTS_ENABLED=true`, `ADMIN_SMS_BULK_SEND_ENABLED=true`, and `ADMIN_SMS_BULK_SEND_INFRA_READY=true`.
 
 Recommended Microsoft Entra setup:
 
@@ -227,7 +228,7 @@ Recommended Microsoft Entra setup:
 7. Add the app registration values to Vercel as sensitive Production env vars.
 8. Put only named admin emails in `ADMIN_ALLOWED_EMAILS`.
 
-Queued production campaign sending uses:
+Queued production email campaign sending uses:
 
 1. The admin API to approve a tested campaign and calculate the eligible audience count server-side.
 2. A typed confirmation phrase, such as `SEND TO 123 SUBSCRIBERS`.
@@ -241,7 +242,16 @@ Queued production campaign sending uses:
 
 Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
 
-Admin SMS announcement sends must not use `WELCOME_SMS_ENABLED`; that flag is only for the beta signup welcome text path. Future SMS announcement sending needs a channel-specific queue/worker, recipient tracking, STOP/status re-checks, and least-privilege IAM before `ADMIN_SMS_BULK_SEND_INFRA_READY` can be enabled.
+Queued production SMS announcement sending uses:
+
+1. The same approved announcement start API after previews, admin tests, recipient refresh, and typed confirmation.
+2. A per-recipient DynamoDB tracking record in `suppvis-prod-email-campaign-recipients` with `channel = sms`.
+3. One SQS message per eligible SMS subscriber on `suppvis-sms-announcement-send-queue`.
+4. `suppvis-sms-announcement-send-worker` Lambda to re-check SMS consent, STOP, invalid, and suppression state immediately before calling Twilio.
+5. Standard Twilio Programmable Messaging through `TWILIO_MESSAGING_SERVICE_SID`, recommended `MGa88964d7c8a19058525ba21ca648715e`, and the approved sender `+16507025913`.
+6. `POST /api/webhooks/twilio/status?message_type=admin_campaign_sms&campaign=...&subscriber=...` to update campaign-recipient provider state separately from welcome SMS and admin-test SMS.
+
+Admin SMS announcement sends must not use `WELCOME_SMS_ENABLED`; that flag is only for the beta signup welcome text path. The production SMS queue can be provisioned with `aws/scripts/provision-sms-announcement-worker.sh`. Do not set `ADMIN_SMS_BULK_SEND_INFRA_READY=true` until the queue, DLQ, Lambda event-source mapping, Twilio Lambda env vars, and Vercel `ADMIN_SMS_CAMPAIGN_QUEUE_URL` are active.
 
 Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional link text/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
 
@@ -347,6 +357,10 @@ Future Twilio environment variables:
 - `TWILIO_WEBHOOK_SIGNATURE_REQUIRED=true`
 - `TWILIO_STATUS_CALLBACK_URL=https://www.suppvis.health/api/webhooks/twilio/status`
 - `WELCOME_SMS_ENABLED=false`
+- `ADMIN_SMS_CAMPAIGN_QUEUE_URL`
+- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED=true`
+- `ADMIN_SMS_BULK_SEND_ENABLED=true`
+- `ADMIN_SMS_BULK_SEND_INFRA_READY=true`
 
 Do not add `SMS_TEST_RECIPIENT_ALLOWLIST`. SMS eligibility comes from DynamoDB `sms_subscribers` consent/status fields and the global `WELCOME_SMS_ENABLED` kill switch.
 

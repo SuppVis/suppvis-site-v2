@@ -74,6 +74,11 @@ type CampaignDraft = {
   smsEligibleCount?: number;
   smsExcludedCount?: number;
   smsDuplicateCount?: number;
+  smsQueuedCount?: number;
+  smsSentCount?: number;
+  smsDeliveredCount?: number;
+  smsFailedCount?: number;
+  smsSkippedCount?: number;
   smsTestProviderStatus?: string | null;
   smsTestRecipientMasked?: string | null;
   smsTestSenderMasked?: string | null;
@@ -598,11 +603,11 @@ function recentTextState(draft: CampaignDraft): {
 
   if (testCurrent) {
     if (providerStatus === "failed" || providerStatus === "undelivered") {
-      return { label: "Text: Failed", tone: "danger" };
+      return { label: "Text: Test failed", tone: "danger" };
     }
 
     if (providerStatus === "delivered") {
-      return { label: "Text: Delivered", tone: "success" };
+      return { label: "Text: Test delivered", tone: "success" };
     }
 
     return { label: "Text: Test accepted", tone: "success" };
@@ -913,31 +918,143 @@ function HistoryIcon() {
 
 function Modal({
   children,
+  closeOnBackdrop = true,
+  closeOnEscape = true,
+  lockScroll = true,
   maxWidth = "max-w-lg",
   onClose,
+  showCloseButton = true,
   title,
 }: {
   children: ReactNode;
+  closeOnBackdrop?: boolean;
+  closeOnEscape?: boolean;
+  lockScroll?: boolean;
   maxWidth?: string;
   onClose: () => void;
+  showCloseButton?: boolean;
   title: string;
 }) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    const scrollY = window.scrollY;
+    const previousBodyStyle = {
+      overflow: document.body.style.overflow,
+      position: document.body.style.position,
+      top: document.body.style.top,
+      width: document.body.style.width,
+    };
+
+    if (lockScroll) {
+      document.body.style.overflow = "hidden";
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = "100%";
+    }
+
+    window.setTimeout(() => {
+      closeButtonRef.current?.focus();
+    }, 0);
+
+    return () => {
+      if (lockScroll) {
+        document.body.style.overflow = previousBodyStyle.overflow;
+        document.body.style.position = previousBodyStyle.position;
+        document.body.style.top = previousBodyStyle.top;
+        document.body.style.width = previousBodyStyle.width;
+        window.scrollTo(0, scrollY);
+      }
+
+      previousFocusRef.current?.focus();
+    };
+  }, [lockScroll]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && closeOnEscape) {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hasAttribute("aria-hidden"));
+
+      if (!focusable.length) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeOnEscape, onClose]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="admin-modal-title"
+      onMouseDown={(event) => {
+        if (closeOnBackdrop && event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
-        className={`w-full ${maxWidth} rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50`}
+        ref={dialogRef}
+        className={`max-h-[92vh] w-full ${maxWidth} overflow-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50`}
       >
-        <h2
-          id="admin-modal-title"
-          className="font-headline text-2xl font-bold text-text-primary"
-        >
-          {title}
-        </h2>
+        <div className="sticky top-0 z-10 -mx-1 -mt-1 flex items-start justify-between gap-4 bg-[#0D1117]/95 px-1 pb-3 backdrop-blur">
+          <h2
+            id="admin-modal-title"
+            className="font-headline text-2xl font-bold text-text-primary"
+          >
+            {title}
+          </h2>
+          {showCloseButton ? (
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              aria-label={`Close ${title.toLowerCase()}`}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-text-secondary transition hover:border-accent/50 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]"
+            >
+              <span aria-hidden="true" className="text-xl leading-none">
+                x
+              </span>
+            </button>
+          ) : null}
+        </div>
         <div className="mt-4">{children}</div>
       </div>
     </div>
@@ -1183,7 +1300,6 @@ export default function AdminCampaignDraft({
   const smsTestModalPreview =
     smsPreview && !smsPreviewOutdated ? smsPreview : persistedSmsPreview;
   const canUseSmsControls = textWorkspaceUnlocked && !isSendStarted;
-  const smsProductionSendConnected = false;
   const emailDraftVersion = campaign?.emailDraftVersion || campaign?.version || 0;
   const smsDraftVersion = campaign?.smsDraftVersion || 0;
   const emailPreviewCurrent = Boolean(
@@ -1228,8 +1344,7 @@ export default function AdminCampaignDraft({
     smsPreviewCurrent &&
     Boolean(smsTestReadiness?.ready) &&
     !isSendStarted;
-  const smsProductionReady =
-    smsBulkSendEnabled && smsBulkInfraReady && smsProductionSendConnected;
+  const smsProductionReady = smsBulkSendEnabled && smsBulkInfraReady;
   const canSaveEmailContent = Boolean(
     workflowStarted &&
       form.subject.trim() &&
@@ -2891,7 +3006,7 @@ export default function AdminCampaignDraft({
         : emailDeliveryRequired && !emailProductionReady
           ? "Email delivery is still being prepared."
           : smsDeliveryRequired && !smsProductionReady
-            ? "Text delivery jobs are not connected yet."
+            ? "Text delivery queue is not ready yet."
             : !canStart
               ? "Complete both previews and admin tests first."
               : !confirmationPhraseMatches
@@ -3765,7 +3880,7 @@ export default function AdminCampaignDraft({
               ["Eligible", progress.eligible],
               ["Queued", progress.counts.queued],
               ["Sending", progress.counts.sending],
-              ["Accepted by SES", progress.counts.sent],
+              ["Provider accepted", progress.counts.sent],
               ["Delivered", progress.counts.delivered],
               ["Delayed", progress.counts.delayed],
               ["Skipped", progress.counts.skipped],
@@ -3785,9 +3900,9 @@ export default function AdminCampaignDraft({
             ))}
           </dl>
           <p className="mt-3 text-xs leading-5 text-text-muted">
-            Queued means ready for the worker. Accepted by SES means AWS
-            accepted the message. Delivered means SES reports delivery to the
-            recipient mail server.
+            Queued means ready for a channel worker. Provider accepted means
+            SES or Twilio accepted the message. Delivered means the provider
+            reported delivery.
           </p>
         </div>
       ) : null}
@@ -4695,8 +4810,8 @@ export default function AdminCampaignDraft({
           </div>
 
           <p className="mt-4 text-xs leading-5 text-text-muted">
-            Text sending is not connected yet. No SMS recipients are touched
-            while the announcement remains unsent.
+            Text delivery uses a separate queue after approval. No SMS
+            recipients are touched while the announcement remains unsent.
           </p>
         </div>
       </section>
@@ -4929,6 +5044,10 @@ export default function AdminCampaignDraft({
 
       {idleWarningOpen ? (
         <Modal
+          closeOnBackdrop={false}
+          closeOnEscape={false}
+          lockScroll={false}
+          showCloseButton={false}
           title="Your session is about to expire"
           onClose={() => undefined}
         >
@@ -4989,6 +5108,7 @@ export default function AdminCampaignDraft({
 
       {sentHistoryOpen ? (
         <Modal
+          maxWidth="max-w-4xl"
           title="Sent announcements"
           onClose={() => {
             if (!isBusy) {
@@ -5052,9 +5172,10 @@ export default function AdminCampaignDraft({
                           Email
                         </dt>
                         <dd>
-                          {item.eligibleCount || item.recipientCount || 0} eligible ·{" "}
-                          {item.sentCount || 0} accepted ·{" "}
-                          {item.deliveredCount || 0} delivered ·{" "}
+                          {item.eligibleCount || 0} eligible -{" "}
+                          {item.queuedCount || 0} queued -{" "}
+                          {item.sentCount || 0} accepted -{" "}
+                          {item.deliveredCount || 0} delivered -{" "}
                           {item.failedCount || 0} failed
                         </dd>
                       </div>
@@ -5063,8 +5184,11 @@ export default function AdminCampaignDraft({
                           Text
                         </dt>
                         <dd>
-                          {item.smsEligibleCount || 0} eligible ·{" "}
-                          {item.smsExcludedCount || 0} excluded
+                          {item.smsEligibleCount || 0} eligible -{" "}
+                          {item.smsQueuedCount || 0} queued -{" "}
+                          {item.smsSentCount || 0} accepted -{" "}
+                          {item.smsDeliveredCount || 0} delivered -{" "}
+                          {item.smsFailedCount || 0} failed
                         </dd>
                       </div>
                     </dl>
@@ -5087,6 +5211,16 @@ export default function AdminCampaignDraft({
                 No sent announcements yet.
               </div>
             )}
+            <div className="mt-5 flex justify-end sm:hidden">
+              <button
+                type="button"
+                onClick={() => setSentHistoryOpen(false)}
+                disabled={isBusy}
+                className={primaryButtonClass("dark")}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </Modal>
       ) : null}

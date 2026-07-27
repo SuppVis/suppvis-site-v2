@@ -2,6 +2,7 @@ import {
   DYNAMO_TABLE_ENVS,
   batchGetDynamoItems,
   getDynamoItem,
+  incrementDynamoItem,
   putDynamoItem,
   queryDynamoItems,
   queryDynamoItemsPage,
@@ -357,6 +358,11 @@ export type EmailCampaignRecord = {
   sms_eligible_count?: number;
   sms_excluded_count?: number;
   sms_duplicate_count?: number;
+  sms_queued_count?: number;
+  sms_sent_count?: number;
+  sms_delivered_count?: number;
+  sms_failed_count?: number;
+  sms_skipped_count?: number;
   audience_counted_at?: string | null;
   audience_version?: number;
   audience_email_total?: number;
@@ -395,11 +401,19 @@ export type EmailCampaignRecipientStatus =
 export type EmailCampaignRecipientRecord = {
   campaign_id: string;
   subscriber_id: string;
+  channel?: "email" | "sms";
   record_type: "email_campaign_recipient";
   status: EmailCampaignRecipientStatus;
   eligibility_decision: "eligible" | "excluded";
   skip_reason?: string;
   ses_message_id?: string;
+  twilio_message_sid?: string;
+  twilio_provider_status?: string;
+  twilio_sender_masked?: string;
+  twilio_error_code?: string;
+  accepted_at?: string;
+  undelivered_at?: string;
+  sqs_message_id?: string;
   queued_at?: string;
   send_attempted_at?: string;
   sent_at?: string;
@@ -475,6 +489,11 @@ export type EmailCampaignSummary = Pick<
   | "sms_eligible_count"
   | "sms_excluded_count"
   | "sms_duplicate_count"
+  | "sms_queued_count"
+  | "sms_sent_count"
+  | "sms_delivered_count"
+  | "sms_failed_count"
+  | "sms_skipped_count"
   | "audience_counted_at"
   | "audience_version"
   | "audience_email_total"
@@ -682,6 +701,11 @@ function emailCampaignFromAttributes(
     sms_eligible_count: numberAttribute(attributes?.sms_eligible_count),
     sms_excluded_count: numberAttribute(attributes?.sms_excluded_count),
     sms_duplicate_count: numberAttribute(attributes?.sms_duplicate_count),
+    sms_queued_count: numberAttribute(attributes?.sms_queued_count) || 0,
+    sms_sent_count: numberAttribute(attributes?.sms_sent_count) || 0,
+    sms_delivered_count: numberAttribute(attributes?.sms_delivered_count) || 0,
+    sms_failed_count: numberAttribute(attributes?.sms_failed_count) || 0,
+    sms_skipped_count: numberAttribute(attributes?.sms_skipped_count) || 0,
     audience_counted_at:
       nullableStringAttribute(attributes?.audience_counted_at) || null,
     audience_version: numberAttribute(attributes?.audience_version) || 0,
@@ -734,6 +758,10 @@ function emailCampaignRecipientFromAttributes(
   );
   const createdAt = stringAttribute(attributes?.created_at);
   const updatedAt = stringAttribute(attributes?.updated_at);
+  const channel =
+    attributes?.channel === "sms" || attributes?.channel === "email"
+      ? attributes.channel
+      : "email";
 
   if (
     !campaignId ||
@@ -749,11 +777,19 @@ function emailCampaignRecipientFromAttributes(
   return {
     campaign_id: campaignId,
     subscriber_id: subscriberId,
+    channel,
     record_type: "email_campaign_recipient",
     status,
     eligibility_decision: eligibilityDecision,
     skip_reason: stringAttribute(attributes?.skip_reason),
     ses_message_id: stringAttribute(attributes?.ses_message_id),
+    twilio_message_sid: stringAttribute(attributes?.twilio_message_sid),
+    twilio_provider_status: stringAttribute(attributes?.twilio_provider_status),
+    twilio_sender_masked: stringAttribute(attributes?.twilio_sender_masked),
+    twilio_error_code: stringAttribute(attributes?.twilio_error_code),
+    accepted_at: stringAttribute(attributes?.accepted_at),
+    undelivered_at: stringAttribute(attributes?.undelivered_at),
+    sqs_message_id: stringAttribute(attributes?.sqs_message_id),
     queued_at: stringAttribute(attributes?.queued_at),
     send_attempted_at: stringAttribute(attributes?.send_attempted_at),
     sent_at: stringAttribute(attributes?.sent_at),
@@ -823,6 +859,11 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     sms_eligible_count: record.sms_eligible_count,
     sms_excluded_count: record.sms_excluded_count,
     sms_duplicate_count: record.sms_duplicate_count,
+    sms_queued_count: record.sms_queued_count,
+    sms_sent_count: record.sms_sent_count,
+    sms_delivered_count: record.sms_delivered_count,
+    sms_failed_count: record.sms_failed_count,
+    sms_skipped_count: record.sms_skipped_count,
     audience_counted_at: record.audience_counted_at,
     audience_version: record.audience_version,
     audience_email_total: record.audience_email_total,
@@ -2655,6 +2696,11 @@ export async function markEmailCampaignQueueing(input: {
       rejected_count: 0,
       failed_count: 0,
       skipped_count: 0,
+      sms_queued_count: 0,
+      sms_sent_count: 0,
+      sms_delivered_count: 0,
+      sms_failed_count: 0,
+      sms_skipped_count: 0,
     },
     conditionExpression:
       "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND #status = :approved",
@@ -2683,7 +2729,14 @@ export async function markEmailCampaignQueued(input: {
   eligibleCount: number;
   excludedCount: number;
   queuedCount: number;
+  smsEligibleCount?: number;
+  smsExcludedCount?: number;
+  smsDuplicateCount?: number;
+  smsQueuedCount?: number;
 }) {
+  const smsEligibleCount = input.smsEligibleCount || 0;
+  const smsExcludedCount = input.smsExcludedCount || 0;
+  const smsQueuedCount = input.smsQueuedCount || 0;
   const result = await updateDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
     key: { id: input.id },
@@ -2694,11 +2747,20 @@ export async function markEmailCampaignQueued(input: {
       queued_at: input.now,
       updated_by: input.updated_by,
       updated_at: input.now,
-      recipient_count: input.eligibleCount + input.excludedCount,
+      recipient_count:
+        input.eligibleCount +
+        input.excludedCount +
+        smsEligibleCount +
+        smsExcludedCount,
       eligible_count: input.eligibleCount,
       excluded_count: input.excludedCount,
-      queued_count: input.queuedCount,
+      queued_count: input.queuedCount + smsQueuedCount,
       skipped_count: input.excludedCount,
+      sms_eligible_count: smsEligibleCount,
+      sms_excluded_count: smsExcludedCount,
+      sms_duplicate_count: input.smsDuplicateCount || 0,
+      sms_queued_count: smsQueuedCount,
+      sms_skipped_count: smsExcludedCount,
     },
     conditionExpression: "attribute_exists(#id) AND #status = :queueing",
     conditionAttributeNames: {
@@ -2750,6 +2812,7 @@ export async function markEmailCampaignQueueFailed(input: {
 
 export async function createEmailCampaignRecipient(input: {
   campaignId: string;
+  channel?: "email" | "sms";
   subscriberId: string;
   now: string;
   status: EmailCampaignRecipientStatus;
@@ -2766,6 +2829,7 @@ export async function createEmailCampaignRecipient(input: {
     returnValues: "ALL_NEW",
     set: {
       record_type: "email_campaign_recipient",
+      channel: input.channel || "email",
       status: input.status,
       eligibility_decision: input.eligibilityDecision,
       skip_reason: input.skipReason,
@@ -2821,6 +2885,103 @@ export async function markEmailCampaignRecipientQueued(input: {
   return result.wrote
     ? emailCampaignRecipientFromAttributes(result.attributes)
     : null;
+}
+
+export async function recordEmailCampaignSmsRecipientProviderStatus(input: {
+  campaignId: string;
+  subscriberId: string;
+  messageSid: string;
+  providerStatus: string;
+  errorCode?: string;
+  now: string;
+}) {
+  const normalizedStatus = input.providerStatus.toLowerCase();
+  const isDelivered = normalizedStatus === "delivered";
+  const isFailed =
+    normalizedStatus === "failed" || normalizedStatus === "undelivered";
+  const isSent =
+    normalizedStatus === "sent" ||
+    normalizedStatus === "queued" ||
+    normalizedStatus === "sending" ||
+    normalizedStatus === "accepted";
+
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaignRecipients,
+    key: {
+      campaign_id: input.campaignId,
+      subscriber_id: input.subscriberId,
+    },
+    operation: "record_email_campaign_sms_recipient_provider_status",
+    returnValues: "ALL_NEW",
+    set: {
+      status: isDelivered ? "delivered" : isFailed ? "failed" : isSent ? "sent" : undefined,
+      twilio_provider_status: normalizedStatus,
+      twilio_error_code: input.errorCode,
+      delivered_at: isDelivered ? input.now : undefined,
+      failed_at: isFailed ? input.now : undefined,
+      undelivered_at: normalizedStatus === "undelivered" ? input.now : undefined,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#campaignId) AND attribute_exists(#subscriberId) AND #channel = :sms AND #messageSid = :messageSid AND (attribute_not_exists(#deliveredAt) OR #deliveredAt = :null) AND (attribute_not_exists(#failedAt) OR #failedAt = :null)",
+    conditionAttributeNames: {
+      "#campaignId": "campaign_id",
+      "#subscriberId": "subscriber_id",
+      "#channel": "channel",
+      "#messageSid": "twilio_message_sid",
+      "#deliveredAt": "delivered_at",
+      "#failedAt": "failed_at",
+    },
+    conditionAttributeValues: {
+      ":sms": "sms",
+      ":messageSid": input.messageSid,
+      ":null": null,
+    },
+  });
+
+  if (!result.wrote) {
+    return { wrote: false, record: null };
+  }
+
+  if (isDelivered) {
+    await incrementDynamoItem({
+      tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+      key: { id: input.campaignId },
+      operation: "increment_email_campaign_sms_delivered_count",
+      add: {
+        sms_delivered_count: 1,
+      },
+      set: {
+        updated_at: input.now,
+      },
+      conditionExpression: "attribute_exists(#id)",
+      conditionAttributeNames: {
+        "#id": "id",
+      },
+    });
+  } else if (isFailed) {
+    await incrementDynamoItem({
+      tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+      key: { id: input.campaignId },
+      operation: "increment_email_campaign_sms_failed_count",
+      add: {
+        sms_failed_count: 1,
+      },
+      set: {
+        status: "completed_with_failures",
+        updated_at: input.now,
+      },
+      conditionExpression: "attribute_exists(#id)",
+      conditionAttributeNames: {
+        "#id": "id",
+      },
+    });
+  }
+
+  return {
+    wrote: true,
+    record: emailCampaignRecipientFromAttributes(result.attributes),
+  };
 }
 
 export async function listEmailCampaignRecipients(campaignId: string) {

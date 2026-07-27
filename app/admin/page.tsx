@@ -7,6 +7,11 @@ import {
   maskAdminEmail,
 } from "@/app/lib/server/admin-access";
 import { getAdminSmsTestRecipientPreview } from "@/app/lib/server/sms/admin-test-recipients";
+import {
+  areAdminSmsAnnouncementsEnabled,
+  isAdminSmsBulkInfraReady,
+  isAdminSmsBulkSendEnabled,
+} from "@/app/lib/server/sms/admin-campaign";
 import AdminCampaignDraft from "./AdminCampaignDraft";
 
 export const dynamic = "force-dynamic";
@@ -203,12 +208,9 @@ export default async function AdminPage() {
         smsTestRecipientConfigError={smsTestRecipientPreview.configError}
         smsTestRecipientMasked={smsTestRecipientPreview.maskedPhone}
         smsBulkSendEnabled={
-          process.env.ADMIN_SMS_ANNOUNCEMENTS_ENABLED === "true" &&
-          process.env.ADMIN_SMS_BULK_SEND_ENABLED === "true"
+          areAdminSmsAnnouncementsEnabled() && isAdminSmsBulkSendEnabled()
         }
-        smsBulkInfraReady={
-          process.env.ADMIN_SMS_BULK_SEND_INFRA_READY === "true"
-        }
+        smsBulkInfraReady={isAdminSmsBulkInfraReady()}
         />
       </div>
     </main>
