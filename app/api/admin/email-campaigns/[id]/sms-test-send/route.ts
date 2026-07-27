@@ -9,7 +9,6 @@ import {
 } from "@/app/lib/server/errors";
 import { areAdminCampaignsEnabled } from "@/app/lib/server/email/admin-campaign";
 import {
-  hasCurrentEmailTest,
   hasCurrentSmsPreview,
   smsDraftVersion,
 } from "@/app/lib/server/email/campaign-readiness";
@@ -125,7 +124,7 @@ export async function POST(
       throw new PublicApiError(
         409,
         "sms_draft_not_saved",
-        "Save the email and text before sending a test text.",
+        "Save the text before sending a test.",
       );
     }
 
@@ -137,21 +136,13 @@ export async function POST(
       );
     }
 
-    if (!hasCurrentEmailTest(campaign)) {
-      throw new PublicApiError(
-        409,
-        "email_test_required",
-        "Send the email test before sending a text test.",
-      );
-    }
-
     if (!hasCurrentSmsPreview(campaign)) {
       throw new PublicApiError(
         409,
         "sms_preview_required",
         campaign.sms_preview_generated_at
           ? "The preview is out of date. Generate it again."
-          : "Generate the text preview before sending a test.",
+          : "Generate preview before sending a test.",
       );
     }
 

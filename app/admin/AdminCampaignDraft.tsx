@@ -237,7 +237,6 @@ type SmsTestReadiness = {
   ready: boolean;
   reason:
     | "admin_campaigns_disabled"
-    | "email_test_required"
     | "mapping_invalid"
     | "mapping_missing"
     | "ready"
@@ -247,7 +246,6 @@ type SmsTestReadiness = {
     | "text_not_saved"
     | "twilio_config_incomplete";
   sessionAuthorized: boolean;
-  emailTestCurrent?: boolean;
   smsPreviewCurrent?: boolean;
   textSaved: boolean;
   twilioConfigured: boolean;
@@ -1399,7 +1397,6 @@ export default function AdminCampaignDraft({
   const canRequestSmsTest =
     Boolean(campaign) &&
     smsSaved &&
-    emailTestCurrent &&
     smsPreviewCurrent &&
     Boolean(smsTestReadiness?.ready) &&
     !isSendStarted;
@@ -1804,7 +1801,6 @@ export default function AdminCampaignDraft({
         ready: false,
         reason: "sms_test_disabled",
         sessionAuthorized: false,
-        emailTestCurrent: false,
         smsPreviewCurrent: false,
         textSaved: false,
         twilioConfigured: false,
@@ -2166,7 +2162,12 @@ export default function AdminCampaignDraft({
         return current;
       }
 
-      const next = { ...current, ...partial };
+      const next = {
+        ...current,
+        ...partial,
+        readiness:
+          partial.readiness === undefined ? undefined : partial.readiness,
+      };
       const hasAudiencePatch =
         partial.audienceCountedAt !== undefined ||
         partial.audienceVersion !== undefined ||
@@ -3113,11 +3114,9 @@ export default function AdminCampaignDraft({
     campaign?.smsTestProviderStatus || campaign?.smsTestStatus || null;
   const currentSmsSender = campaign?.smsTestSenderMasked || null;
   const smsTestDisabledCopy = !smsSaved
-    ? "Save the text message before sending a test."
-    : !emailTestCurrent || smsReadinessReason === "email_test_required"
-      ? "Send the email test before sending a text test."
-      : !smsPreviewCurrent || smsReadinessReason === "sms_preview_required"
-        ? "Generate the text preview before sending a test."
+    ? "Save before sending a test."
+    : !smsPreviewCurrent || smsReadinessReason === "sms_preview_required"
+      ? "Generate preview before sending a test."
     : smsReadinessReason === "sms_test_disabled" || !smsTestSendEnabled
       ? "Text testing is disabled in Production."
       : smsReadinessReason === "mapping_invalid" || smsTestRecipientConfigError
@@ -3183,9 +3182,11 @@ export default function AdminCampaignDraft({
       detail: selectedChannelsSaved
         ? "Email and text drafts are saved."
         : workflowStarted
-          ? emailSaved
+          ? emailSaved && !smsSaved
             ? "Text still needs to be saved."
-            : "Save the email, then save the text."
+            : smsSaved && !emailSaved
+              ? "Email still needs to be saved."
+              : "Save both drafts."
           : "Click New announcement to begin.",
     },
     {
@@ -3193,24 +3194,32 @@ export default function AdminCampaignDraft({
       detail: previewsReady
         ? "Email and text previews are ready."
         : selectedChannelsSaved
-          ? "Generate email and text previews."
+          ? !emailPreviewCurrent && !smsPreviewCurrent
+            ? "Generate both previews."
+            : !emailPreviewCurrent
+              ? "Generate the email preview."
+              : "Generate the text preview."
           : "Save the draft first.",
     },
     {
       label: "Test email",
       detail: emailTestReady
         ? "Email test is complete."
-        : previewsReady
+        : emailSaved && emailPreviewCurrent
           ? "Send one test email to yourself."
-          : "Generate both previews first.",
+          : emailSaved
+            ? "Generate the email preview first."
+            : "Save the email first.",
     },
     {
       label: "Test text",
       detail: smsTestReady
         ? "Text test is complete."
-        : emailTestReady
+        : smsSaved && smsPreviewCurrent
           ? smsTestDisabledCopy || "Send one test text to yourself."
-          : "Complete the email test first.",
+          : smsSaved
+            ? "Generate the text preview first."
+            : "Save the text first.",
     },
     {
       label: "Approve & review recipients",
@@ -3318,7 +3327,7 @@ export default function AdminCampaignDraft({
     if (!emailPreviewCurrent) {
       return {
         key: "emailPreview",
-        label: "Generate email preview",
+        label: "Generate preview",
         ref: emailPreviewButtonRef,
       };
     }
@@ -3326,7 +3335,7 @@ export default function AdminCampaignDraft({
     if (!emailTestReady) {
       return {
         key: "emailTest",
-        label: "Send test email",
+        label: "Send test to myself",
         ref: emailTestButtonRef,
       };
     }
@@ -3350,7 +3359,7 @@ export default function AdminCampaignDraft({
     if (!smsPreviewCurrent) {
       return {
         key: "smsPreview",
-        label: "Generate text preview",
+        label: "Generate preview",
         ref: textPreviewButtonRef,
       };
     }
@@ -3358,7 +3367,7 @@ export default function AdminCampaignDraft({
     if (!smsTestReady) {
       return {
         key: "smsTest",
-        label: "Send test text",
+        label: "Send test to myself",
         ref: textTestButtonRef,
       };
     }
@@ -4833,7 +4842,7 @@ export default function AdminCampaignDraft({
               >
                 {busyAction === "smsPreview"
                   ? "Generating..."
-                  : "Generate text preview"}
+                  : "Generate preview"}
               </button>
               <button
                 type="button"
@@ -4848,7 +4857,7 @@ export default function AdminCampaignDraft({
               >
                 {busyAction === "smsTest"
                   ? "Sending test..."
-                  : "Send test text to myself"}
+                  : "Send test to myself"}
               </button>
             </div>
 
@@ -5045,7 +5054,7 @@ export default function AdminCampaignDraft({
               disabled={!emailTestModalConfirmed || isBusy}
               className={primaryButtonClass("amber")}
             >
-              {busyAction === "test" ? "Sending test..." : "Send test email"}
+              {busyAction === "test" ? "Sending test..." : "Send test"}
             </button>
           </div>
         </Modal>
@@ -5159,7 +5168,7 @@ export default function AdminCampaignDraft({
               disabled={!smsTestModalConfirmed || !canRequestSmsTest || isBusy}
               className={primaryButtonClass("amber")}
             >
-              {busyAction === "smsTest" ? "Sending test..." : "Send test text"}
+              {busyAction === "smsTest" ? "Sending test..." : "Send test"}
             </button>
           </div>
         </Modal>

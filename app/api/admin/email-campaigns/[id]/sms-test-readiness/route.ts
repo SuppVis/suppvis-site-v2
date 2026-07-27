@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { areAdminCampaignsEnabled } from "@/app/lib/server/email/admin-campaign";
-import {
-  hasCurrentEmailTest,
-  hasCurrentSmsPreview,
-} from "@/app/lib/server/email/campaign-readiness";
+import { hasCurrentSmsPreview } from "@/app/lib/server/email/campaign-readiness";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import { getEmailCampaign } from "@/app/lib/server/persistence";
 import { enforceRateLimit } from "@/app/lib/server/request";
@@ -67,7 +64,6 @@ export async function GET(
     );
     const versionMatches =
       expectedVersion === null || campaign.version === expectedVersion;
-    const emailTestCurrent = hasCurrentEmailTest(campaign);
     const smsPreviewCurrent = hasCurrentSmsPreview(campaign);
     const adminCampaignsEnabled = areAdminCampaignsEnabled();
     const smsTestEnabled = isAdminSmsTestSendEnabled();
@@ -99,7 +95,6 @@ export async function GET(
       mappingFound &&
       textSaved &&
       versionMatches &&
-      emailTestCurrent &&
       smsPreviewCurrent &&
       twilioConfigured;
 
@@ -107,21 +102,19 @@ export async function GET(
       ? "text_not_saved"
       : !versionMatches
         ? "stale_version"
-        : !emailTestCurrent
-          ? "email_test_required"
-          : !smsPreviewCurrent
-            ? "sms_preview_required"
-            : !adminCampaignsEnabled
-              ? "admin_campaigns_disabled"
-              : !smsTestEnabled
-                ? "sms_test_disabled"
-                : !mappingConfigValid
-                  ? "mapping_invalid"
-                  : !mappingFound
-                    ? "mapping_missing"
-                    : !twilioConfigured
-                      ? "twilio_config_incomplete"
-                      : "ready";
+        : !smsPreviewCurrent
+          ? "sms_preview_required"
+          : !adminCampaignsEnabled
+            ? "admin_campaigns_disabled"
+            : !smsTestEnabled
+              ? "sms_test_disabled"
+              : !mappingConfigValid
+                ? "mapping_invalid"
+                : !mappingFound
+                  ? "mapping_missing"
+                  : !twilioConfigured
+                    ? "twilio_config_incomplete"
+                    : "ready";
 
     return NextResponse.json(
       {
@@ -136,7 +129,6 @@ export async function GET(
           ready,
           reason,
           sessionAuthorized: true,
-          emailTestCurrent,
           smsPreviewCurrent,
           textSaved,
           twilioConfigured,
