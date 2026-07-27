@@ -206,10 +206,39 @@ cat >"${APP_POLICY_DOC}" <<JSON
 }
 JSON
 
-aws iam put-user-policy \
+APP_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${APP_POLICY_NAME}"
+
+if aws iam get-policy --policy-arn "${APP_POLICY_ARN}" >/dev/null 2>&1; then
+  VERSION_COUNT="$(aws iam list-policy-versions \
+    --policy-arn "${APP_POLICY_ARN}" \
+    --query 'length(Versions)' \
+    --output text)"
+
+  if [[ "${VERSION_COUNT}" -ge 5 ]]; then
+    OLD_VERSION="$(aws iam list-policy-versions \
+      --policy-arn "${APP_POLICY_ARN}" \
+      --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate)[0].VersionId' \
+      --output text)"
+    if [[ "${OLD_VERSION}" != "None" && -n "${OLD_VERSION}" ]]; then
+      aws iam delete-policy-version \
+        --policy-arn "${APP_POLICY_ARN}" \
+        --version-id "${OLD_VERSION}"
+    fi
+  fi
+
+  aws iam create-policy-version \
+    --policy-arn "${APP_POLICY_ARN}" \
+    --policy-document "file://${APP_POLICY_DOC}" \
+    --set-as-default >/dev/null
+else
+  aws iam create-policy \
+    --policy-name "${APP_POLICY_NAME}" \
+    --policy-document "file://${APP_POLICY_DOC}" >/dev/null
+fi
+
+aws iam attach-user-policy \
   --user-name "${APP_USER}" \
-  --policy-name "${APP_POLICY_NAME}" \
-  --policy-document "file://${APP_POLICY_DOC}"
+  --policy-arn "${APP_POLICY_ARN}"
 
 sleep 10
 
