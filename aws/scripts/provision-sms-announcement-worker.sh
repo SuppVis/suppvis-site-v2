@@ -305,10 +305,14 @@ aws lambda wait function-active \
   --region "${REGION}" \
   --function-name "${FUNCTION_NAME}"
 
-aws lambda put-function-concurrency \
+if aws lambda put-function-concurrency \
   --region "${REGION}" \
   --function-name "${FUNCTION_NAME}" \
-  --reserved-concurrent-executions 2 >/dev/null
+  --reserved-concurrent-executions 2 >/dev/null; then
+  echo "Reserved Lambda concurrency set to 2."
+else
+  echo "Warning: could not set reserved Lambda concurrency. Continuing with batch size 1."
+fi
 
 MAPPING_UUID="$(aws lambda list-event-source-mappings \
   --region "${REGION}" \
