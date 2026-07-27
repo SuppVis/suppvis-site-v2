@@ -10,7 +10,10 @@ from botocore.exceptions import ClientError
 
 
 dynamodb = boto3.resource("dynamodb")
-ses = boto3.client("sesv2")
+ses = boto3.client(
+    "sesv2",
+    region_name=os.environ.get("SES_REGION") or os.environ.get("AWS_REGION") or "us-east-1",
+)
 
 
 MAX_RETRIES = int(os.environ.get("MAX_SEND_RETRIES", "3"))
