@@ -115,6 +115,42 @@ function definedEntries(record: DynamoRecord) {
   return Object.entries(record).filter(([, value]) => value !== undefined);
 }
 
+function safeDynamoErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+
+  return error.message
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[access_key]")
+    .replace(/\bASIA[0-9A-Z]{16}\b/g, "[access_key]")
+    .replace(/\bAC[a-fA-F0-9]{32}\b/g, "[account]")
+    .replace(/\bMG[a-fA-F0-9]{32}\b/g, "[messaging_service]")
+    .replace(/\+\d{8,15}/g, "[phone]")
+    .slice(0, 600);
+}
+
+function safeExpressionAttributeValuesForLog(
+  operation: string,
+  values?: DynamoRecord,
+) {
+  if (!values) {
+    return undefined;
+  }
+
+  const statusOnlyOperations = new Set([
+    "list_email_subscribers_by_status",
+    "list_sms_subscribers_for_announcement_by_status",
+  ]);
+
+  if (statusOnlyOperations.has(operation)) {
+    return values;
+  }
+
+  return Object.fromEntries(
+    Object.keys(values).map((key) => [key, "[redacted]"]),
+  );
+}
+
 export async function upsertDynamoItem(input: UpsertInput) {
   const tableName = getRequiredTableName(input.tableEnvName);
   const keyAttributeNames = new Set(Object.keys(input.key));
@@ -298,14 +334,17 @@ export async function describeDynamoTable(input: {
   } catch (error) {
     console.error("[dynamodb] describe table failed", {
       operation: input.operation,
+      tableName,
       tableEnvName: input.tableEnvName,
       errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: safeDynamoErrorMessage(error),
     });
 
     throw new PersistenceError(
       "DynamoDB describe table failed",
       "dynamodb_describe_failed",
       error instanceof Error ? error.name : "UnknownError",
+      safeDynamoErrorMessage(error),
     );
   }
 }
@@ -375,14 +414,18 @@ export async function batchGetDynamoItems(input: {
       } catch (error) {
         console.error("[dynamodb] batch get failed", {
           operation: input.operation,
+          tableName,
           tableEnvName: input.tableEnvName,
+          keyCount: requestKeys.length,
           errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: safeDynamoErrorMessage(error),
         });
 
         throw new PersistenceError(
           "DynamoDB batch get failed",
           "dynamodb_batch_get_failed",
           error instanceof Error ? error.name : "UnknownError",
+          safeDynamoErrorMessage(error),
         );
       }
     } while (requestKeys.length);
@@ -420,17 +463,38 @@ export async function queryDynamoItemsPage(input: QueryInput) {
       lastEvaluatedKey: result.LastEvaluatedKey as DynamoRecord | undefined,
     };
   } catch (error) {
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorMessage = safeDynamoErrorMessage(error);
+
     console.error("[dynamodb] query failed", {
       operation: input.operation,
+      tableName,
       tableEnvName: input.tableEnvName,
       indexName: input.indexName,
-      errorName: error instanceof Error ? error.name : "UnknownError",
+      keyConditionExpression: input.keyConditionExpression,
+      filterExpression: input.filterExpression || null,
+      projectionExpression: input.projectionExpression || null,
+      expressionAttributeNames: input.expressionAttributeNames || null,
+      expressionAttributeValues: safeExpressionAttributeValuesForLog(
+        input.operation,
+        input.expressionAttributeValues,
+      ),
+      exclusiveStartKeyPresent: Boolean(input.exclusiveStartKey),
+      limit: input.limit || null,
+      scanIndexForward: input.scanIndexForward ?? null,
+      consistentRead: false,
+      select: input.projectionExpression
+        ? "SPECIFIC_ATTRIBUTES"
+        : "ALL_PROJECTED_ATTRIBUTES",
+      errorName,
+      errorMessage,
     });
 
     throw new PersistenceError(
       "DynamoDB query failed",
       "dynamodb_query_failed",
-      error instanceof Error ? error.name : "UnknownError",
+      errorName,
+      errorMessage,
     );
   }
 }

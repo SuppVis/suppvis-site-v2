@@ -83,6 +83,14 @@ export function confirmationPhraseForCounts(emailCount: number, smsCount: number
 
 export function audienceErrorCode(error: unknown) {
   if (error instanceof PersistenceError) {
+    const causeMessage = error.causeMessage || "";
+
+    if (error.code === "dynamodb_batch_get_failed") {
+      return error.causeName === "AccessDeniedException"
+        ? "audience_base_table_access_denied"
+        : "audience_base_table_read_failed";
+    }
+
     if (error.causeName === "AccessDeniedException") {
       return "audience_query_access_denied";
     }
@@ -92,11 +100,19 @@ export function audienceErrorCode(error: unknown) {
     }
 
     if (error.causeName === "ValidationException") {
-      return "audience_index_query_invalid";
-    }
+      if (/specified index/i.test(causeMessage)) {
+        return "audience_index_not_found";
+      }
 
-    if (error.code === "dynamodb_batch_get_failed") {
-      return "audience_base_table_read_failed";
+      if (/key schema element|key condition/i.test(causeMessage)) {
+        return "audience_index_key_mismatch";
+      }
+
+      if (/project|projection/i.test(causeMessage)) {
+        return "audience_index_projection_insufficient";
+      }
+
+      return "audience_index_query_invalid";
     }
 
     if (error.code === "dynamodb_query_failed") {
@@ -229,6 +245,7 @@ export async function buildAudienceHealth() {
               name: key.AttributeName || "unknown",
               type: key.KeyType || "unknown",
             })) || [],
+          gsiProjectedAttributes: index?.Projection?.NonKeyAttributes || [],
           gsiProjection: index?.Projection?.ProjectionType || null,
           gsiStatus: index?.IndexStatus || "index_not_found",
           indexName: AUDIENCE_STATUS_INDEX_NAME,

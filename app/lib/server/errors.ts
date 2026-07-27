@@ -24,6 +24,7 @@ export class PersistenceError extends Error {
     message = "Persistence failed",
     public readonly code = "persistence_failed",
     public readonly causeName?: string,
+    public readonly causeMessage?: string,
   ) {
     super(message);
     this.name = "PersistenceError";

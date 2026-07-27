@@ -130,20 +130,36 @@ export async function POST(
         : null;
     const smsAudience =
       smsAudienceResult.status === "fulfilled" ? smsAudienceResult.value : null;
+
+    if (
+      emailAudienceResult.status === "rejected" ||
+      smsAudienceResult.status === "rejected"
+    ) {
+      console.error("[admin-email] production send audience unavailable", {
+        campaignId: id,
+        emailErrorCode:
+          emailAudienceResult.status === "rejected"
+            ? audienceErrorCode(emailAudienceResult.reason)
+            : null,
+        smsErrorCode:
+          smsAudienceResult.status === "rejected"
+            ? audienceErrorCode(smsAudienceResult.reason)
+            : null,
+      });
+
+      throw new PublicApiError(
+        503,
+        "audience_channel_unavailable",
+        "Subscriber eligibility is unavailable for at least one channel. Refresh recipients again after the database issue is resolved.",
+      );
+    }
+
     const emailRecipientsRequired = (emailAudience?.eligibleCount || 0) > 0;
     const smsRecipientsRequired = (smsAudience?.eligibleCount || 0) > 0;
     const expectedPhrase = confirmationPhraseForCounts(
       emailAudience?.eligibleCount || 0,
       smsAudience?.eligibleCount || 0,
     );
-
-    if (!emailAudience && !smsAudience) {
-      throw new PublicApiError(
-        503,
-        "audience_refresh_failed",
-        "Recipient counts could not be refreshed for either channel.",
-      );
-    }
 
     if (submission.confirmationPhrase !== expectedPhrase) {
       throw new PublicApiError(
@@ -154,30 +170,6 @@ export async function POST(
     }
 
     if (!emailRecipientsRequired && !smsRecipientsRequired) {
-      const unavailableChannel =
-        emailAudienceResult.status === "rejected" ||
-        smsAudienceResult.status === "rejected";
-
-      if (unavailableChannel) {
-        console.error("[admin-email] production send audience unavailable", {
-          campaignId: id,
-          emailErrorCode:
-            emailAudienceResult.status === "rejected"
-              ? audienceErrorCode(emailAudienceResult.reason)
-              : null,
-          smsErrorCode:
-            smsAudienceResult.status === "rejected"
-              ? audienceErrorCode(smsAudienceResult.reason)
-              : null,
-        });
-
-        throw new PublicApiError(
-          503,
-          "audience_channel_unavailable",
-          "At least one subscriber source is unavailable and no eligible recipients were found in the available source.",
-        );
-      }
-
       throw new PublicApiError(
         409,
         "announcement_audience_empty",
