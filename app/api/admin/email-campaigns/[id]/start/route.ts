@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
+import {
+  audienceErrorCode,
+  confirmationPhraseForCounts,
+} from "@/app/lib/server/admin/audience";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
 import {
   hasCurrentAdminTests,
@@ -41,22 +45,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function confirmationPhraseForCounts(emailCount: number, smsCount: number) {
-  if (emailCount > 0 && smsCount > 0) {
-    return `SEND EMAIL TO ${emailCount} AND TEXT TO ${smsCount}`;
-  }
-
-  if (emailCount > 0) {
-    return `SEND EMAIL TO ${emailCount}`;
-  }
-
-  if (smsCount > 0) {
-    return `SEND TEXT TO ${smsCount}`;
-  }
-
-  return "";
-}
 
 export async function POST(
   request: NextRequest,
@@ -132,14 +120,30 @@ export async function POST(
       );
     }
 
-    const emailAudience = await buildCampaignAudience();
-    const smsAudience = await buildSmsCampaignAudience();
-    const emailRecipientsRequired = emailAudience.eligibleCount > 0;
-    const smsRecipientsRequired = smsAudience.eligibleCount > 0;
+    const [emailAudienceResult, smsAudienceResult] = await Promise.allSettled([
+      buildCampaignAudience(),
+      buildSmsCampaignAudience(),
+    ]);
+    const emailAudience =
+      emailAudienceResult.status === "fulfilled"
+        ? emailAudienceResult.value
+        : null;
+    const smsAudience =
+      smsAudienceResult.status === "fulfilled" ? smsAudienceResult.value : null;
+    const emailRecipientsRequired = (emailAudience?.eligibleCount || 0) > 0;
+    const smsRecipientsRequired = (smsAudience?.eligibleCount || 0) > 0;
     const expectedPhrase = confirmationPhraseForCounts(
-      emailAudience.eligibleCount,
-      smsAudience.eligibleCount,
+      emailAudience?.eligibleCount || 0,
+      smsAudience?.eligibleCount || 0,
     );
+
+    if (!emailAudience && !smsAudience) {
+      throw new PublicApiError(
+        503,
+        "audience_refresh_failed",
+        "Recipient counts could not be refreshed for either channel.",
+      );
+    }
 
     if (submission.confirmationPhrase !== expectedPhrase) {
       throw new PublicApiError(
@@ -150,6 +154,30 @@ export async function POST(
     }
 
     if (!emailRecipientsRequired && !smsRecipientsRequired) {
+      const unavailableChannel =
+        emailAudienceResult.status === "rejected" ||
+        smsAudienceResult.status === "rejected";
+
+      if (unavailableChannel) {
+        console.error("[admin-email] production send audience unavailable", {
+          campaignId: id,
+          emailErrorCode:
+            emailAudienceResult.status === "rejected"
+              ? audienceErrorCode(emailAudienceResult.reason)
+              : null,
+          smsErrorCode:
+            smsAudienceResult.status === "rejected"
+              ? audienceErrorCode(smsAudienceResult.reason)
+              : null,
+        });
+
+        throw new PublicApiError(
+          503,
+          "audience_channel_unavailable",
+          "At least one subscriber source is unavailable and no eligible recipients were found in the available source.",
+        );
+      }
+
       throw new PublicApiError(
         409,
         "announcement_audience_empty",
@@ -207,6 +235,14 @@ export async function POST(
           ? "Sending is not available yet because text delivery jobs are not connected."
           : "Sending is not available yet because the text delivery system is still being prepared.",
       });
+    }
+
+    if (!emailAudience) {
+      throw new PublicApiError(
+        503,
+        "email_audience_unavailable",
+        "Email recipient counts could not be refreshed.",
+      );
     }
 
     const queueingAt = new Date().toISOString();
@@ -270,8 +306,8 @@ export async function POST(
         id,
         now: queuedAt,
         updated_by: admin.identifier,
-        eligibleCount: emailAudience.eligibleCount,
-        excludedCount: emailAudience.excludedCount,
+        eligibleCount: emailAudience?.eligibleCount || 0,
+        excludedCount: emailAudience?.excludedCount || 0,
         queuedCount: queuedEmailCount,
       });
 

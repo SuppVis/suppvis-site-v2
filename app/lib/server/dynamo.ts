@@ -1,6 +1,7 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DescribeTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
+  BatchGetCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -69,7 +70,7 @@ type ScanInput = {
 
 let documentClient: DynamoDBDocumentClient | null = null;
 
-function getAwsRegion() {
+export function getAwsRegion() {
   return process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1";
 }
 
@@ -90,8 +91,12 @@ function getDocumentClient() {
   return documentClient;
 }
 
+export function getConfiguredTableName(envName: string) {
+  return process.env[envName]?.trim() || null;
+}
+
 function getRequiredTableName(envName: string) {
-  const tableName = process.env[envName]?.trim();
+  const tableName = getConfiguredTableName(envName);
 
   if (!tableName) {
     throw new ServerConfigError(`Missing required environment variable: ${envName}`);
@@ -276,6 +281,35 @@ export async function updateDynamoItem(input: UpdateInput) {
   }
 }
 
+export async function describeDynamoTable(input: {
+  tableEnvName: string;
+  operation: string;
+}) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+
+  try {
+    const result = await getDocumentClient().send(
+      new DescribeTableCommand({
+        TableName: tableName,
+      }),
+    );
+
+    return result.Table || null;
+  } catch (error) {
+    console.error("[dynamodb] describe table failed", {
+      operation: input.operation,
+      tableEnvName: input.tableEnvName,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+
+    throw new PersistenceError(
+      "DynamoDB describe table failed",
+      "dynamodb_describe_failed",
+      error instanceof Error ? error.name : "UnknownError",
+    );
+  }
+}
+
 export async function getDynamoItem(input: {
   tableEnvName: string;
   key: DynamoRecord;
@@ -305,6 +339,56 @@ export async function getDynamoItem(input: {
       error instanceof Error ? error.name : "UnknownError",
     );
   }
+}
+
+export async function batchGetDynamoItems(input: {
+  tableEnvName: string;
+  keys: DynamoRecord[];
+  operation: string;
+}) {
+  const tableName = getRequiredTableName(input.tableEnvName);
+  const items: DynamoRecord[] = [];
+
+  for (let index = 0; index < input.keys.length; index += 100) {
+    let requestKeys = input.keys.slice(index, index + 100);
+
+    do {
+      try {
+        const result = await getDocumentClient().send(
+          new BatchGetCommand({
+            RequestItems: {
+              [tableName]: {
+                Keys: requestKeys,
+              },
+            },
+          }),
+        );
+
+        items.push(
+          ...(((result.Responses || {})[tableName] || []) as DynamoRecord[]),
+        );
+
+        requestKeys =
+          ((result.UnprocessedKeys || {})[tableName]?.Keys as
+            | DynamoRecord[]
+            | undefined) || [];
+      } catch (error) {
+        console.error("[dynamodb] batch get failed", {
+          operation: input.operation,
+          tableEnvName: input.tableEnvName,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+
+        throw new PersistenceError(
+          "DynamoDB batch get failed",
+          "dynamodb_batch_get_failed",
+          error instanceof Error ? error.name : "UnknownError",
+        );
+      }
+    } while (requestKeys.length);
+  }
+
+  return items;
 }
 
 export async function queryDynamoItems(input: QueryInput) {

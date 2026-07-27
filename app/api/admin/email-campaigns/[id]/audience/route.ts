@@ -1,72 +1,28 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
-import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
+import {
+  buildAudienceHealth,
+  buildAudienceSnapshot,
+  confirmationPhraseForCounts,
+} from "@/app/lib/server/admin/audience";
 import {
   hasCurrentAdminTests,
   hasCurrentEmailPreview,
   hasCurrentSmsPreview,
   hasSavedSmsDraft,
 } from "@/app/lib/server/email/campaign-readiness";
-import {
-  handleApiError,
-  PersistenceError,
-  PublicApiError,
-} from "@/app/lib/server/errors";
+import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
   getEmailCampaign,
   markEmailCampaignAudienceCounted,
-  markEmailCampaignAudienceCountFailed,
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
 import { enforceRateLimit } from "@/app/lib/server/request";
-import { buildSmsCampaignAudience } from "@/app/lib/server/sms/campaign-audience";
 import { adminCampaignIdSchema } from "@/app/lib/server/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function confirmationPhraseForCounts(emailCount: number, smsCount: number) {
-  if (emailCount > 0 && smsCount > 0) {
-    return `SEND EMAIL TO ${emailCount} AND TEXT TO ${smsCount}`;
-  }
-
-  if (emailCount > 0) {
-    return `SEND EMAIL TO ${emailCount}`;
-  }
-
-  if (smsCount > 0) {
-    return `SEND TEXT TO ${smsCount}`;
-  }
-
-  return "";
-}
-
-function statusGroups(
-  candidates: Array<{ subscriber: { status?: string } }>,
-) {
-  return candidates.reduce<Record<string, number>>((groups, candidate) => {
-    const status = candidate.subscriber.status || "unknown";
-    groups[status] = (groups[status] || 0) + 1;
-    return groups;
-  }, {});
-}
-
-function exclusionGroups(
-  candidates: Array<{
-    decision: { eligible: true } | { eligible: false; reason: string };
-  }>,
-) {
-  return candidates.reduce<Record<string, number>>((groups, candidate) => {
-    if (candidate.decision.eligible) {
-      return groups;
-    }
-
-    groups[candidate.decision.reason] =
-      (groups[candidate.decision.reason] || 0) + 1;
-    return groups;
-  }, {});
-}
 
 function audienceCampaignResponse(record: EmailCampaignRecord) {
   return {
@@ -81,51 +37,24 @@ function audienceCampaignResponse(record: EmailCampaignRecord) {
     audienceEmailExcluded: record.audience_email_excluded || 0,
     audienceEmailDuplicateCount:
       record.audience_email_duplicate_count || 0,
+    audienceEmailStatus: record.audience_email_status || "not_counted",
+    audienceEmailErrorCode: record.audience_email_error_code || null,
     audienceSmsTotal: record.audience_sms_total || 0,
     audienceSmsEligible: record.audience_sms_eligible || 0,
     audienceSmsExcluded: record.audience_sms_excluded || 0,
     audienceSmsDuplicateCount: record.audience_sms_duplicate_count || 0,
+    audienceSmsStatus: record.audience_sms_status || "not_counted",
+    audienceSmsErrorCode: record.audience_sms_error_code || null,
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
   };
 }
 
-function audienceErrorCode(error: unknown) {
-  if (
-    error instanceof PersistenceError &&
-    error.causeName === "AccessDeniedException"
-  ) {
-    return "audience_query_access_denied";
-  }
-
-  if (
-    error instanceof PersistenceError &&
-    error.code === "dynamodb_query_failed"
-  ) {
-    return "audience_query_failed";
-  }
-
-  return "audience_refresh_failed";
-}
-
-function audienceErrorMessage(code: string) {
-  if (code === "audience_query_access_denied") {
-    return "Recipient counting cannot read the subscriber status index. Update the AWS IAM policy and try again.";
-  }
-
-  if (code === "audience_query_failed") {
-    return "Recipient counting could not read the subscriber records. Try again after the database issue is resolved.";
-  }
-
-  return "Recipient counts could not be refreshed. Try again later.";
-}
-
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  let adminIdentifierForFailure: string | null = null;
   let campaignForFailure: EmailCampaignRecord | null = null;
 
   try {
@@ -140,7 +69,6 @@ export async function POST(
     }
 
     const admin = await requireAdminSession();
-    adminIdentifierForFailure = admin.identifier;
     const id = adminCampaignIdSchema.parse(params.id);
     const campaign = await getEmailCampaign(id);
     campaignForFailure = campaign;
@@ -194,39 +122,42 @@ export async function POST(
       campaignVersion: campaign.version,
     });
 
-    const emailAudience = await buildCampaignAudience();
-    console.info("[admin-email] audience email query completed", {
+    const [snapshot, health] = await Promise.all([
+      buildAudienceSnapshot(),
+      buildAudienceHealth(),
+    ]);
+    console.info("[admin-email] audience channels completed", {
       campaignId: id,
-      total: emailAudience.totalCount,
-      eligible: emailAudience.eligibleCount,
-      excluded: emailAudience.excludedCount,
-      duplicates: emailAudience.duplicateCount,
-    });
-
-    const smsAudience = await buildSmsCampaignAudience();
-    const countedAt = new Date().toISOString();
-    console.info("[admin-email] audience sms query completed", {
-      campaignId: id,
-      total: smsAudience.totalCount,
-      eligible: smsAudience.eligibleCount,
-      excluded: smsAudience.excludedCount,
-      duplicates: smsAudience.duplicateCount,
+      emailStatus: snapshot.email.status,
+      emailEligible: snapshot.email.eligibleCount,
+      emailErrorCode: snapshot.email.errorCode,
+      smsStatus: snapshot.sms.status,
+      smsEligible: snapshot.sms.eligibleCount,
+      smsErrorCode: snapshot.sms.errorCode,
+      refreshResult: snapshot.refreshResult,
     });
 
     const persisted = await markEmailCampaignAudienceCounted({
       id,
       expectedVersion: campaign.version,
-      now: countedAt,
+      now: snapshot.countedAt,
       updated_by: admin.identifier,
-      emailTotalCount: emailAudience.totalCount,
-      emailEligibleCount: emailAudience.eligibleCount,
-      emailExcludedCount: emailAudience.excludedCount,
-      emailDuplicateCount: emailAudience.duplicateCount,
-      smsTotalCount: smsAudience.totalCount,
-      smsEligibleCount: smsAudience.eligibleCount,
-      smsExcludedCount: smsAudience.excludedCount,
-      smsDuplicateCount: smsAudience.duplicateCount,
-      bothEligibleCount: null,
+      emailTotalCount: snapshot.email.totalCount,
+      emailEligibleCount: snapshot.email.eligibleCount,
+      emailExcludedCount: snapshot.email.excludedCount,
+      emailDuplicateCount: snapshot.email.duplicateCount,
+      emailStatus: snapshot.email.status,
+      emailErrorCode: snapshot.email.errorCode,
+      smsTotalCount: snapshot.sms.totalCount,
+      smsEligibleCount: snapshot.sms.eligibleCount,
+      smsExcludedCount: snapshot.sms.excludedCount,
+      smsDuplicateCount: snapshot.sms.duplicateCount,
+      smsStatus: snapshot.sms.status,
+      smsErrorCode: snapshot.sms.errorCode,
+      bothEligibleCount:
+        snapshot.email.status === "success" && snapshot.sms.status === "success"
+          ? null
+          : null,
     });
 
     if (!persisted) {
@@ -241,47 +172,62 @@ export async function POST(
       action: "recipient_count_generated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: `email=${emailAudience.eligibleCount} sms=${smsAudience.eligibleCount}`,
+      status: `email=${snapshot.email.status}:${snapshot.email.eligibleCount} sms=${snapshot.sms.status}:${snapshot.sms.eligibleCount}`,
     });
 
     const confirmationPhrase = confirmationPhraseForCounts(
-      emailAudience.eligibleCount,
-      smsAudience.eligibleCount,
+      snapshot.email.status === "success" ? snapshot.email.eligibleCount : 0,
+      snapshot.sms.status === "success" ? snapshot.sms.eligibleCount : 0,
     );
     const diagnostics = {
-      emailRecordsExamined: emailAudience.totalCount,
-      emailEligible: emailAudience.eligibleCount,
-      emailExcluded: emailAudience.excludedCount,
-      emailStatusGroups: statusGroups(emailAudience.candidates),
-      emailExclusionGroups: exclusionGroups(emailAudience.candidates),
-      smsRecordsExamined: smsAudience.totalCount,
-      smsEligible: smsAudience.eligibleCount,
-      smsExcluded: smsAudience.excludedCount,
-      smsStatusGroups: statusGroups(smsAudience.candidates),
-      smsExclusionGroups: exclusionGroups(smsAudience.candidates),
-      lastRefreshResult: "success",
+      emailEligible: snapshot.email.eligibleCount,
+      emailErrorCode: snapshot.email.errorCode,
+      emailExcluded: snapshot.email.excludedCount,
+      emailExclusionGroups: snapshot.email.exclusionGroups,
+      emailIndexName: snapshot.email.indexName,
+      emailQueryStatus: snapshot.email.status,
+      emailRecordsExamined: snapshot.email.totalCount,
+      emailStatusGroups: snapshot.email.statusGroups,
+      emailTableName: snapshot.email.tableName,
+      health,
+      lastRefreshResult: snapshot.refreshResult,
+      smsEligible: snapshot.sms.eligibleCount,
+      smsErrorCode: snapshot.sms.errorCode,
+      smsExcluded: snapshot.sms.excludedCount,
+      smsExclusionGroups: snapshot.sms.exclusionGroups,
+      smsIndexName: snapshot.sms.indexName,
+      smsQueryStatus: snapshot.sms.status,
+      smsRecordsExamined: snapshot.sms.totalCount,
+      smsStatusGroups: snapshot.sms.statusGroups,
+      smsTableName: snapshot.sms.tableName,
     };
 
     console.info("[admin-email] audience refresh persisted", {
       campaignId: id,
       campaignVersion: campaign.version,
-      countedAt,
-      emailEligible: emailAudience.eligibleCount,
-      smsEligible: smsAudience.eligibleCount,
+      countedAt: snapshot.countedAt,
+      emailEligible: snapshot.email.eligibleCount,
+      emailStatus: snapshot.email.status,
+      smsEligible: snapshot.sms.eligibleCount,
+      smsStatus: snapshot.sms.status,
     });
 
     return NextResponse.json({
       ok: true,
       audience: {
-        totalCount: emailAudience.totalCount,
-        eligibleCount: emailAudience.eligibleCount,
-        excludedCount: emailAudience.excludedCount,
-        duplicateCount: emailAudience.duplicateCount,
-        countedAt,
-        smsTotalCount: smsAudience.totalCount,
-        smsEligibleCount: smsAudience.eligibleCount,
-        smsExcludedCount: smsAudience.excludedCount,
-        smsDuplicateCount: smsAudience.duplicateCount,
+        totalCount: snapshot.email.totalCount,
+        eligibleCount: snapshot.email.eligibleCount,
+        excludedCount: snapshot.email.excludedCount,
+        duplicateCount: snapshot.email.duplicateCount,
+        countedAt: snapshot.countedAt,
+        emailStatus: snapshot.email.status,
+        emailErrorCode: snapshot.email.errorCode,
+        smsTotalCount: snapshot.sms.totalCount,
+        smsEligibleCount: snapshot.sms.eligibleCount,
+        smsExcludedCount: snapshot.sms.excludedCount,
+        smsDuplicateCount: snapshot.sms.duplicateCount,
+        smsStatus: snapshot.sms.status,
+        smsErrorCode: snapshot.sms.errorCode,
         smsIncluded: true,
         receivingBothCount: null,
         confirmationPhrase,
@@ -290,59 +236,10 @@ export async function POST(
       campaign: audienceCampaignResponse(persisted),
     });
   } catch (error) {
-    const code = audienceErrorCode(error);
-
-    if (
-      campaignForFailure &&
-      adminIdentifierForFailure &&
-      error instanceof PersistenceError
-    ) {
-      const now = new Date().toISOString();
-
-      await markEmailCampaignAudienceCountFailed({
-        id: campaignForFailure.id,
-        expectedVersion: campaignForFailure.version,
-        now,
-        updated_by: adminIdentifierForFailure,
-        errorCode: code,
-      }).catch((persistError) => {
-        console.error("[admin-email] audience failure state update failed", {
-          campaignId: campaignForFailure?.id,
-          errorName:
-            persistError instanceof Error ? persistError.name : "UnknownError",
-        });
-      });
-
-      await recordAdminCampaignAudit({
-        action: "recipient_count_failed",
-        adminIdentifier: adminIdentifierForFailure,
-        campaignId: campaignForFailure.id,
-        status: code,
-      }).catch((auditError) => {
-        console.error("[admin-email] audience failure audit failed", {
-          campaignId: campaignForFailure?.id,
-          errorName:
-            auditError instanceof Error ? auditError.name : "UnknownError",
-        });
-      });
-
-      console.error("[admin-email] audience refresh failed", {
-        campaignId: campaignForFailure.id,
-        campaignVersion: campaignForFailure.version,
-        errorCode: code,
-        errorName: error.causeName || error.name,
-      });
-
-      return NextResponse.json(
-        {
-          ok: false,
-          code,
-          message: audienceErrorMessage(code),
-        },
-        { status: code === "audience_query_access_denied" ? 503 : 500 },
-      );
-    }
-
+    console.error("[admin-email] audience route failed", {
+      campaignId: campaignForFailure?.id,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
     return handleApiError(error);
   }
 }

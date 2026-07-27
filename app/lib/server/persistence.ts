@@ -1,5 +1,6 @@
 import {
   DYNAMO_TABLE_ENVS,
+  batchGetDynamoItems,
   getDynamoItem,
   putDynamoItem,
   queryDynamoItems,
@@ -162,6 +163,8 @@ export type SmsSubscriberRecord = {
   created_at: string;
   updated_at: string;
 };
+
+export type AudienceChannelStatus = "success" | "failed" | "not_counted";
 
 function smsSubscriberFromAttributes(
   attributes: Record<string, unknown> | undefined,
@@ -358,10 +361,14 @@ export type EmailCampaignRecord = {
   audience_email_eligible?: number;
   audience_email_excluded?: number;
   audience_email_duplicate_count?: number;
+  audience_email_status?: AudienceChannelStatus;
+  audience_email_error_code?: string | null;
   audience_sms_total?: number;
   audience_sms_eligible?: number;
   audience_sms_excluded?: number;
   audience_sms_duplicate_count?: number;
+  audience_sms_status?: AudienceChannelStatus;
+  audience_sms_error_code?: string | null;
   audience_both_eligible?: number | null;
   audience_last_error_code?: string | null;
   audience_last_error_at?: string | null;
@@ -472,10 +479,14 @@ export type EmailCampaignSummary = Pick<
   | "audience_email_eligible"
   | "audience_email_excluded"
   | "audience_email_duplicate_count"
+  | "audience_email_status"
+  | "audience_email_error_code"
   | "audience_sms_total"
   | "audience_sms_eligible"
   | "audience_sms_excluded"
   | "audience_sms_duplicate_count"
+  | "audience_sms_status"
+  | "audience_sms_error_code"
   | "audience_both_eligible"
   | "audience_last_error_code"
   | "audience_last_error_at"
@@ -518,6 +529,12 @@ function emailCampaignRecipientStatusAttribute(value: unknown) {
     value === "failed"
     ? value
     : undefined;
+}
+
+function audienceChannelStatusAttribute(value: unknown): AudienceChannelStatus {
+  return value === "success" || value === "failed" || value === "not_counted"
+    ? value
+    : "not_counted";
 }
 
 function recipientEligibilityAttribute(value: unknown) {
@@ -674,6 +691,11 @@ function emailCampaignFromAttributes(
       numberAttribute(attributes?.audience_email_excluded) ?? 0,
     audience_email_duplicate_count:
       numberAttribute(attributes?.audience_email_duplicate_count) ?? 0,
+    audience_email_status: audienceChannelStatusAttribute(
+      attributes?.audience_email_status,
+    ),
+    audience_email_error_code:
+      nullableStringAttribute(attributes?.audience_email_error_code) || null,
     audience_sms_total:
       numberAttribute(attributes?.audience_sms_total) ?? 0,
     audience_sms_eligible:
@@ -682,6 +704,11 @@ function emailCampaignFromAttributes(
       numberAttribute(attributes?.audience_sms_excluded) ?? 0,
     audience_sms_duplicate_count:
       numberAttribute(attributes?.audience_sms_duplicate_count) ?? 0,
+    audience_sms_status: audienceChannelStatusAttribute(
+      attributes?.audience_sms_status,
+    ),
+    audience_sms_error_code:
+      nullableStringAttribute(attributes?.audience_sms_error_code) || null,
     audience_both_eligible:
       numberAttribute(attributes?.audience_both_eligible) ?? null,
     audience_last_error_code:
@@ -798,10 +825,14 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     audience_email_eligible: record.audience_email_eligible,
     audience_email_excluded: record.audience_email_excluded,
     audience_email_duplicate_count: record.audience_email_duplicate_count,
+    audience_email_status: record.audience_email_status,
+    audience_email_error_code: record.audience_email_error_code,
     audience_sms_total: record.audience_sms_total,
     audience_sms_eligible: record.audience_sms_eligible,
     audience_sms_excluded: record.audience_sms_excluded,
     audience_sms_duplicate_count: record.audience_sms_duplicate_count,
+    audience_sms_status: record.audience_sms_status,
+    audience_sms_error_code: record.audience_sms_error_code,
     audience_both_eligible: record.audience_both_eligible,
     audience_last_error_code: record.audience_last_error_code,
     audience_last_error_at: record.audience_last_error_at,
@@ -1353,6 +1384,7 @@ export function canSendSmsToSubscriber(
 
 export async function listSmsSubscribersForAnnouncement(limit = 5000) {
   const subscribers: SmsSubscriberRecord[] = [];
+  const seenIds = new Set<string>();
   const statuses: SmsSubscriberStatus[] = [
     "pending_verification",
     "subscribed",
@@ -1370,10 +1402,7 @@ export async function listSmsSubscribersForAnnouncement(limit = 5000) {
         tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
         indexName: "status-updated_at-index",
         keyConditionExpression: "#status = :status",
-        projectionExpression:
-          "#id, phone_number_raw, phone_number_e164, #status, sms_informational_consent, sms_marketing_consent, sms_consent_timestamp, sms_consent_source, sms_consent_version, sms_global_opt_out, sms_global_opt_out_at, opt_out_timestamp, opt_out_source, last_opt_out_keyword, resubscribed_at, created_at, updated_at",
         expressionAttributeNames: {
-          "#id": "id",
           "#status": "status",
         },
         expressionAttributeValues: {
@@ -1384,7 +1413,42 @@ export async function listSmsSubscribersForAnnouncement(limit = 5000) {
         operation: "list_sms_subscribers_for_announcement_by_status",
       });
 
-      for (const item of page.items) {
+      const projectedItems: Record<string, unknown>[] = [];
+      const keys = page.items.reduce<Array<{ id: string }>>((nextKeys, item) => {
+        const id = stringAttribute(item.id);
+
+        if (!id || seenIds.has(id)) {
+          return nextKeys;
+        }
+
+        seenIds.add(id);
+
+        if (
+          stringAttribute(item.phone_number_e164) &&
+          smsSubscriberStatusAttribute(item.status) &&
+          stringAttribute(item.created_at) &&
+          stringAttribute(item.updated_at)
+        ) {
+          projectedItems.push(item);
+          return nextKeys;
+        }
+
+        nextKeys.push({ id });
+        return nextKeys;
+      }, []);
+
+      const items = keys.length
+        ? [
+            ...projectedItems,
+            ...(await batchGetDynamoItems({
+              tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+              keys,
+              operation: "list_sms_subscribers_for_announcement_full_items",
+            })),
+          ]
+        : projectedItems;
+
+      for (const item of items) {
         const id = stringAttribute(item.id);
         const phone = stringAttribute(item.phone_number_e164);
         const status = smsSubscriberStatusAttribute(item.status);
@@ -1504,11 +1568,15 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       audience_email_excluded: record.audience_email_excluded || 0,
       audience_email_duplicate_count:
         record.audience_email_duplicate_count || 0,
+      audience_email_status: record.audience_email_status || "not_counted",
+      audience_email_error_code: record.audience_email_error_code || null,
       audience_sms_total: record.audience_sms_total || 0,
       audience_sms_eligible: record.audience_sms_eligible || 0,
       audience_sms_excluded: record.audience_sms_excluded || 0,
       audience_sms_duplicate_count:
         record.audience_sms_duplicate_count || 0,
+      audience_sms_status: record.audience_sms_status || "not_counted",
+      audience_sms_error_code: record.audience_sms_error_code || null,
       audience_both_eligible: record.audience_both_eligible ?? null,
       audience_last_error_code: record.audience_last_error_code || null,
       audience_last_error_at: record.audience_last_error_at || null,
@@ -1734,10 +1802,14 @@ export async function updateEmailCampaignEmailDraft(input: {
       audience_email_eligible: 0,
       audience_email_excluded: 0,
       audience_email_duplicate_count: 0,
+      audience_email_status: "not_counted",
+      audience_email_error_code: null,
       audience_sms_total: 0,
       audience_sms_eligible: 0,
       audience_sms_excluded: 0,
       audience_sms_duplicate_count: 0,
+      audience_sms_status: "not_counted",
+      audience_sms_error_code: null,
       audience_both_eligible: null,
       audience_last_error_code: null,
       audience_last_error_at: null,
@@ -1812,10 +1884,14 @@ export async function updateEmailCampaignSmsDraft(input: {
       audience_email_eligible: 0,
       audience_email_excluded: 0,
       audience_email_duplicate_count: 0,
+      audience_email_status: "not_counted",
+      audience_email_error_code: null,
       audience_sms_total: 0,
       audience_sms_eligible: 0,
       audience_sms_excluded: 0,
       audience_sms_duplicate_count: 0,
+      audience_sms_status: "not_counted",
+      audience_sms_error_code: null,
       audience_both_eligible: null,
       audience_last_error_code: null,
       audience_last_error_at: null,
@@ -1918,10 +1994,14 @@ export async function updateEmailCampaignDraft(input: {
       audience_email_eligible: 0,
       audience_email_excluded: 0,
       audience_email_duplicate_count: 0,
+      audience_email_status: "not_counted",
+      audience_email_error_code: null,
       audience_sms_total: 0,
       audience_sms_eligible: 0,
       audience_sms_excluded: 0,
       audience_sms_duplicate_count: 0,
+      audience_sms_status: "not_counted",
+      audience_sms_error_code: null,
       audience_both_eligible: null,
       audience_last_error_code: null,
       audience_last_error_at: null,
@@ -2417,14 +2497,18 @@ export async function markEmailCampaignAudienceCounted(input: {
   bothEligibleCount?: number | null;
   emailDuplicateCount: number;
   emailEligibleCount: number;
+  emailErrorCode?: string | null;
   emailExcludedCount: number;
+  emailStatus: AudienceChannelStatus;
   emailTotalCount: number;
   expectedVersion: number;
   id: string;
   now: string;
   smsDuplicateCount: number;
   smsEligibleCount: number;
+  smsErrorCode?: string | null;
   smsExcludedCount: number;
+  smsStatus: AudienceChannelStatus;
   smsTotalCount: number;
   updated_by: string;
 }) {
@@ -2440,13 +2524,19 @@ export async function markEmailCampaignAudienceCounted(input: {
       audience_email_eligible: input.emailEligibleCount,
       audience_email_excluded: input.emailExcludedCount,
       audience_email_duplicate_count: input.emailDuplicateCount,
+      audience_email_status: input.emailStatus,
+      audience_email_error_code: input.emailErrorCode ?? null,
       audience_sms_total: input.smsTotalCount,
       audience_sms_eligible: input.smsEligibleCount,
       audience_sms_excluded: input.smsExcludedCount,
       audience_sms_duplicate_count: input.smsDuplicateCount,
+      audience_sms_status: input.smsStatus,
+      audience_sms_error_code: input.smsErrorCode ?? null,
       audience_both_eligible: input.bothEligibleCount ?? null,
-      audience_last_error_code: null,
-      audience_last_error_at: null,
+      audience_last_error_code:
+        input.emailErrorCode || input.smsErrorCode || null,
+      audience_last_error_at:
+        input.emailErrorCode || input.smsErrorCode ? input.now : null,
       updated_by: input.updated_by,
       updated_at: input.now,
     },
@@ -2820,6 +2910,7 @@ function emailSubscriberFromCampaignAttributes(
 
 export async function listEmailSubscribersByStatus(statuses: EmailSubscriberRecord["status"][]) {
   const subscribers: EmailSubscriberRecord[] = [];
+  const seenIds = new Set<string>();
 
   for (const status of statuses) {
     let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -2839,7 +2930,40 @@ export async function listEmailSubscribersByStatus(statuses: EmailSubscriberReco
         operation: "list_email_subscribers_by_status",
       });
 
-      for (const item of page.items) {
+      const projectedItems: Record<string, unknown>[] = [];
+      const keys = page.items.reduce<Array<{ id: string }>>((nextKeys, item) => {
+        const id = stringAttribute(item.id);
+
+        if (!id || seenIds.has(id)) {
+          return nextKeys;
+        }
+
+        seenIds.add(id);
+
+        if (
+          stringAttribute(item.normalized_email) &&
+          emailSubscriberStatusAttribute(item.status)
+        ) {
+          projectedItems.push(item);
+          return nextKeys;
+        }
+
+        nextKeys.push({ id });
+        return nextKeys;
+      }, []);
+
+      const items = keys.length
+        ? [
+            ...projectedItems,
+            ...(await batchGetDynamoItems({
+              tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
+              keys,
+              operation: "list_email_subscribers_by_status_full_items",
+            })),
+          ]
+        : projectedItems;
+
+      for (const item of items) {
         const subscriber = emailSubscriberFromCampaignAttributes(item);
         if (subscriber) {
           subscribers.push(subscriber as EmailSubscriberRecord);
