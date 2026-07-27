@@ -111,6 +111,7 @@ function emailSubscriberFromAttributes(
 
 function smsSubscriberStatusAttribute(value: unknown) {
   return value === "pending_verification" ||
+    value === "active" ||
     value === "subscribed" ||
     value === "unsubscribed" ||
     value === "failed" ||
@@ -122,6 +123,7 @@ function smsSubscriberStatusAttribute(value: unknown) {
 
 export type SmsSubscriberStatus =
   | "pending_verification"
+  | "active"
   | "subscribed"
   | "unsubscribed"
   | "failed"
@@ -1380,6 +1382,7 @@ export function canSendSmsToSubscriber(
 
   return (
     record.status === "subscribed" ||
+    record.status === "active" ||
     record.status === "pending_verification"
   );
 }
@@ -1389,6 +1392,7 @@ export async function listSmsSubscribersForAnnouncement(limit = 5000) {
   const seenIds = new Set<string>();
   const statuses: SmsSubscriberStatus[] = [
     "pending_verification",
+    "active",
     "subscribed",
     "unsubscribed",
     "failed",
@@ -1415,51 +1419,25 @@ export async function listSmsSubscribersForAnnouncement(limit = 5000) {
         operation: "list_sms_subscribers_for_announcement_by_status",
       });
 
-      const projectedItems: Record<string, unknown>[] = [];
-      const keys = page.items.reduce<Array<{ id: string }>>((nextKeys, item) => {
-        const id = stringAttribute(item.id);
-
-        if (!id || seenIds.has(id)) {
-          return nextKeys;
-        }
-
-        seenIds.add(id);
-
-        if (
-          stringAttribute(item.phone_number_e164) &&
-          smsSubscriberStatusAttribute(item.status) &&
-          stringAttribute(item.created_at) &&
-          stringAttribute(item.updated_at)
-        ) {
-          projectedItems.push(item);
-          return nextKeys;
-        }
-
-        nextKeys.push({ id });
-        return nextKeys;
-      }, []);
-
-      const items = keys.length
-        ? [
-            ...projectedItems,
-            ...(await batchGetDynamoItems({
-              tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
-              keys,
-              operation: "list_sms_subscribers_for_announcement_full_items",
-            })),
-          ]
-        : projectedItems;
-
-      for (const item of items) {
+      for (const item of page.items) {
         const id = stringAttribute(item.id);
         const phone = stringAttribute(item.phone_number_e164);
         const status = smsSubscriberStatusAttribute(item.status);
         const createdAt = stringAttribute(item.created_at);
         const updatedAt = stringAttribute(item.updated_at);
 
-        if (!id || !phone || !status || !createdAt || !updatedAt) {
+        if (
+          !id ||
+          seenIds.has(id) ||
+          !phone ||
+          !status ||
+          !createdAt ||
+          !updatedAt
+        ) {
           continue;
         }
+
+        seenIds.add(id);
 
         subscribers.push(
           smsSubscriberFromAttributes(item, {

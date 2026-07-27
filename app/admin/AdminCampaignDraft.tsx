@@ -571,15 +571,22 @@ function recentTextState(draft: CampaignDraft): {
     draft.smsPreviewGeneratedAt &&
       draft.smsPreviewVersion === textVersion,
   );
-  const testRecorded = Boolean(draft.smsTestMessageSid);
-  const testCurrent = Boolean(
-    testRecorded && draft.smsTestVersion === textVersion,
-  );
   const providerStatus = (
     draft.smsTestStatus ||
     draft.smsTestProviderStatus ||
     ""
   ).toLowerCase();
+  const testRecorded = Boolean(
+    draft.smsTestMessageSid ||
+      draft.smsTestedAt ||
+      providerStatus === "accepted" ||
+      providerStatus === "delivered" ||
+      providerStatus === "failed" ||
+      providerStatus === "undelivered",
+  );
+  const testCurrent = Boolean(
+    testRecorded && draft.smsTestVersion === textVersion,
+  );
 
   if (!draft.smsEnabled || !draft.smsSavedAt || !textVersion) {
     return { label: "Text: Not saved", tone: "warning" };
@@ -1044,6 +1051,7 @@ export default function AdminCampaignDraft({
   const sendAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const workflowGuideScrollInProgressRef = useRef(false);
   const workflowGuideActivityThrottleRef = useRef(0);
+  const draftsRequestSeqRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
   const [audienceOverview, setAudienceOverview] =
     useState<AudienceOverview | null>(null);
@@ -1528,6 +1536,9 @@ export default function AdminCampaignDraft({
   }
 
   async function refreshDrafts(options?: { silent?: boolean }) {
+    const requestSeq = draftsRequestSeqRef.current + 1;
+    draftsRequestSeqRef.current = requestSeq;
+
     if (!options?.silent) {
       setBusyAction((current) => current || "refresh");
     }
@@ -1536,7 +1547,9 @@ export default function AdminCampaignDraft({
         cache: "no-store",
       });
       const payload = await parseJsonResponse(response);
-      setDrafts(payload.drafts || []);
+      if (draftsRequestSeqRef.current === requestSeq) {
+        setDrafts(payload.drafts || []);
+      }
     } finally {
       if (!options?.silent) {
         setBusyAction((current) => (current === "refresh" ? null : current));

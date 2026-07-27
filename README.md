@@ -175,13 +175,12 @@ SMS subscriber campaign index:
 - GSI name: `status-updated_at-index`
 - GSI partition key: `status` string
 - GSI sort key: `updated_at` string
-- GSI projection: either all attributes, or at minimum the base table key plus the eligibility fields used by admin audience counting. If the index is `KEYS_ONLY` or omits eligibility fields, the app queries keys from the GSI and then reads complete subscriber records with `BatchGetItem` from the base table.
-- Current customer-care announcement eligibility includes explicitly opted-in `pending_verification` and `subscribed` SMS records unless they are stopped, invalid, suppressed, opted out, missing informational consent, or have an invalid normalized E.164 phone.
+- GSI projection: all attributes. Admin audience counting uses this verified server-only status index directly and does not require `BatchGetItem` for SMS records.
+- Current customer-care announcement eligibility includes explicitly opted-in `pending_verification`, `active`, and `subscribed` SMS records unless they are stopped, invalid, suppressed, opted out, missing informational consent, or have an invalid normalized E.164 phone.
 
 Least-privilege audience diagnostics permissions for the Vercel Production AWS principal:
 
 - `dynamodb:Query` on each subscriber status GSI ARN used for audience counts.
-- `dynamodb:BatchGetItem` on the SMS subscriber table if the SMS status GSI does not project all required eligibility attributes.
 - `dynamodb:DescribeTable` on the email and SMS subscriber tables for the protected admin health panel. This is diagnostic only; audience counting can still run without it when the query path is otherwise valid.
 
 ## Welcome Message Templates
