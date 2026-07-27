@@ -41,6 +41,7 @@ type CampaignDraft = {
   emailPreviewGeneratedAt?: string | null;
   emailPreviewVersion?: number;
   emailTestVersion?: number;
+  testMessageId?: string | null;
   testedAt?: string | null;
   approvedAt?: string | null;
   queueingStartedAt?: string | null;
@@ -79,6 +80,19 @@ type CampaignDraft = {
   smsTestStatus?: string | null;
   smsTestTransport?: string | null;
   smsTestMessageSid?: string | null;
+  audienceCountedAt?: string | null;
+  audienceVersion?: number;
+  audienceEmailTotal?: number;
+  audienceEmailEligible?: number;
+  audienceEmailExcluded?: number;
+  audienceEmailDuplicateCount?: number;
+  audienceSmsTotal?: number;
+  audienceSmsEligible?: number;
+  audienceSmsExcluded?: number;
+  audienceSmsDuplicateCount?: number;
+  audienceBothEligible?: number | null;
+  audienceLastErrorCode?: string | null;
+  audienceLastErrorAt?: string | null;
   isPinned?: boolean;
   pinnedAt?: string | null;
 };
@@ -108,6 +122,19 @@ type ProgressSummary = {
 type AudienceSummary = {
   confirmationPhrase: string;
   countedAt?: string;
+  diagnostics?: {
+    emailEligible?: number;
+    emailExcluded?: number;
+    emailExclusionGroups?: Record<string, number>;
+    emailRecordsExamined?: number;
+    emailStatusGroups?: Record<string, number>;
+    lastRefreshResult?: string;
+    smsEligible?: number;
+    smsExcluded?: number;
+    smsExclusionGroups?: Record<string, number>;
+    smsRecordsExamined?: number;
+    smsStatusGroups?: Record<string, number>;
+  };
   duplicateCount: number;
   eligibleCount: number;
   excludedCount: number;
@@ -220,6 +247,7 @@ const ADMIN_IDLE_WARNING_AFTER_MS = 60 * 1000;
 const ADMIN_IDLE_WARNING_DURATION_MS =
   ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_AFTER_MS;
 const ADMIN_HEARTBEAT_INTERVAL_MS = 90 * 1000;
+const ADMIN_PRESENCE_SESSION_KEY = "suppvis-admin-presence-active";
 
 function formatIdleCountdown(milliseconds: number) {
   const remainingSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
@@ -281,6 +309,72 @@ function campaignToForm(campaign: CampaignDraft): FormValues {
     smsEnabled: true,
     subject: campaign.subject,
   };
+}
+
+function confirmationPhraseForCounts(emailCount: number, smsCount: number) {
+  if (emailCount > 0 && smsCount > 0) {
+    return `SEND EMAIL TO ${emailCount} AND TEXT TO ${smsCount}`;
+  }
+
+  if (emailCount > 0) {
+    return `SEND EMAIL TO ${emailCount}`;
+  }
+
+  if (smsCount > 0) {
+    return `SEND TEXT TO ${smsCount}`;
+  }
+
+  return "";
+}
+
+function audienceFromCampaign(
+  campaign: CampaignDraft | null,
+): AudienceSummary | null {
+  if (
+    !campaign?.audienceCountedAt ||
+    campaign.audienceVersion !== campaign.version
+  ) {
+    return null;
+  }
+
+  const emailEligible = campaign.audienceEmailEligible || 0;
+  const smsEligible = campaign.audienceSmsEligible || 0;
+
+  return {
+    confirmationPhrase: confirmationPhraseForCounts(emailEligible, smsEligible),
+    countedAt: campaign.audienceCountedAt,
+    duplicateCount: campaign.audienceEmailDuplicateCount || 0,
+    eligibleCount: emailEligible,
+    excludedCount: campaign.audienceEmailExcluded || 0,
+    totalCount: campaign.audienceEmailTotal || 0,
+    smsDuplicateCount: campaign.audienceSmsDuplicateCount || 0,
+    smsEligibleCount: smsEligible,
+    smsExcludedCount: campaign.audienceSmsExcluded || 0,
+    smsTotalCount: campaign.audienceSmsTotal || 0,
+    smsIncluded: true,
+    receivingBothCount: campaign.audienceBothEligible ?? null,
+    diagnostics: {
+      emailEligible,
+      emailExcluded: campaign.audienceEmailExcluded || 0,
+      emailRecordsExamined: campaign.audienceEmailTotal || 0,
+      lastRefreshResult: "persisted",
+      smsEligible,
+      smsExcluded: campaign.audienceSmsExcluded || 0,
+      smsRecordsExamined: campaign.audienceSmsTotal || 0,
+    },
+  };
+}
+
+function audienceErrorCopy(code: string) {
+  if (code === "audience_query_access_denied") {
+    return "Recipient counting cannot read the subscriber status index. AWS IAM needs DynamoDB Query access for the subscriber status index.";
+  }
+
+  if (code === "audience_query_failed") {
+    return "Recipient counting could not read subscriber records. Try again after the database issue is resolved.";
+  }
+
+  return "Recipient counts could not be refreshed. Try again later.";
 }
 
 function statusLabel(status?: string) {
@@ -725,6 +819,7 @@ export default function AdminCampaignDraft({
   const idleDeadlineRef = useRef<number>(Date.now() + ADMIN_IDLE_TIMEOUT_MS);
   const idleTimerRef = useRef<number | null>(null);
   const lastHeartbeatAtRef = useRef(0);
+  const currentCampaignIdRef = useRef<string | null>(null);
   const newAnnouncementButtonRef = useRef<HTMLButtonElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const recipientCountButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -733,6 +828,7 @@ export default function AdminCampaignDraft({
   const workflowGuideScrollInProgressRef = useRef(false);
   const workflowGuideActivityThrottleRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
+  const [audienceRefreshError, setAudienceRefreshError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
   const [focusGuideVisible, setFocusGuideVisible] = useState(false);
@@ -863,20 +959,21 @@ export default function AdminCampaignDraft({
   const smsDraftVersion = campaign?.smsDraftVersion || 0;
   const emailPreviewCurrent = Boolean(
     campaign &&
-      preview &&
       !emailPreviewOutdated &&
+      !emailChangedSinceSave &&
       campaign.emailPreviewGeneratedAt &&
       campaign.emailPreviewVersion === emailDraftVersion,
   );
   const smsPreviewCurrent = Boolean(
     campaign &&
-      smsPreview &&
       !smsPreviewOutdated &&
+      !smsChangedSinceSave &&
       campaign.smsPreviewGeneratedAt &&
       campaign.smsPreviewVersion === smsDraftVersion,
   );
   const emailTestCurrent = Boolean(
     campaign?.testedAt &&
+      campaign.testMessageId &&
       campaign.emailTestVersion &&
       campaign.emailTestVersion === emailDraftVersion,
   );
@@ -931,6 +1028,10 @@ export default function AdminCampaignDraft({
     newAnnouncementConfirmOpen ||
     sentHistoryOpen ||
     idleWarningOpen;
+
+  useEffect(() => {
+    currentCampaignIdRef.current = campaign?.id || null;
+  }, [campaign?.id]);
 
   const usesReducedMotion = useCallback(
     () =>
@@ -1051,6 +1152,7 @@ export default function AdminCampaignDraft({
 
   const clearSensitiveClientState = useCallback(() => {
     setAudience(null);
+    setAudienceRefreshError(null);
     setCampaign(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
@@ -1083,10 +1185,46 @@ export default function AdminCampaignDraft({
   const handleIdleSignOut = useCallback(async () => {
     clearSensitiveClientState();
     setIdleWarningOpen(false);
+    window.sessionStorage.removeItem(ADMIN_PRESENCE_SESSION_KEY);
     await signOut({
       callbackUrl: "/admin",
       redirect: true,
     });
+  }, [clearSensitiveClientState]);
+
+  useEffect(() => {
+    const navigation = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    const navigationType = navigation?.type;
+
+    if (
+      navigationType === "reload" ||
+      navigationType === "back_forward"
+    ) {
+      window.sessionStorage.removeItem(ADMIN_PRESENCE_SESSION_KEY);
+      clearSensitiveClientState();
+      signOut({ callbackUrl: "/admin", redirect: true }).catch(() => undefined);
+      return;
+    }
+
+    window.sessionStorage.setItem(ADMIN_PRESENCE_SESSION_KEY, "active");
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        return;
+      }
+
+      window.sessionStorage.removeItem(ADMIN_PRESENCE_SESSION_KEY);
+      clearSensitiveClientState();
+      signOut({ callbackUrl: "/admin", redirect: true }).catch(() => undefined);
+    };
+
+    window.addEventListener("pageshow", onPageShow);
+
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+    };
   }, [clearSensitiveClientState]);
 
   function sortVisibleDrafts(nextDrafts: CampaignDraft[]) {
@@ -1205,7 +1343,9 @@ export default function AdminCampaignDraft({
       { cache: "no-store" },
     );
     const payload = await parseJsonResponse(response);
-    setProgress(payload.progress);
+    if (currentCampaignIdRef.current === campaignId) {
+      setProgress(payload.progress);
+    }
     return payload.progress as ProgressSummary;
   }
 
@@ -1449,7 +1589,12 @@ export default function AdminCampaignDraft({
     setSmsTestMessageSid(null);
     setSmsTestRecipient(null);
     setSmsTestModalState(null);
-    setAudience(null);
+    setAudience(audienceFromCampaign(campaign));
+    setAudienceRefreshError(
+      campaign?.audienceLastErrorCode && campaign.audienceLastErrorAt
+        ? audienceErrorCopy(campaign.audienceLastErrorCode)
+        : null,
+    );
     setStartPhrase("");
     setProgress(null);
     setSmsTestReadiness(null);
@@ -1538,6 +1683,7 @@ export default function AdminCampaignDraft({
   function updateField<K extends keyof FormValues>(key: K, value: FormValues[K]) {
     setForm((current) => ({ ...current, [key]: value }));
     setAudience(null);
+    setAudienceRefreshError(null);
     setFieldErrors((current) => ({ ...current, [key]: undefined }));
     if (
       key === "body" ||
@@ -1560,7 +1706,43 @@ export default function AdminCampaignDraft({
   }
 
   function updateCampaignFromPartial(partial: Partial<CampaignDraft>) {
-    setCampaign((current) => (current ? { ...current, ...partial } : current));
+    setCampaign((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (partial.id && partial.id !== current.id) {
+        return current;
+      }
+
+      if (
+        typeof partial.version === "number" &&
+        typeof current.version === "number" &&
+        partial.version < current.version
+      ) {
+        return current;
+      }
+
+      const next = { ...current, ...partial };
+      const hasAudiencePatch =
+        partial.audienceCountedAt !== undefined ||
+        partial.audienceVersion !== undefined ||
+        partial.audienceEmailEligible !== undefined ||
+        partial.audienceSmsEligible !== undefined ||
+        partial.audienceLastErrorCode !== undefined ||
+        partial.audienceLastErrorAt !== undefined;
+
+      if (hasAudiencePatch) {
+        setAudience(audienceFromCampaign(next));
+        setAudienceRefreshError(
+          next.audienceLastErrorCode && next.audienceLastErrorAt
+            ? audienceErrorCopy(next.audienceLastErrorCode)
+            : null,
+        );
+      }
+
+      return next;
+    });
   }
 
   function startAnotherAnnouncement() {
@@ -1578,6 +1760,7 @@ export default function AdminCampaignDraft({
 
   function beginNewAnnouncement() {
     setAudience(null);
+    setAudienceRefreshError(null);
     setCampaign(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
@@ -1638,6 +1821,8 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudience(audienceFromCampaign(payload.campaign));
+      setAudienceRefreshError(null);
       setMessage({
         tone: "success",
         text: `Email saved at ${new Date(
@@ -1688,6 +1873,8 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudience(audienceFromCampaign(payload.campaign));
+      setAudienceRefreshError(null);
       setMessage({
         tone: "success",
         text: `Email saved at ${new Date(
@@ -1738,6 +1925,8 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudience(audienceFromCampaign(payload.campaign));
+      setAudienceRefreshError(null);
       setMessage({
         tone: "success",
         text: `Text saved at ${new Date(
@@ -1770,6 +1959,13 @@ export default function AdminCampaignDraft({
       const payload = await parseJsonResponse(response);
       const loadedForm = campaignToForm(payload.campaign);
       setCampaign(payload.campaign);
+      setAudience(audienceFromCampaign(payload.campaign));
+      setAudienceRefreshError(
+        payload.campaign.audienceLastErrorCode &&
+          payload.campaign.audienceLastErrorAt
+          ? audienceErrorCopy(payload.campaign.audienceLastErrorCode)
+          : null,
+      );
       setForm(loadedForm);
       setEmailPreviewSnapshot(loadedForm);
       setFieldErrors({});
@@ -1829,6 +2025,7 @@ export default function AdminCampaignDraft({
       setDrafts((current) => current.filter((draft) => draft.id !== target.id));
       if (deletingOpenAnnouncement) {
         setAudience(null);
+        setAudienceRefreshError(null);
         setCampaign(null);
         setEmailPreviewOutdated(false);
         setEmailTestModalConfirmed(false);
@@ -2231,7 +2428,15 @@ export default function AdminCampaignDraft({
       },
     );
     const payload = await parseJsonResponse(response);
+    if (currentCampaignIdRef.current !== campaignId) {
+      return payload.audience as AudienceSummary;
+    }
+
     setAudience(payload.audience);
+    setAudienceRefreshError(null);
+    if (payload.campaign) {
+      updateCampaignFromPartial(payload.campaign);
+    }
     setStartPhrase("");
     return payload.audience as AudienceSummary;
   }
@@ -2243,18 +2448,21 @@ export default function AdminCampaignDraft({
 
     setBusyAction("audience");
     setMessage(null);
+    setAudienceRefreshError(null);
 
     try {
-      const nextAudience = await calculateAudienceForCampaign(campaign.id);
+      await calculateAudienceForCampaign(campaign.id);
       setMessage({
         tone: "success",
         text: "Recipient counts refreshed.",
       });
     } catch (error) {
+      const errorText =
+        error instanceof Error ? error.message : "Could not count recipients.";
+      setAudienceRefreshError(errorText);
       setMessage({
         tone: "error",
-        text:
-          error instanceof Error ? error.message : "Could not count recipients.",
+        text: errorText,
       });
     } finally {
       setBusyAction(null);
@@ -2262,7 +2470,7 @@ export default function AdminCampaignDraft({
   }
 
   async function startCampaign() {
-    if (!campaign || !audience || !canStart || isBusy) {
+    if (!campaign || !currentAudience || !canStart || isBusy) {
       return;
     }
 
@@ -2364,15 +2572,20 @@ export default function AdminCampaignDraft({
   const emailTestReady = emailTestCurrent;
   const smsTestReady = smsTestAcceptedForCurrentDraft;
   const adminTestsReady = Boolean(emailTestReady && smsTestReady);
+  const persistedAudience =
+    !emailChangedSinceSave && !smsChangedSinceSave
+      ? audienceFromCampaign(campaign)
+      : null;
+  const currentAudience = audience || persistedAudience;
   const canStart = Boolean(
     (campaign?.status === "tested" || campaign?.status === "approved") &&
       selectedChannelsSaved &&
       previewsReady &&
       adminTestsReady &&
-      audience,
+      currentAudience,
   );
-  const emailAudienceCount = audience?.eligibleCount || 0;
-  const smsAudienceCount = audience?.smsEligibleCount || 0;
+  const emailAudienceCount = currentAudience?.eligibleCount || 0;
+  const smsAudienceCount = currentAudience?.smsEligibleCount || 0;
   const hasAnyEligibleAudience = emailAudienceCount > 0 || smsAudienceCount > 0;
   const emailProductionReady = bulkSendEnabled && bulkInfraReady;
   const emailDeliveryRequired = emailAudienceCount > 0;
@@ -2383,10 +2596,10 @@ export default function AdminCampaignDraft({
       (!smsDeliveryRequired || smsProductionReady),
   );
   const confirmationPhraseMatches = Boolean(
-    audience?.confirmationPhrase &&
-      startPhrase === audience.confirmationPhrase,
+    currentAudience?.confirmationPhrase &&
+      startPhrase === currentAudience.confirmationPhrase,
   );
-  const deliveryBlockedReason = !audience
+  const deliveryBlockedReason = !currentAudience
     ? "Refresh recipient counts first."
     : !hasAnyEligibleAudience
       ? "No eligible subscribers are currently available."
@@ -2429,21 +2642,43 @@ export default function AdminCampaignDraft({
                   : smsTestReadiness?.ready
                     ? ""
                     : "Checking text test readiness.";
-  const recipientsReviewed = Boolean(audience);
+  const recipientsReviewed = Boolean(currentAudience);
   const announcementQueued =
     campaign?.status === "queueing" ||
     campaign?.status === "queued" ||
     campaign?.status === "sending" ||
     campaign?.status === "completed" ||
     campaign?.status === "completed_with_failures";
-  const workflowSteps = [
+  const workflowActiveIndex = (() => {
+    if (announcementQueued) {
+      return 6;
+    }
+
+    if (!selectedChannelsSaved) {
+      return 0;
+    }
+
+    if (!previewsReady) {
+      return 1;
+    }
+
+    if (!emailTestReady) {
+      return 2;
+    }
+
+    if (!smsTestReady) {
+      return 3;
+    }
+
+    if (!currentAudience) {
+      return 4;
+    }
+
+    return 5;
+  })();
+  const workflowStepContent = [
     {
       label: "Draft email & text",
-      state: selectedChannelsSaved
-        ? "completed"
-        : workflowStarted
-          ? "active"
-          : "blocked",
       detail: selectedChannelsSaved
         ? "Email and text drafts are saved."
         : workflowStarted
@@ -2454,11 +2689,6 @@ export default function AdminCampaignDraft({
     },
     {
       label: "Preview email & text",
-      state: previewsReady
-        ? "completed"
-        : selectedChannelsSaved
-          ? "active"
-          : "blocked",
       detail: previewsReady
         ? "Email and text previews are ready."
         : selectedChannelsSaved
@@ -2467,11 +2697,6 @@ export default function AdminCampaignDraft({
     },
     {
       label: "Test email",
-      state: emailTestReady
-        ? "completed"
-        : previewsReady
-          ? "active"
-          : "blocked",
       detail: emailTestReady
         ? "Email test is complete."
         : previewsReady
@@ -2480,11 +2705,6 @@ export default function AdminCampaignDraft({
     },
     {
       label: "Test text",
-      state: smsTestReady
-        ? "completed"
-        : emailTestReady
-          ? "active"
-          : "blocked",
       detail: smsTestReady
         ? "Text test is complete."
         : emailTestReady
@@ -2493,37 +2713,39 @@ export default function AdminCampaignDraft({
     },
     {
       label: "Approve & review recipients",
-      state: recipientsReviewed
-        ? "completed"
-        : adminTestsReady
-          ? "active"
-          : "blocked",
-      detail: recipientsReviewed && audience
-        ? `Email: ${audience.eligibleCount}. Text: ${
-            audience.smsEligibleCount || 0
+      detail: recipientsReviewed && currentAudience
+        ? `Email: ${currentAudience.eligibleCount}. Text: ${
+            currentAudience.smsEligibleCount || 0
           }.`
         : adminTestsReady
-          ? audience
+          ? currentAudience
             ? "Review the confirmation phrase."
             : "Refresh recipient counts."
           : "Complete admin tests first.",
     },
     {
       label: "Send announcement",
-      state:
-        announcementQueued
-          ? "completed"
-          : audience && selectedDeliveryReady
-            ? "active"
-            : "blocked",
       detail:
         announcementQueued
           ? "The worker continues independently."
-          : audience && selectedDeliveryReady
+          : currentAudience && selectedDeliveryReady
             ? "Type the phrase, then approve and send."
             : deliveryBlockedReason || "Refresh recipient counts first.",
     },
   ] as const;
+  const workflowSteps = workflowStepContent.map((step, index) => ({
+    ...step,
+    state:
+      workflowActiveIndex === 6 || index < workflowActiveIndex
+        ? "completed"
+        : index === workflowActiveIndex
+          ? "active"
+          : "blocked",
+  })) as Array<
+    (typeof workflowStepContent)[number] & {
+      state: "active" | "blocked" | "completed";
+    }
+  >;
 
   const nextWorkflowAction = useMemo<{
     key: NextActionKey;
@@ -2590,7 +2812,7 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (!preview || emailPreviewOutdated) {
+    if (!emailPreviewCurrent) {
       return {
         key: "emailPreview",
         label: "Generate email preview",
@@ -2622,7 +2844,7 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (!activeSmsPreview || smsPreviewOutdated) {
+    if (!smsPreviewCurrent) {
       return {
         key: "smsPreview",
         label: "Generate text preview",
@@ -2638,7 +2860,7 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (adminTestsReady && !audience) {
+    if (adminTestsReady && !currentAudience) {
       return {
         key: "recipientCount",
         label: "Refresh recipient count",
@@ -2646,7 +2868,10 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (audience && startPhrase !== audience.confirmationPhrase) {
+    if (
+      currentAudience &&
+      startPhrase !== currentAudience.confirmationPhrase
+    ) {
       return {
         key: "startPhrase",
         label: "Type the confirmation phrase",
@@ -2655,7 +2880,7 @@ export default function AdminCampaignDraft({
     }
 
     if (
-      audience &&
+      currentAudience &&
       canStart &&
       selectedDeliveryReady &&
       confirmationPhraseMatches
@@ -2669,15 +2894,15 @@ export default function AdminCampaignDraft({
 
     return null;
   }, [
-    activeSmsPreview,
     adminTestsReady,
     announcementQueued,
-    audience,
-    bulkInfraReady,
-    bulkSendEnabled,
     canStart,
     confirmationPhraseMatches,
+    Boolean(currentAudience),
+    currentAudience?.countedAt,
+    currentAudience?.confirmationPhrase,
     emailPreviewOutdated,
+    emailPreviewCurrent,
     emailSaved,
     emailTestReady,
     form.body,
@@ -2687,9 +2912,8 @@ export default function AdminCampaignDraft({
     form.smsBody,
     form.subject,
     isSendStarted,
-    preview,
     selectedDeliveryReady,
-    smsPreviewOutdated,
+    smsPreviewCurrent,
     smsSaved,
     smsTestReady,
     startPhrase,
@@ -2908,7 +3132,7 @@ export default function AdminCampaignDraft({
         <span className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary">
           {isSendStarted
               ? status
-              : audience
+              : currentAudience
                 ? hasAnyEligibleAudience
                   ? "Audience counted"
                   : "No eligible subscribers"
@@ -2928,8 +3152,8 @@ export default function AdminCampaignDraft({
           </div>
           <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-text-muted">
             Last refreshed:{" "}
-            {audience?.countedAt
-              ? new Date(audience.countedAt).toLocaleString()
+            {currentAudience?.countedAt
+              ? new Date(currentAudience.countedAt).toLocaleString()
               : "Never"}
           </span>
         </div>
@@ -2940,11 +3164,11 @@ export default function AdminCampaignDraft({
               Email subscribers
             </dt>
             <dd className="mt-1 text-2xl font-bold text-text-primary">
-              {audience ? audience.eligibleCount : "-"}
+              {currentAudience ? currentAudience.eligibleCount : "-"}
             </dd>
             <p className="mt-1 text-xs text-text-muted">
-              {audience
-                ? `${audience.excludedCount} excluded or suppressed${audience.duplicateCount ? `, ${audience.duplicateCount} duplicates` : ""}`
+              {currentAudience
+                ? `${currentAudience.excludedCount} excluded or suppressed${currentAudience.duplicateCount ? `, ${currentAudience.duplicateCount} duplicates` : ""}`
                 : "No recipient count has been generated yet."}
             </p>
           </div>
@@ -2953,11 +3177,11 @@ export default function AdminCampaignDraft({
               Text subscribers
             </dt>
             <dd className="mt-1 text-2xl font-bold text-text-primary">
-              {audience ? audience.smsEligibleCount || 0 : "-"}
+              {currentAudience ? currentAudience.smsEligibleCount || 0 : "-"}
             </dd>
             <p className="mt-1 text-xs text-text-muted">
-              {audience
-                ? `${audience.smsExcludedCount || 0} excluded or suppressed${audience.smsDuplicateCount ? `, ${audience.smsDuplicateCount} duplicates` : ""}`
+              {currentAudience
+                ? `${currentAudience.smsExcludedCount || 0} excluded or suppressed${currentAudience.smsDuplicateCount ? `, ${currentAudience.smsDuplicateCount} duplicates` : ""}`
                 : "No recipient count has been generated yet."}
             </p>
           </div>
@@ -2966,7 +3190,7 @@ export default function AdminCampaignDraft({
               Eligible for both
             </dt>
             <dd className="mt-1 text-2xl font-bold text-text-primary">
-              {audience?.receivingBothCount ?? "-"}
+              {currentAudience?.receivingBothCount ?? "-"}
             </dd>
             <p className="mt-1 text-xs text-text-muted">
               A safe email-phone join is not enabled yet.
@@ -2977,8 +3201,8 @@ export default function AdminCampaignDraft({
               Total records checked
             </dt>
             <dd className="mt-1 text-2xl font-bold text-text-primary">
-              {audience
-                ? (audience.totalCount || 0) + (audience.smsTotalCount || 0)
+              {currentAudience
+                ? (currentAudience.totalCount || 0) + (currentAudience.smsTotalCount || 0)
                 : "-"}
             </dd>
             <p className="mt-1 text-xs text-text-muted">
@@ -2987,7 +3211,7 @@ export default function AdminCampaignDraft({
           </div>
         </dl>
 
-        {audience ? (
+        {currentAudience ? (
           <div
             className={`mt-4 rounded-[8px] border p-3 text-sm ${
               hasAnyEligibleAudience
@@ -3008,6 +3232,68 @@ export default function AdminCampaignDraft({
             No recipient count has been generated yet.
           </p>
         )}
+        {audienceRefreshError ? (
+          <div className="mt-4 rounded-[8px] border border-red-400/25 bg-red-400/10 p-3 text-sm leading-6 text-red-100">
+            {audienceRefreshError}
+          </div>
+        ) : null}
+        <details className="mt-4 rounded-[8px] border border-white/10 bg-[#0D1117] p-3 text-sm leading-6 text-text-secondary">
+          <summary className="cursor-pointer font-semibold text-text-primary">
+            Audience diagnostics
+          </summary>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                Email records examined
+              </dt>
+              <dd>{currentAudience?.diagnostics?.emailRecordsExamined ?? "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                Text records examined
+              </dt>
+              <dd>{currentAudience?.diagnostics?.smsRecordsExamined ?? "-"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                Email status groups
+              </dt>
+              <dd>
+                {currentAudience?.diagnostics?.emailStatusGroups
+                  ? Object.entries(
+                      currentAudience.diagnostics.emailStatusGroups,
+                    )
+                      .map(([label, value]) => `${label}: ${value}`)
+                      .join(", ")
+                  : "Not available"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                Text status groups
+              </dt>
+              <dd>
+                {currentAudience?.diagnostics?.smsStatusGroups
+                  ? Object.entries(currentAudience.diagnostics.smsStatusGroups)
+                      .map(([label, value]) => `${label}: ${value}`)
+                      .join(", ")
+                  : "Not available"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                Last refresh result
+              </dt>
+              <dd>
+                {audienceRefreshError
+                  ? audienceRefreshError
+                  : currentAudience?.diagnostics?.lastRefreshResult ||
+                    campaign?.audienceLastErrorCode ||
+                    "No refresh yet"}
+              </dd>
+            </div>
+          </dl>
+        </details>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -3034,17 +3320,17 @@ export default function AdminCampaignDraft({
             Confirmation phrase
           </span>
           <code className="mt-2 block rounded-[8px] border border-white/10 bg-[#05090D] px-3 py-2 text-xs text-accent">
-            {audience?.confirmationPhrase || "No eligible subscribers"}
+            {currentAudience?.confirmationPhrase || "No eligible subscribers"}
           </code>
           <input
             ref={startPhraseInputRef}
             value={startPhrase}
             onChange={(event) => setStartPhrase(event.target.value)}
             disabled={
-              isSendStarted || !audience || !hasAnyEligibleAudience || isBusy
+              isSendStarted || !currentAudience || !hasAnyEligibleAudience || isBusy
             }
             placeholder={
-              audience
+              currentAudience
                 ? hasAnyEligibleAudience
                   ? "Type the exact phrase above"
                   : "No eligible subscribers"

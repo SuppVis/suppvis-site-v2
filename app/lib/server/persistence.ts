@@ -352,6 +352,19 @@ export type EmailCampaignRecord = {
   sms_eligible_count?: number;
   sms_excluded_count?: number;
   sms_duplicate_count?: number;
+  audience_counted_at?: string | null;
+  audience_version?: number;
+  audience_email_total?: number;
+  audience_email_eligible?: number;
+  audience_email_excluded?: number;
+  audience_email_duplicate_count?: number;
+  audience_sms_total?: number;
+  audience_sms_eligible?: number;
+  audience_sms_excluded?: number;
+  audience_sms_duplicate_count?: number;
+  audience_both_eligible?: number | null;
+  audience_last_error_code?: string | null;
+  audience_last_error_at?: string | null;
   is_pinned?: boolean;
   pinned_at?: string | null;
   pinned_by?: string | null;
@@ -417,6 +430,7 @@ export type EmailCampaignSummary = Pick<
   | "email_preview_version"
   | "tested_at"
   | "email_test_version"
+  | "test_message_id"
   | "approved_at"
   | "queueing_started_at"
   | "queued_at"
@@ -452,6 +466,19 @@ export type EmailCampaignSummary = Pick<
   | "sms_eligible_count"
   | "sms_excluded_count"
   | "sms_duplicate_count"
+  | "audience_counted_at"
+  | "audience_version"
+  | "audience_email_total"
+  | "audience_email_eligible"
+  | "audience_email_excluded"
+  | "audience_email_duplicate_count"
+  | "audience_sms_total"
+  | "audience_sms_eligible"
+  | "audience_sms_excluded"
+  | "audience_sms_duplicate_count"
+  | "audience_both_eligible"
+  | "audience_last_error_code"
+  | "audience_last_error_at"
   | "is_pinned"
   | "pinned_at"
   | "pinned_by"
@@ -636,6 +663,31 @@ function emailCampaignFromAttributes(
     sms_eligible_count: numberAttribute(attributes?.sms_eligible_count),
     sms_excluded_count: numberAttribute(attributes?.sms_excluded_count),
     sms_duplicate_count: numberAttribute(attributes?.sms_duplicate_count),
+    audience_counted_at:
+      nullableStringAttribute(attributes?.audience_counted_at) || null,
+    audience_version: numberAttribute(attributes?.audience_version) || 0,
+    audience_email_total:
+      numberAttribute(attributes?.audience_email_total) ?? 0,
+    audience_email_eligible:
+      numberAttribute(attributes?.audience_email_eligible) ?? 0,
+    audience_email_excluded:
+      numberAttribute(attributes?.audience_email_excluded) ?? 0,
+    audience_email_duplicate_count:
+      numberAttribute(attributes?.audience_email_duplicate_count) ?? 0,
+    audience_sms_total:
+      numberAttribute(attributes?.audience_sms_total) ?? 0,
+    audience_sms_eligible:
+      numberAttribute(attributes?.audience_sms_eligible) ?? 0,
+    audience_sms_excluded:
+      numberAttribute(attributes?.audience_sms_excluded) ?? 0,
+    audience_sms_duplicate_count:
+      numberAttribute(attributes?.audience_sms_duplicate_count) ?? 0,
+    audience_both_eligible:
+      numberAttribute(attributes?.audience_both_eligible) ?? null,
+    audience_last_error_code:
+      nullableStringAttribute(attributes?.audience_last_error_code) || null,
+    audience_last_error_at:
+      nullableStringAttribute(attributes?.audience_last_error_at) || null,
     is_pinned: booleanAttribute(attributes?.is_pinned) || false,
     pinned_at: nullableStringAttribute(attributes?.pinned_at) || null,
     pinned_by: nullableStringAttribute(attributes?.pinned_by) || null,
@@ -706,6 +758,7 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     email_preview_version: record.email_preview_version || 0,
     tested_at: record.tested_at,
     email_test_version: record.email_test_version || 0,
+    test_message_id: record.test_message_id,
     approved_at: record.approved_at,
     queueing_started_at: record.queueing_started_at,
     queued_at: record.queued_at,
@@ -739,6 +792,19 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     sms_eligible_count: record.sms_eligible_count,
     sms_excluded_count: record.sms_excluded_count,
     sms_duplicate_count: record.sms_duplicate_count,
+    audience_counted_at: record.audience_counted_at,
+    audience_version: record.audience_version,
+    audience_email_total: record.audience_email_total,
+    audience_email_eligible: record.audience_email_eligible,
+    audience_email_excluded: record.audience_email_excluded,
+    audience_email_duplicate_count: record.audience_email_duplicate_count,
+    audience_sms_total: record.audience_sms_total,
+    audience_sms_eligible: record.audience_sms_eligible,
+    audience_sms_excluded: record.audience_sms_excluded,
+    audience_sms_duplicate_count: record.audience_sms_duplicate_count,
+    audience_both_eligible: record.audience_both_eligible,
+    audience_last_error_code: record.audience_last_error_code,
+    audience_last_error_at: record.audience_last_error_at,
     is_pinned: record.is_pinned,
     pinned_at: record.pinned_at,
     pinned_by: record.pinned_by,
@@ -1431,6 +1497,21 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       sms_encoding: record.sms_encoding || "GSM-7",
       sms_updated_by: record.sms_updated_by || null,
       sms_updated_at: record.sms_updated_at || null,
+      audience_counted_at: record.audience_counted_at || null,
+      audience_version: record.audience_version || 0,
+      audience_email_total: record.audience_email_total || 0,
+      audience_email_eligible: record.audience_email_eligible || 0,
+      audience_email_excluded: record.audience_email_excluded || 0,
+      audience_email_duplicate_count:
+        record.audience_email_duplicate_count || 0,
+      audience_sms_total: record.audience_sms_total || 0,
+      audience_sms_eligible: record.audience_sms_eligible || 0,
+      audience_sms_excluded: record.audience_sms_excluded || 0,
+      audience_sms_duplicate_count:
+        record.audience_sms_duplicate_count || 0,
+      audience_both_eligible: record.audience_both_eligible ?? null,
+      audience_last_error_code: record.audience_last_error_code || null,
+      audience_last_error_at: record.audience_last_error_at || null,
       is_pinned: record.is_pinned || false,
       pinned_at: record.pinned_at || null,
       pinned_by: record.pinned_by || null,
@@ -1647,6 +1728,19 @@ export async function updateEmailCampaignEmailDraft(input: {
       email_test_version: 0,
       last_test_send_failed_at: null,
       last_test_send_error_code: null,
+      audience_counted_at: null,
+      audience_version: 0,
+      audience_email_total: 0,
+      audience_email_eligible: 0,
+      audience_email_excluded: 0,
+      audience_email_duplicate_count: 0,
+      audience_sms_total: 0,
+      audience_sms_eligible: 0,
+      audience_sms_excluded: 0,
+      audience_sms_duplicate_count: 0,
+      audience_both_eligible: null,
+      audience_last_error_code: null,
+      audience_last_error_at: null,
       status: "draft",
       updated_by: input.updated_by,
       updated_at: input.now,
@@ -1712,6 +1806,19 @@ export async function updateEmailCampaignSmsDraft(input: {
       sms_character_count: input.sms_character_count,
       sms_segment_count: input.sms_segment_count,
       sms_encoding: input.sms_encoding,
+      audience_counted_at: null,
+      audience_version: 0,
+      audience_email_total: 0,
+      audience_email_eligible: 0,
+      audience_email_excluded: 0,
+      audience_email_duplicate_count: 0,
+      audience_sms_total: 0,
+      audience_sms_eligible: 0,
+      audience_sms_excluded: 0,
+      audience_sms_duplicate_count: 0,
+      audience_both_eligible: null,
+      audience_last_error_code: null,
+      audience_last_error_at: null,
       sms_updated_by: input.updated_by,
       sms_updated_at: input.now,
       status: "draft",
@@ -1805,6 +1912,19 @@ export async function updateEmailCampaignDraft(input: {
       sms_eligible_count: input.sms_enabled ? undefined : 0,
       sms_excluded_count: input.sms_enabled ? undefined : 0,
       sms_duplicate_count: input.sms_enabled ? undefined : 0,
+      audience_counted_at: null,
+      audience_version: 0,
+      audience_email_total: 0,
+      audience_email_eligible: 0,
+      audience_email_excluded: 0,
+      audience_email_duplicate_count: 0,
+      audience_sms_total: 0,
+      audience_sms_eligible: 0,
+      audience_sms_excluded: 0,
+      audience_sms_duplicate_count: 0,
+      audience_both_eligible: null,
+      audience_last_error_code: null,
+      audience_last_error_at: null,
       status: "draft",
       updated_by: input.updated_by,
       updated_at: input.now,
@@ -2285,6 +2405,107 @@ export async function archiveEmailCampaignDraft(input: {
       ":tested": "tested",
       ":approved": "approved",
       ":zero": 0,
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignAudienceCounted(input: {
+  bothEligibleCount?: number | null;
+  emailDuplicateCount: number;
+  emailEligibleCount: number;
+  emailExcludedCount: number;
+  emailTotalCount: number;
+  expectedVersion: number;
+  id: string;
+  now: string;
+  smsDuplicateCount: number;
+  smsEligibleCount: number;
+  smsExcludedCount: number;
+  smsTotalCount: number;
+  updated_by: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_audience_counted",
+    returnValues: "ALL_NEW",
+    set: {
+      audience_counted_at: input.now,
+      audience_version: input.expectedVersion,
+      audience_email_total: input.emailTotalCount,
+      audience_email_eligible: input.emailEligibleCount,
+      audience_email_excluded: input.emailExcludedCount,
+      audience_email_duplicate_count: input.emailDuplicateCount,
+      audience_sms_total: input.smsTotalCount,
+      audience_sms_eligible: input.smsEligibleCount,
+      audience_sms_excluded: input.smsExcludedCount,
+      audience_sms_duplicate_count: input.smsDuplicateCount,
+      audience_both_eligible: input.bothEligibleCount ?? null,
+      audience_last_error_code: null,
+      audience_last_error_at: null,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested OR #status = :approved)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+      ":approved": "approved",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function markEmailCampaignAudienceCountFailed(input: {
+  errorCode: string;
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "mark_email_campaign_audience_count_failed",
+    returnValues: "ALL_NEW",
+    set: {
+      audience_last_error_code: input.errorCode,
+      audience_last_error_at: input.now,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (attribute_not_exists(#deletedAt) OR #deletedAt = :deletedAtNull) AND (#status = :draft OR #status = :testReady OR #status = :tested OR #status = :approved)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#deletedAt": "deleted_at",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":deletedAtNull": null,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+      ":approved": "approved",
     },
   });
 

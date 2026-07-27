@@ -217,6 +217,7 @@ export async function POST(
         emailPreviewVersion: updated.email_preview_version || 0,
         testedAt: updated.tested_at,
         emailTestVersion: updated.email_test_version || 0,
+        testMessageId: updated.test_message_id || null,
       },
     });
   } catch (error) {

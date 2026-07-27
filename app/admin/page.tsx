@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth, signOut } from "@/auth";
 import {
   getAdminAccess,
   isMicrosoftAuthConfigured,
@@ -10,6 +10,8 @@ import { getAdminSmsTestRecipientPreview } from "@/app/lib/server/sms/admin-test
 import AdminCampaignDraft from "./AdminCampaignDraft";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 export const metadata: Metadata = {
   title: "SuppVis Admin",
@@ -78,6 +80,11 @@ export default async function AdminPage() {
 
   const smsTestRecipientPreview = getAdminSmsTestRecipientPreview(access.email);
 
+  async function signOutAction() {
+    "use server";
+    await signOut({ redirectTo: "/admin" });
+  }
+
   return (
     <main className="min-h-screen bg-bg-primary px-5 py-8 text-text-primary">
       <div className="mx-auto max-w-6xl">
@@ -108,6 +115,11 @@ export default async function AdminPage() {
             <p className="mt-2 text-xs leading-5 text-text-muted">
               Admin access expires after six idle minutes.
             </p>
+            <form action={signOutAction} className="mt-3">
+              <button className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]">
+                Sign out
+              </button>
+            </form>
           </div>
         </header>
 

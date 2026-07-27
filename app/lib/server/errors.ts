@@ -20,7 +20,11 @@ export class ServerConfigError extends Error {
 }
 
 export class PersistenceError extends Error {
-  constructor(message = "Persistence failed") {
+  constructor(
+    message = "Persistence failed",
+    public readonly code = "persistence_failed",
+    public readonly causeName?: string,
+  ) {
     super(message);
     this.name = "PersistenceError";
   }

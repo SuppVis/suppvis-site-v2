@@ -299,7 +299,11 @@ export async function getDynamoItem(input: {
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
 
-    throw new PersistenceError();
+    throw new PersistenceError(
+      "DynamoDB get failed",
+      "dynamodb_get_failed",
+      error instanceof Error ? error.name : "UnknownError",
+    );
   }
 }
 
@@ -339,7 +343,11 @@ export async function queryDynamoItemsPage(input: QueryInput) {
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
 
-    throw new PersistenceError();
+    throw new PersistenceError(
+      "DynamoDB query failed",
+      "dynamodb_query_failed",
+      error instanceof Error ? error.name : "UnknownError",
+    );
   }
 }
 
