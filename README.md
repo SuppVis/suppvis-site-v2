@@ -1,19 +1,21 @@
 # SuppVis Site V2
 
-Next.js marketing site for SuppVis.
+Next.js App Router site for SuppVis. The repo contains the public marketing and content pages, beta signup collection, subscriber consent persistence, an authenticated admin announcement console, and AWS worker code for queued email and SMS announcement delivery.
 
 ## Stack
 
 - Next.js 14 App Router
 - React 18
 - TypeScript
-- npm
-- Tailwind CSS v4 via PostCSS
+- Tailwind CSS v4 through PostCSS
+- Auth.js with Microsoft Entra ID for `/admin`
 - Vercel serverless API routes
-- Auth.js with Microsoft Entra ID for the future admin console
-- AWS SDK v3 for DynamoDB persistence and disabled future SES email sending
+- AWS DynamoDB for applications, subscribers, campaigns, recipients, and audit logs
+- AWS SQS and Lambda for durable campaign delivery workers
+- AWS SES for email sending
+- Twilio Programmable Messaging SMS for text sending and callbacks
 
-## Local Setup
+## Local Development
 
 Install dependencies:
 
@@ -21,447 +23,531 @@ Install dependencies:
 npm install
 ```
 
-Create local env values from the template:
+Create local environment values:
 
 ```bash
 copy .env.example .env.local
 ```
 
-Do not commit `.env.local` or real secrets.
+Run the app:
 
-## Collection Endpoints
+```bash
+npm run dev
+```
 
-The site includes serverless API routes for:
+Production checks:
 
-- `POST /api/beta-applications`
-- `POST /api/email-subscribers`
-- `POST /api/sms-subscribers`
-- `POST /api/admin/broadcast-audit`
-- `POST /api/email-subscribers/unsubscribe`
-- `POST /api/webhooks/twilio/sms`
-- `POST /api/webhooks/twilio/status`
+```bash
+npx tsc --noEmit
+npm run build
+```
 
-These routes validate input server-side, use honeypot fields, apply basic in-memory rate limiting, and return safe user-facing errors. Email and SMS sender paths are gated by explicit environment flags.
+Do not commit `.env.local`, real secrets, access keys, Twilio tokens, or recipient data.
 
-The beta waitlist form collects first name, last name, email, and an optional phone number. SMS consent is a separate optional checkbox, unchecked by default, and is not required to join the beta waitlist. A phone number is stored on the beta application when provided, but an SMS subscriber record is created only when the user explicitly opts into texts. Repeated beta signups with the same normalized email return a friendly already-signed-up success response instead of creating a second beta application.
+## Public Pages
 
-## Required Environment Variables
+| Route | Purpose |
+| --- | --- |
+| `/` | Main SuppVis homepage with the beta signup flow. |
+| `/about` | Founder and company story. |
+| `/how-it-works` | Product workflow and user education page. |
+| `/research` | Research landing page backed by the configured public content API. |
+| `/research/[canonical_key]` | Dynamic research detail page for a supplement or canonical research key. |
+| `/blog` | SuppVis Journal listing. |
+| `/blog/[slug]` | Dynamic article page. |
+| `/shop` | Curated supplement shop listing backed by the public content API. |
+| `/shop/[id]` | Dynamic product detail page. |
+| `/partnerships` | Partner and affiliate intake page. |
+| `/sources` | Source and evidence notes. |
+| `/privacy` | Privacy policy. |
+| `/terms` | Terms of service. |
+| `/medical-disclaimer` | Medical disclaimer. |
+| `/affiliate-disclosure` | Affiliate disclosure. |
+| `/unsubscribe` | Email unsubscribe page. |
+| `/admin` | Protected admin announcement console. |
+| `/admin/sign-in` | Admin sign-in entry page. |
 
-Existing public content API:
+The `/admin` route is intentionally not linked from public navigation. Security is enforced server-side and does not rely on the URL being hidden.
 
-- `NEXT_PUBLIC_API_URL`
-- `APP_BASE_URL`
+## Public Collection Flows
 
-AWS/DynamoDB:
+### Beta Signup
 
-- `AWS_REGION`
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `DYNAMODB_BETA_APPLICATIONS_TABLE`
-- `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE`
-- `DYNAMODB_EMAIL_CAMPAIGNS_TABLE`
-- `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE`
-- `DYNAMODB_SMS_SUBSCRIBERS_TABLE`
-- `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE`
+`POST /api/beta-applications`
 
-Admin dry-run audit:
+Collects beta application details from the public site. The route validates input server-side, uses honeypot/rate-limit protections, normalizes email and phone data, writes the beta application, and upserts subscriber records where consent exists.
 
-- `ADMIN_BROADCAST_TOKEN_HASH`
+Behavior:
 
-Admin console auth:
+- Email signup creates or updates an email subscriber record.
+- Optional phone input is stored on the beta application when provided.
+- SMS subscriber records are created only when the user explicitly checks the SMS consent box.
+- SMS consent is informational/customer-care consent, not marketing consent.
+- Duplicate beta signups with the same normalized email return a friendly already-signed-up success result instead of creating duplicate applications.
 
-- `AUTH_SECRET` - Auth.js secret used to encrypt session tokens. Generate with `npx auth secret`.
-- `AUTH_MICROSOFT_ENTRA_ID_ID` - Microsoft Entra app registration client ID.
-- `AUTH_MICROSOFT_ENTRA_ID_SECRET` - Microsoft Entra app registration client secret.
-- `AUTH_MICROSOFT_ENTRA_ID_ISSUER` - single-tenant issuer, `https://login.microsoftonline.com/<tenant-id>/v2.0`.
-- `ADMIN_ALLOWED_EMAILS` - comma-separated `@suppvis.health` admin emails allowed into `/admin`.
-- `ADMIN_EMAIL_CAMPAIGNS_ENABLED` - keep `false` until campaign persistence is approved.
-- `ADMIN_EMAIL_TEST_SEND_ENABLED` - keep `false` until one-recipient test sending is approved.
-- `ADMIN_EMAIL_BULK_SEND_ENABLED` - keep `false` until queued batch sending and audit controls are approved.
-- `ADMIN_EMAIL_BULK_SEND_INFRA_READY` - extra default-off readiness gate for subscriber campaign queueing; keep `false` until the queue, worker, IAM, and live tests are explicitly approved.
-- `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` - SQS queue URL used only after the readiness gate is enabled.
-- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` - default-off gate for future subscriber SMS announcement delivery. It is not required for the one-admin SMS test modal.
-- `ADMIN_SMS_TEST_SEND_ENABLED` - default-off gate for one-admin SMS tests through the protected admin modal; keep `false` until Twilio and admin mappings are verified.
-- `ADMIN_SMS_TEST_RECIPIENTS` - sensitive server-only mapping from normalized admin email to one approved U.S. E.164 test phone, such as `admin1@suppvis.health=+1XXXXXXXXXX,admin2@suppvis.health=+1XXXXXXXXXX`. Do not expose with `NEXT_PUBLIC_`.
-- `ADMIN_SMS_BULK_SEND_ENABLED` - default-off gate for subscriber SMS announcement sending.
-- `ADMIN_SMS_BULK_SEND_INFRA_READY` - default-off readiness gate for the SMS announcement queue, worker, IAM, Twilio configuration, and callback path.
-- `ADMIN_SMS_CAMPAIGN_QUEUE_URL` - SQS queue URL for production SMS announcement jobs; leave unset until `suppvis-sms-announcement-send-worker` is active.
+### Email Subscriber Endpoint
 
-Welcome templates:
+`POST /api/email-subscribers`
 
-- `WELCOME_EMAIL_ENABLED` - enables first-time welcome and beta resubscribe emails from the beta signup route; keep `false` unless an approved send test or production rollout is active.
-- `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED` - optional unsubscribe confirmation email; keep `false` unless explicitly approved.
-- `WELCOME_SMS_ENABLED` - keep `false` until STOP/UNSUBSCRIBE handling and an SMS provider are configured.
-- `SES_FROM_EMAIL` - future verified sender, recommended `beta@suppvis.health`.
-- `SES_FROM_NAME` - display name for the sender, recommended `SuppVis Beta Testers`.
-- `SES_REGION` - future SES region, recommended `us-east-1`.
-- `SES_CONFIGURATION_SET` - future SES event configuration set, currently `suppvis-welcome`.
+Creates or reactivates an email subscriber with a deterministic unsubscribe token and consent metadata.
 
-Twilio SMS configuration:
+### SMS Subscriber Endpoint
 
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_MESSAGING_SERVICE_SID`
-- `TWILIO_SMS_FROM_NUMBER` - approved SMS long-code sender used with the Messaging Service, recommended `+16507025913`.
-- `TWILIO_WEBHOOK_SIGNATURE_REQUIRED` - keep `false` for local testing; production webhooks should require signatures before provider traffic is connected.
-- `TWILIO_STATUS_CALLBACK_URL` - recommended `https://www.suppvis.health/api/webhooks/twilio/status`.
+`POST /api/sms-subscribers`
 
-Recommended before production public collection:
+Creates or reactivates an SMS subscriber only after explicit informational consent. Valid consented records may initially use `pending_verification`; this means the user opted in through the website and the record is eligible for customer-care beta announcements unless stopped, invalid, suppressed, or missing required consent.
 
-- `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
-- `TURNSTILE_SECRET_KEY`
+Email-only signup should not create an eligible SMS subscriber record.
 
-## DynamoDB Tables
+### Unsubscribe
 
-The production DynamoDB tables already exist. New Preview, Development, or future isolated environments need equivalent tables and matching environment variables before form writes will work.
+`POST /api/email-subscribers/unsubscribe`
 
-Each table can start with:
+Requires subscriber id and token, conditionally updates the subscriber to `unsubscribed`, and preserves the record for audit/history. Future signups with the same email can resubscribe the record.
 
-- Partition key: `id` string
-- Billing mode: on-demand
-- Encryption: AWS-managed encryption at rest
-- Point-in-time recovery: recommended for production
+### Twilio Webhooks
 
-Tables:
+| Route | Purpose |
+| --- | --- |
+| `POST /api/webhooks/twilio/sms` | Handles inbound STOP/START style SMS keywords and updates local SMS opt-out state. |
+| `POST /api/webhooks/twilio/status` | Handles Twilio delivery callbacks for welcome/admin-test/announcement SMS message types. |
 
-- `suppvis-prod-beta-applications`
-- `suppvis-prod-email-subscribers`
-- `suppvis-prod-email-campaigns`
-- `suppvis-prod-email-campaign-recipients`
-- `suppvis-prod-sms-subscribers`
-- `suppvis-prod-broadcast-audit-logs`
-
-The current code writes these record shapes:
-
-- Beta applications: `id`, `first_name`, `last_name`, `email`, `normalized_email`, optional `phone_raw`, optional `phone_e164`, `sms_opt_in`, `legacy_sms_consent`, `sms_informational_consent`, `sms_marketing_consent`, `sms_consent_version`, `status`, `source_page`, `created_at`, `updated_at`
-- Email subscribers: `id`, `email`, `normalized_email`, `status`, `consent_timestamp`, `consent_source`, `created_at`, `updated_at`, `unsubscribe_token`, optional `unsubscribed_at`, optional `unsubscribe_source`, optional `resubscribed_at`
-- Email campaigns: `id`, `record_type`, `message_type`, `subject`, `heading`, `body`, optional `cta_label`, optional `cta_url`, optional admin SMS fields (`sms_enabled`, `sms_body`, `sms_rendered_body`, `sms_draft_version`, `sms_saved_at`, `sms_tested_at`, `sms_character_count`, `sms_segment_count`, `sms_encoding`, `sms_updated_by`, `sms_updated_at`, optional SMS audience counts), `status`, `created_by`, `updated_by`, `created_at`, `updated_at`, `version`, nullable `tested_at`, nullable `approved_at`, nullable `sent_at`, nullable `test_recipient`, optional `test_message_id`, optional approval/queue timestamps, soft-delete fields, and aggregate send counters
-- Email campaign recipients: `campaign_id`, `subscriber_id`, `record_type`, `status`, `eligibility_decision`, optional `skip_reason`, optional `ses_message_id`, queue/send/delivery/failure timestamps, `retry_count`, optional safe failure classification, `created_at`, `updated_at`
-- SMS subscribers: `id`, `phone_number_raw`, `phone_number_e164`, `status`, `sms_informational_consent`, `sms_informational_consent_at`, `sms_marketing_consent`, `sms_marketing_consent_at`, `sms_consent_timestamp`, `sms_consent_source`, `sms_consent_version`, `sms_global_opt_out`, `sms_global_opt_out_at`, `opt_out_timestamp`, optional `opt_out_source`, optional `last_opt_out_keyword`, optional `resubscribed_at`, optional SMS send/status tracking fields, `created_at`, `updated_at`
-- Broadcast audit logs: `id`, `admin_identifier`, `channel`, `message_preview`, `intended_audience`, optional `target_count`, `dry_run`, `status`, `created_at`
-
-Email campaign table settings:
-
-- Table name: `suppvis-prod-email-campaigns`
-- Partition key: `id` string
-- Billing mode: on-demand
-- Encryption: AWS-managed encryption at rest
-- Point-in-time recovery: recommended for production
-- GSI name: `record_type-updated_at-index`
-- GSI partition key: `record_type` string
-- GSI sort key: `updated_at` string
-- GSI projection: all attributes
-
-Email campaign recipient table settings:
-
-- Table name: `suppvis-prod-email-campaign-recipients`
-- Partition key: `campaign_id` string
-- Sort key: `subscriber_id` string
-- Billing mode: on-demand
-- Encryption: AWS-managed encryption at rest
-- Point-in-time recovery: enabled for production
-- Deletion protection: enabled for production
-
-Email subscriber campaign index:
-
-- Existing table: `suppvis-prod-email-subscribers`
-- GSI name: `status-updated_at-index`
-- GSI partition key: `status` string
-- GSI sort key: `updated_at` string
-- GSI projection: all attributes
-
-SMS subscriber campaign index:
-
-- Existing table: `suppvis-prod-sms-subscribers`
-- GSI name: `status-updated_at-index`
-- GSI partition key: `status` string
-- GSI sort key: `updated_at` string
-- GSI projection: all attributes. Admin audience counting uses this verified server-only status index directly and does not require `BatchGetItem` for SMS records.
-- Current customer-care announcement eligibility includes explicitly opted-in `pending_verification`, `active`, and `subscribed` SMS records unless they are stopped, invalid, suppressed, opted out, missing informational consent, or have an invalid normalized E.164 phone.
-
-Least-privilege audience diagnostics permissions for the Vercel Production AWS principal:
-
-- `dynamodb:Query` on each subscriber status GSI ARN used for audience counts.
-- `dynamodb:DescribeTable` on the email and SMS subscriber tables for the protected admin health panel. This is diagnostic only; audience counting can still run without it when the query path is otherwise valid.
-
-## Welcome Message Templates
-
-Welcome email and SMS copy lives in `app/lib/server/messages/welcome.ts`. The disabled, server-only SES helper lives in `app/lib/server/email/welcome.ts`.
-
-The beta signup route can call the SES helper, but only after storage succeeds and only when `WELCOME_EMAIL_ENABLED=true`. First-time beta signups send the `beta_signup_welcome` variant with `message_type=welcome_beta`. Explicit beta-form resubscribes after an unsubscribe send the `beta_resubscribe` variant with `message_type=beta_resubscribe`. Ordinary duplicate beta signups while already subscribed do not send another email.
-
-The unsubscribe route can optionally send a one-time `beta_unsubscribe_confirmation` email after a successful unsubscribe, but only when `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED=true`. That confirmation uses `message_type=beta_unsubscribe_confirmation` and should remain disabled unless explicitly approved.
-
-The `founder_contact_outreach` template exists for later contact-list/founder outreach use only. It is not connected to a public route or bulk sender.
-
-Real welcome sends must remain disabled until:
-
-- Email unsubscribe suppression is wired into the future sending pipeline.
-- SMS STOP/UNSUBSCRIBE suppression is wired into the future sending pipeline.
-- A sending provider is configured and approved.
-- The `WELCOME_EMAIL_ENABLED` or `WELCOME_SMS_ENABLED` flags are explicitly enabled.
-
-Do not enable bulk sends or broadcast sends from these helpers. They are one-recipient transactional paths only.
+Production Twilio webhooks should use signature verification with `TWILIO_WEBHOOK_SIGNATURE_REQUIRED=true`.
 
 ## Admin Announcement Console
 
-The `/admin` route is intentionally not linked from public navigation, but hidden URLs are not a security boundary. Admin access is enforced by:
+The admin console creates one combined beta announcement with both:
 
-- Microsoft Entra ID login through Auth.js.
-- A single-tenant Microsoft Entra issuer for the SuppVis Microsoft 365 tenant.
-- A server-side `ADMIN_ALLOWED_EMAILS` allowlist.
-- Server-side authorization checks on the admin page.
-- Disabled send flags until each sending phase is approved.
+- an email draft
+- a text draft
 
-The current admin console supports combined email-plus-text announcement draft persistence, recent draft loading, server-rendered HTML/plain-text email previews, customer-care beta text drafting/previews, one-recipient admin email test sends, protected one-recipient admin text tests when enabled, approval, recipient counting, draft archiving, and queued production delivery through channel-specific email and SMS jobs.
+Email and text authoring are worked independently, but production approval requires both channels to be saved, previewed, and admin-tested.
 
-Admin SMS announcement drafting is stored on the same announcement record and uses the format `SuppVis: [admin body]` followed by a blank line and `Msg frequency varies. Msg & data rates may apply.` Admin-entered text is validated as plain text, rejects duplicated required prefix/footer copy, and is limited to two SMS segments. Admin SMS tests derive the destination only from the authenticated admin's `ADMIN_SMS_TEST_RECIPIENTS` mapping; the browser cannot submit a phone number, and test sends do not create subscriber consent or enter the production SMS audience. Subscriber SMS announcement sending is queued through `ADMIN_SMS_CAMPAIGN_QUEUE_URL` and stays blocked until `ADMIN_SMS_ANNOUNCEMENTS_ENABLED=true`, `ADMIN_SMS_BULK_SEND_ENABLED=true`, and `ADMIN_SMS_BULK_SEND_INFRA_READY=true`.
+### Admin Security
 
-Recommended Microsoft Entra setup:
+Admin access uses:
 
-1. Create named Microsoft 365 accounts for every admin. Do not use shared accounts.
-2. Require MFA for those accounts in Microsoft 365.
-3. In Microsoft Entra admin center, create an App Registration for the SuppVis admin console.
-4. Use a single-tenant registration.
-5. Add the redirect URI `https://www.suppvis.health/api/auth/callback/microsoft-entra-id`.
-6. For local testing, optionally add `http://localhost:3000/api/auth/callback/microsoft-entra-id`.
-7. Add the app registration values to Vercel as sensitive Production env vars.
-8. Put only named admin emails in `ADMIN_ALLOWED_EMAILS`.
+- Microsoft Entra ID through Auth.js
+- single-tenant issuer configuration
+- server-side `ADMIN_ALLOWED_EMAILS`
+- protected admin API routes
+- no public caching of admin responses
+- optimistic version checks on draft mutations
+- audit logging for safe admin events
+- a six-minute sliding inactivity timeout in the browser tab
+- an eight-hour absolute session cap
+- manual sign-out
+- page refresh/navigation re-entry protection
 
-Queued production email campaign sending uses:
+The browser never controls production recipients, sender identity, arbitrary test email addresses, or production phone numbers.
 
-1. The admin API to approve a tested campaign and calculate the eligible audience count server-side.
-2. A typed confirmation phrase, such as `SEND TO 123 SUBSCRIBERS`.
-3. A per-recipient DynamoDB tracking record in `suppvis-prod-email-campaign-recipients`.
-4. One SQS message per eligible recipient.
-5. `suppvis-email-campaign-send-worker` Lambda to re-check subscriber eligibility immediately before sending through SES.
-6. SES tags with `campaign_id`, `subscriber_id`, and `message_type=admin_campaign`.
-7. `suppvis-ses-campaign-event-processor` Lambda to record SEND, DELIVERY, DELIVERY_DELAY, BOUNCE, COMPLAINT, and REJECT events on campaign-recipient records.
+### Admin Workflow
 
-`ADMIN_EMAIL_BULK_SEND_ENABLED=true` is not enough by itself. Subscriber campaign queueing also requires `ADMIN_EMAIL_BULK_SEND_INFRA_READY=true` and a configured `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL`.
+1. Sign in to `/admin`.
+2. Click `New announcement`.
+3. Save the email.
+4. Generate the email preview.
+5. Send one admin email test to yourself.
+6. Save the text.
+7. Generate the text preview.
+8. Send one admin text test to the configured admin test number.
+9. Refresh recipient count.
+10. Type the generated confirmation phrase, such as `SEND EMAIL TO 3 AND TEXT TO 2`.
+11. Click `Approve & send announcement`.
+12. The server queues eligible email and SMS recipient jobs; delivery workers continue independently.
 
-Every campaign send must suppress `unsubscribed`, `bounced`, and `complained` email subscribers and must include an unsubscribe link.
+The per-channel test controls are grouped by workspace:
 
-Queued production SMS announcement sending uses:
+- Email: `Save email`, `Generate preview`, `Send test to myself`
+- Text: `Save text`, `Generate preview`, `Send test to myself`
 
-1. The same approved announcement start API after previews, admin tests, recipient refresh, and typed confirmation.
-2. A per-recipient DynamoDB tracking record in `suppvis-prod-email-campaign-recipients` with `channel = sms`.
-3. One SQS message per eligible SMS subscriber on `suppvis-sms-announcement-send-queue`.
-4. `suppvis-sms-announcement-send-worker` Lambda to re-check SMS consent, STOP, invalid, and suppression state immediately before calling Twilio.
-5. Standard Twilio Programmable Messaging through `TWILIO_MESSAGING_SERVICE_SID`, recommended `MGa88964d7c8a19058525ba21ca648715e`, and the approved sender `+16507025913`.
-6. `POST /api/webhooks/twilio/status?message_type=admin_campaign_sms&campaign=...&subscriber=...` to update campaign-recipient provider state separately from welcome SMS and admin-test SMS.
+Final production sending still requires both email and text authoring/test prerequisites.
 
-Admin SMS announcement sends must not use `WELCOME_SMS_ENABLED`; that flag is only for the beta signup welcome text path. The production SMS queue can be provisioned with `aws/scripts/provision-sms-announcement-worker.sh`. Do not set `ADMIN_SMS_BULK_SEND_INFRA_READY=true` until the queue, DLQ, Lambda event-source mapping, Twilio Lambda env vars, and Vercel `ADMIN_SMS_CAMPAIGN_QUEUE_URL` are active.
+### Recipient Rules
 
-Campaign draft APIs deliberately accept only structured fields (`messageType`, `subject`, `heading`, `body`, optional link text/URL), render email HTML server-side, reject raw HTML, and use optimistic `version` checks to avoid silent overwrites.
+Manual recipient refresh queries the current Production subscriber records each time. It applies current eligibility, suppression, opt-out, bounce, complaint, invalid, and deduplication rules. It does not send or queue anything.
 
-## Unsubscribe And SMS Opt-Out Foundation
+Sending rules:
 
-Email unsubscribe support is provider-ready. The unsubscribe-confirmation sender path exists but stays disabled unless `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED=true`:
+- Announcement content must include both email and text.
+- Both previews and both admin tests must be current.
+- Email jobs are queued only for eligible email subscribers.
+- SMS jobs are queued only for eligible SMS subscribers.
+- If one channel has zero eligible recipients, the other channel may still queue if all authoring/test requirements are met and that channel infrastructure is ready.
+- If both channels have zero eligible recipients, final sending is blocked.
+- The final start route recalculates eligibility before queueing and verifies the confirmation phrase server-side.
 
-- Future emails should link to `/unsubscribe?subscriber=<email_subscriber_id>&token=<unsubscribe_token>`.
-- The API route conditionally updates the matching email subscriber record to `status = unsubscribed`, sets `unsubscribed_at`, and keeps the record for audit/history.
-- Token-only lookup is intentionally not used because it would require a GSI or token lookup table. Passing the deterministic subscriber id plus token avoids production scans.
-- A later signup with the same email sets `status = subscribed` again and records `resubscribed_at` when the previous record was unsubscribed.
+### Recent And Sent Announcements
 
-SMS opt-out support is provider-ready:
+Recent announcements show active unsent work. Sent/queued/completed announcements move to sent history and should not show pin/delete controls.
 
-- `POST /api/webhooks/twilio/sms` accepts Twilio-style inbound SMS form payloads.
-- `POST /api/webhooks/twilio/status` accepts Twilio-style SMS status callbacks when outbound SMS is enabled later.
-- STOP keywords are `STOP`, `UNSUBSCRIBE`, `CANCEL`, `END`, and `QUIT`.
-- START keywords are `START` and `UNSTOP`.
-- STOP updates the deterministic phone-based SMS subscriber record to `status = unsubscribed`, sets `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`, and keeps the record.
-- START or explicit website SMS consent can reactivate a locally unsubscribed phone record as `pending_verification` and set `resubscribed_at`.
-- Production Twilio traffic should require signature verification with `TWILIO_AUTH_TOKEN`.
-- The app currently returns empty TwiML and does not send a STOP confirmation. Prefer Twilio Messaging Service advanced opt-out confirmations during provider setup, or add app-generated confirmations only after that behavior is chosen.
+Recent card channel labels use admin-test wording:
 
-## Future Email Sender Setup
+- `Not saved`
+- `Saved`
+- `Previewed`
+- `Test accepted`
+- `Test delivered`
+- `Test failed`
+- `Test stale`
 
-Use `beta@suppvis.health` as the recommended production sender for beta/TestFlight/waitlist emails. Do not use a personal Gmail account or personal inbox for production sending.
+Production history uses delivery wording:
 
-Recommended SES setup:
+- `Queued`
+- `Accepted`
+- `Sent`
+- `Delivered`
+- `Failed`
+- `Partially delivered`
 
-- Use SES in `us-east-1` unless there is a later reason to move email sending to a different AWS Region.
-- Verify the domain `suppvis.health` in SES, not only `beta@suppvis.health`, so future domain addresses can inherit verification.
-- Use Easy DKIM with SES-generated DNS records.
-- Keep `SES_FROM_EMAIL=beta@suppvis.health`.
-- Keep `WELCOME_EMAIL_ENABLED=false` until sender verification, unsubscribe suppression, bounce/complaint handling, and internal test approval are complete.
+## API Routes
 
-High-level AWS console steps:
+### Public API
 
-1. Open AWS SES in `us-east-1`.
-2. Go to Configuration > Identities.
-3. Create an identity with type `Domain` and value `suppvis.health`.
-4. Enable Easy DKIM.
-5. Copy the generated DKIM `CNAME` records into the domain DNS provider.
-6. Add SPF and DMARC DNS records if they are not already present.
-7. Optionally configure a custom MAIL FROM subdomain, such as `mail.suppvis.health` or `bounce.suppvis.health`.
-8. Check the SES Account dashboard to determine whether the account is still in sandbox.
-9. If sandboxed, request production access only after DNS/authentication records and bounce/complaint handling plans are ready.
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/api/beta-applications` | `POST` | Beta application and consent capture. |
+| `/api/email-subscribers` | `POST` | Email subscriber upsert/resubscribe. |
+| `/api/email-subscribers/unsubscribe` | `POST` | Token-protected email unsubscribe. |
+| `/api/sms-subscribers` | `POST` | SMS subscriber consent upsert. |
+| `/api/webhooks/twilio/sms` | `POST` | Inbound SMS keyword handling. |
+| `/api/webhooks/twilio/status` | `POST` | SMS provider status callbacks. |
 
-DNS records to expect:
+### Auth API
 
-- SES Easy DKIM: three generated `CNAME` records under `_domainkey.suppvis.health`.
-- SPF: a `TXT` record authorizing SES if using a custom MAIL FROM, usually including `include:amazonses.com`.
-- DMARC: a `TXT` record at `_dmarc.suppvis.health`; start with monitoring policy such as `p=none` before tightening.
-- Custom MAIL FROM, if used: SES-provided `MX` and `TXT` records for the chosen subdomain.
+| Route | Purpose |
+| --- | --- |
+| `/api/auth/[...nextauth]` | Auth.js provider callbacks and session handling. |
 
-Before real welcome emails are enabled:
+### Admin API
 
-- Verify `suppvis.health` or `beta@suppvis.health` with AWS SES or the chosen transactional provider.
-- Configure DKIM records.
-- Configure SPF/DMARC as appropriate.
-- Request SES production access if the account is still in sandbox.
-- Add bounce and complaint handling before broader sends.
-- Set `SES_FROM_EMAIL=beta@suppvis.health`, `SES_FROM_NAME=SuppVis Beta Testers`, `SES_REGION=us-east-1`, `SES_CONFIGURATION_SET=suppvis-welcome`, and `APP_BASE_URL=https://www.suppvis.health`.
-- Include the unsubscribe link in every email and suppress subscribers with `status = unsubscribed` before sending.
-- Add least-privilege SES IAM permissions only after explicit approval. The future app principal should only need `ses:SendEmail` and/or `ses:SendRawEmail` scoped to the verified identity and optional configuration set.
+Every admin route requires an authenticated, allowlisted admin session.
 
-Future bounce/complaint handling:
+| Route | Purpose |
+| --- | --- |
+| `/api/admin/session/touch` | Refreshes the sliding admin session while the tab is active. |
+| `/api/admin/audience/summary` | Protected safe aggregate live audience summary. |
+| `/api/admin/audience/health` | Protected safe audience table/index diagnostics. |
+| `/api/admin/broadcast-audit` | Legacy dry-run audit endpoint guarded by token hash. |
+| `/api/admin/email-campaigns` | Lists/creates admin announcement drafts. |
+| `/api/admin/email-campaigns/[id]` | Loads, patches, archives, and hydrates an announcement. |
+| `/api/admin/email-campaigns/preview` | Server-rendered email preview. |
+| `/api/admin/email-campaigns/sms-preview` | Server-rendered SMS preview/metadata. |
+| `/api/admin/email-campaigns/[id]/test-send` | One-recipient admin email test. |
+| `/api/admin/email-campaigns/[id]/sms-test-readiness` | Safe SMS test readiness state for the signed-in admin. |
+| `/api/admin/email-campaigns/[id]/sms-test-send` | One-recipient admin SMS test using the server-side admin mapping. |
+| `/api/admin/email-campaigns/[id]/audience` | Campaign-bound recipient snapshot. |
+| `/api/admin/email-campaigns/[id]/approve` | Approval state transition, retained for compatibility with existing flow. |
+| `/api/admin/email-campaigns/[id]/start` | Final approve-and-queue route for production jobs. |
+| `/api/admin/email-campaigns/[id]/progress` | Campaign delivery progress summary. |
+| `/api/admin/email-campaigns/[id]/pin` | Protected recent-announcement pin/unpin. |
 
-- Use the `suppvis-welcome` SES configuration set for welcome emails.
-- Route bounce, complaint, and reject events to SNS, EventBridge, or another approved event processor.
-- Update `email_subscribers.status` to `bounced` or `complained` when those events occur.
-- Suppress sends for `unsubscribed`, `bounced`, and `complained` records.
+## Email Rendering
 
-Do not do yet:
+Email HTML is rendered server-side from structured fields, not raw admin HTML. The renderer is shared by preview, admin tests, and production subscriber emails.
 
-- Do not enable `WELCOME_EMAIL_ENABLED`.
-- Do not send test or production email.
-- Do not request SES production access until domain authentication and bounce/complaint handling are planned.
-- Do not use a personal Gmail address for production sending.
+Branding:
 
-## Future Twilio SMS Setup
+- Public logo asset: `/email/suppvis-logo.png`
+- Production URL: `https://www.suppvis.health/email/suppvis-logo.png`
+- Alt text: `SuppVis`
 
-Use a Twilio Messaging Service for beta SMS confirmation messages and STOP/START handling. Keep `WELCOME_SMS_ENABLED=false` until compliance, webhook signing, and an explicitly approved internal test are ready.
+Every production subscriber email must include an individualized unsubscribe URL and suppress unsubscribed, bounced, and complained subscribers before send.
 
-Recommended setup:
+## SMS Rendering
 
-- Create or use a Twilio account owned by SuppVis.
-- Create a Messaging Service for SuppVis beta/waitlist messages.
-- Register the current beta SMS program as `CUSTOMER_CARE` or the closest Twilio customer-care/account-notification use case available. The public form currently collects one optional, unchecked SMS consent for beta access, onboarding, account status, requested support, and service-related notifications only. Do not include marketing, promotional offers, general company news, discounts, or sales messages in this campaign.
-- Complete required brand/campaign or toll-free verification before real sends.
-- Configure the inbound message webhook on the Messaging Service:
-  - URL: `https://www.suppvis.health/api/webhooks/twilio/sms`
-  - Method: `POST`
-- Configure the status callback on outgoing messages:
-  - URL: `https://www.suppvis.health/api/webhooks/twilio/status`
-  - Method: `POST`
-- Require Twilio webhook signature verification in production.
+Admin and production SMS announcement text uses the same server-side formatter:
 
-Future Twilio environment variables:
+```text
+SuppVis: [admin-written message]
 
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_MESSAGING_SERVICE_SID`
-- `TWILIO_WEBHOOK_SIGNATURE_REQUIRED=true`
-- `TWILIO_STATUS_CALLBACK_URL=https://www.suppvis.health/api/webhooks/twilio/status`
-- `WELCOME_SMS_ENABLED=false`
-- `ADMIN_SMS_CAMPAIGN_QUEUE_URL`
-- `ADMIN_SMS_ANNOUNCEMENTS_ENABLED=true`
-- `ADMIN_SMS_BULK_SEND_ENABLED=true`
-- `ADMIN_SMS_BULK_SEND_INFRA_READY=true`
-
-Do not add `SMS_TEST_RECIPIENT_ALLOWLIST`. SMS eligibility comes from DynamoDB `sms_subscribers` consent/status fields and the global `WELCOME_SMS_ENABLED` kill switch.
-
-Compliance information likely needed:
-
-- Legal business name and contact details.
-- Website URL: `https://www.suppvis.health`.
-- Message use case: recurring customer care and account-related beta messages for users who explicitly opt in.
-- Sample messages for beta access, onboarding, account status, requested support, and service-related notifications, including STOP/HELP language.
-- Opt-in flow description: website beta form with optional phone field and one separate optional SMS consent checkbox, unchecked by default.
-- Opt-out flow description: users can reply STOP; app syncs opt-out state into DynamoDB.
-- Privacy policy and terms URLs.
-
-SMS beta/account consent checkbox copy:
-
-> I agree to receive recurring customer care and account-related text messages from SuppVis about my beta waitlist status, beta access instructions, onboarding assistance, account status updates, requested support responses, and service-related notifications. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is optional and is not required to join the SuppVis beta waitlist, create an account, or use SuppVis services. See our Terms of Service and Privacy Policy.
-
-Marketing/news SMS is intentionally not part of the current beta SMS campaign. Add a separate public consent flow and campaign later before sending SuppVis news, promotional offers, discounts, sales messages, or broader marketing updates by SMS.
-
-Prepared SMS welcome copy:
-
-- Beta/account welcome: `SuppVis: Welcome to the beta, [FirstName]! Your account is ready. Open the app to complete onboarding and build your personalized supplement fingerprint: https://testflight.apple.com/join/nTASgewZ Reply STOP to opt out or HELP for help.`
-
-Twilio campaign notes:
-
-- Select only website/web form as the opt-in method unless another method is truly implemented.
-- Leave opt-in keywords blank unless keyword enrollment is actually supported.
-- Use embedded links = yes if sample messages include `https://www.suppvis.health`.
-- Use phone numbers in message content = no.
-- Use direct lending = no.
-- Use age-gated content = no.
-
-STOP/START behavior:
-
-- Twilio Messaging Service or Advanced Opt-Out can block provider-level sends to opted-out numbers.
-- The app webhook also syncs STOP keywords into DynamoDB with `status = unsubscribed`, `opt_out_timestamp`, `opt_out_source`, and `last_opt_out_keyword`.
-- START/UNSTOP can clear the local global opt-out state as `pending_verification`, but it does not invent consent without an existing subscriber record.
-- Explicit website SMS consent can resubscribe a previously opted-out phone number for the beta/account SMS program.
-- Future sending code must suppress any SMS subscriber with `status = unsubscribed`, `status = opt_out_provider`, or `sms_global_opt_out = true`.
-- Beta/account sends must only select records with `sms_informational_consent = true`.
-- Do not use `sms_marketing_consent` for the current beta SMS campaign.
-
-Do not do yet:
-
-- Do not enable `WELCOME_SMS_ENABLED`.
-- Do not send test or production SMS.
-- Do not create accidental broadcast or bulk-send tooling.
-- Do not add Twilio secrets to the repo.
-- Do not turn off webhook signature verification for production provider traffic.
-
-## Vercel Environment Setup
-
-Add the server-only AWS and DynamoDB variables in Vercel as encrypted environment variables. Use separate table names for:
-
-- Production
-- Preview
-- Development, if using `vercel env pull`
-
-Do not add a personal IAM user's key to Vercel. Use a dedicated least-privilege app IAM principal for the first deployment, or prefer a future Vercel OIDC-to-AWS role setup.
-
-## Admin Broadcast Audit
-
-`POST /api/admin/broadcast-audit` is dry-run/audit-only. It does not send email or SMS.
-
-Authorization uses:
-
-```http
-Authorization: Bearer <raw-admin-token>
+Msg frequency varies. Msg & data rates may apply.
 ```
 
-Set `ADMIN_BROADCAST_TOKEN_HASH` to the SHA-256 hex hash of the raw token. Keep the raw token outside the repo.
+Rules:
 
-Example PowerShell hash generation:
+- Standard SMS only.
+- No RCS sender, RCS profile, rich cards, generated RCS images, or Content API path.
+- Use the approved Twilio Messaging Service and sender.
+- Prevent duplicated `SuppVis:` prefix and duplicated compliance footer.
+- Keep customer-care/informational use case only.
+- Do not treat admin test numbers as subscriber consent.
 
-```powershell
-$token = "replace-with-a-long-random-token"
-$bytes = [System.Text.Encoding]::UTF8.GetBytes($token)
-$hash = [System.Security.Cryptography.SHA256]::HashData($bytes)
-[Convert]::ToHexString($hash).ToLower()
+## Delivery Architecture
+
+### Email Announcements
+
+Production email delivery uses:
+
+1. Admin final start route.
+2. Server-side audience recalculation.
+3. Deterministic per-recipient records in `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE`.
+4. SQS email campaign queue.
+5. `suppvis-email-campaign-send-worker` Lambda.
+6. SES send through the configured sender/configuration set.
+7. SES event processor Lambda updates send/delivery/bounce/complaint/reject state.
+
+Email worker source:
+
+- `aws/lambdas/email-campaign-send-worker/lambda_function.py`
+
+SES event processor source:
+
+- `aws/lambdas/ses-campaign-event-processor/lambda_function.py`
+
+Provisioning script:
+
+- `aws/scripts/provision-email-campaign-worker.sh`
+
+### SMS Announcements
+
+Production SMS delivery uses:
+
+1. Admin final start route.
+2. Server-side SMS audience recalculation.
+3. Deterministic per-recipient records in `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE` with `channel = sms`.
+4. SQS SMS announcement queue.
+5. `suppvis-sms-announcement-send-worker` Lambda.
+6. Twilio standard SMS through the approved Messaging Service.
+7. Twilio status callback updates campaign-recipient provider state.
+
+SMS worker source:
+
+- `aws/lambdas/sms-announcement-send-worker/lambda_function.py`
+
+Provisioning script:
+
+- `aws/scripts/provision-sms-announcement-worker.sh`
+
+Recommended SMS Messaging Service:
+
+- `TWILIO_MESSAGING_SERVICE_SID=MGa88964d7c8a19058525ba21ca648715e`
+- approved sender: `+16507025913`
+
+## DynamoDB Tables And Indexes
+
+Use separate table names for Production, Preview, and Development.
+
+### Tables
+
+| Environment variable | Purpose |
+| --- | --- |
+| `DYNAMODB_BETA_APPLICATIONS_TABLE` | Public beta application records. |
+| `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE` | Email subscriber consent, unsubscribe, bounce, and complaint state. |
+| `DYNAMODB_SMS_SUBSCRIBERS_TABLE` | SMS consent, STOP/START, invalid, and provider state. |
+| `DYNAMODB_EMAIL_CAMPAIGNS_TABLE` | Admin announcement drafts and campaign state. |
+| `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE` | Per-recipient email/SMS campaign delivery records. |
+| `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE` | Audit-safe admin/broadcast events. |
+
+### Required Indexes
+
+Email campaigns:
+
+- Table: `suppvis-prod-email-campaigns`
+- GSI: `record_type-updated_at-index`
+- Partition key: `record_type` string
+- Sort key: `updated_at` string
+- Projection: all attributes
+
+Email subscribers:
+
+- Table: `suppvis-prod-email-subscribers`
+- GSI: `status-updated_at-index`
+- Partition key: `status` string
+- Sort key: `updated_at` string
+- Projection: all attributes
+
+SMS subscribers:
+
+- Table: `suppvis-prod-sms-subscribers`
+- GSI: `status-updated_at-index`
+- Partition key: `status` string
+- Sort key: `updated_at` string
+- Projection: all attributes
+
+Campaign recipients:
+
+- Table: `suppvis-prod-email-campaign-recipients`
+- Partition key: `campaign_id` string
+- Sort key: `subscriber_id` string
+
+Recommended table settings:
+
+- on-demand billing
+- encryption at rest
+- point-in-time recovery for production
+- deletion protection for production tables that hold campaign history
+
+## Environment Variables
+
+Use `.env.example` as the source of truth for local shape. Production values live in Vercel and AWS/Lambda configuration, not in the repo.
+
+### Public Content And App URL
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | No | Public content API used by blog, shop, and research pages. |
+| `APP_BASE_URL` | No | Canonical app URL for unsubscribe links and absolute email assets. |
+
+### AWS And DynamoDB
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | No | AWS region, normally `us-east-1`. |
+| `AWS_ACCESS_KEY_ID` | Yes | Least-privilege app AWS access key for Vercel serverless routes. |
+| `AWS_SECRET_ACCESS_KEY` | Yes | Matching AWS secret key. |
+| `DYNAMODB_BETA_APPLICATIONS_TABLE` | No | Beta applications table name. |
+| `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE` | No | Email subscribers table name. |
+| `DYNAMODB_SMS_SUBSCRIBERS_TABLE` | No | SMS subscribers table name. |
+| `DYNAMODB_EMAIL_CAMPAIGNS_TABLE` | No | Admin campaigns table name. |
+| `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE` | No | Campaign recipient table name. |
+| `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE` | No | Broadcast/admin audit table name. |
+
+### Admin Auth And Session
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `AUTH_SECRET` | Yes | Auth.js secret. |
+| `AUTH_MICROSOFT_ENTRA_ID_ID` | Yes | Microsoft Entra client ID. |
+| `AUTH_MICROSOFT_ENTRA_ID_SECRET` | Yes | Microsoft Entra client secret. |
+| `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | No | Single-tenant issuer URL. |
+| `ADMIN_ALLOWED_EMAILS` | Yes | Comma-separated allowlisted admin emails. |
+
+### Admin Email Announcements
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `ADMIN_EMAIL_CAMPAIGNS_ENABLED` | No | Master gate for admin campaigns. |
+| `ADMIN_EMAIL_TEST_SEND_ENABLED` | No | Enables one-admin email tests. |
+| `ADMIN_EMAIL_BULK_SEND_ENABLED` | No | Enables production email campaign queueing. |
+| `ADMIN_EMAIL_BULK_SEND_INFRA_READY` | No | Confirms queue/worker/IAM readiness. |
+| `ADMIN_EMAIL_CAMPAIGN_QUEUE_URL` | No | SQS URL for email campaign recipient jobs. |
+
+### Admin SMS Announcements
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `ADMIN_SMS_ANNOUNCEMENTS_ENABLED` | No | Master gate for admin SMS announcements. |
+| `ADMIN_SMS_TEST_SEND_ENABLED` | No | Enables one-admin SMS tests. |
+| `ADMIN_SMS_TEST_RECIPIENTS` | Yes | Server-only `admin@suppvis.health=+1XXXXXXXXXX` mapping. |
+| `ADMIN_SMS_BULK_SEND_ENABLED` | No | Enables production SMS campaign queueing. |
+| `ADMIN_SMS_BULK_SEND_INFRA_READY` | No | Confirms SMS queue/worker/IAM/Twilio readiness. |
+| `ADMIN_SMS_CAMPAIGN_QUEUE_URL` | No | SQS URL for SMS announcement recipient jobs. |
+
+### Email Provider
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `WELCOME_EMAIL_ENABLED` | No | Enables beta signup welcome email path. |
+| `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED` | No | Enables unsubscribe confirmation email path. |
+| `SES_FROM_EMAIL` | No | Verified sender email, normally `beta@suppvis.health`. |
+| `SES_FROM_NAME` | No | Sender display name. |
+| `SES_REGION` | No | SES region. |
+| `SES_CONFIGURATION_SET` | No | SES configuration set for events/tags. |
+
+### Twilio SMS
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `WELCOME_SMS_ENABLED` | No | Enables beta signup welcome SMS path only. Not used for admin announcements. |
+| `TWILIO_ACCOUNT_SID` | Yes | Twilio account SID. |
+| `TWILIO_AUTH_TOKEN` | Yes | Twilio auth token and webhook verification secret. |
+| `TWILIO_MESSAGING_SERVICE_SID` | Yes | Approved Messaging Service SID. |
+| `TWILIO_SMS_FROM_NUMBER` | No | Approved sender, recommended `+16507025913`. |
+| `TWILIO_WEBHOOK_SIGNATURE_REQUIRED` | No | Require Twilio signatures in production. |
+| `TWILIO_STATUS_CALLBACK_URL` | No | Status callback URL, usually `https://www.suppvis.health/api/webhooks/twilio/status`. |
+
+### Optional Protection
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No | Public Turnstile site key if bot protection is enabled. |
+| `TURNSTILE_SECRET_KEY` | Yes | Turnstile server secret. |
+
+### Legacy Dry-Run Audit
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `ADMIN_BROADCAST_TOKEN_HASH` | Yes | SHA-256 hash for `/api/admin/broadcast-audit`. |
+
+## Repository Structure
+
+```text
+app/
+  admin/                         Protected admin UI and sign-in page.
+  api/                           Vercel serverless API routes.
+  blog/, research/, shop/         Public dynamic content pages.
+  about/, how-it-works/, ...      Public static marketing/legal pages.
+  components/                    Shared React UI components.
+  hooks/                         Shared client hooks.
+  lib/                           Client helpers and server-only business logic.
+    server/                      Auth, DynamoDB, validation, email/SMS, queues.
+aws/
+  lambdas/                       Python Lambda workers for campaign delivery/events.
+  scripts/                       Provisioning scripts for AWS queues/workers.
+public/
+  email/suppvis-logo.png         Email-compatible public logo asset.
+  favicon.svg                    Site favicon/source logo.
+  images/                        Public image assets.
+types/                           Shared TypeScript declarations.
+auth.ts                          Auth.js configuration entry.
+next.config.mjs                  Next.js configuration.
+package.json                     npm scripts and dependencies.
 ```
 
-## Current Intentional Limits
+Some legacy static HTML files remain in `public/` for reference or backwards compatibility. The App Router pages under `app/` are the primary site implementation.
 
-- No AWS infrastructure is created by this repo.
-- No IAM credentials are created, modified, rotated, or deleted by this repo.
-- No real email sending is enabled.
-- No real SMS sending is enabled.
-- Welcome message templates are present, but the submit routes do not send them.
-- Email unsubscribe and SMS STOP foundations are present, but no sender/provider is connected yet.
-- SMS subscribers are stored as `pending_verification` until a verification and compliance flow exists.
-- The current rate limiter is in-memory and best-effort for serverless functions.
+## Common Actions
 
-## Production TODOs
+### Local
 
-- Create equivalent DynamoDB tables for any new isolated non-production environments.
-- Consider replacing the current least-privilege IAM user with a future Vercel OIDC-to-AWS role assumption.
-- Keep Vercel environment variables current for production and preview.
-- Add Turnstile or another CAPTCHA before broad public collection.
-- Replace in-memory rate limiting with DynamoDB TTL-backed limits, Upstash/Vercel KV, or Vercel Firewall rules.
-- Verify SES domain identity and request SES production access before sending email.
-- Complete AWS SMS sandbox exit, brand/campaign registration, and origination setup before sending texts.
-- Connect future email sends to unsubscribe suppression.
-- Connect future SMS sends to STOP/UNSUBSCRIBE suppression.
-- Add a protected admin UI only after auth is fully decided.
+```bash
+npm install
+npm run dev
+npx tsc --noEmit
+npm run build
+```
+
+### Deploy
+
+Normal deployment is Git/Vercel driven:
+
+- push `main` for Production
+- push `andrew` or another non-production branch for Preview
+
+### Provision Email Worker
+
+```bash
+bash aws/scripts/provision-email-campaign-worker.sh
+```
+
+Use from AWS CloudShell or another environment with AWS CLI access and the required environment variables. Do not run it from a personal machine unless AWS credentials and secrets are handled securely.
+
+### Provision SMS Worker
+
+```bash
+bash aws/scripts/provision-sms-announcement-worker.sh
+```
+
+Use from AWS CloudShell or another secure AWS CLI environment. The script creates or updates the SMS announcement queue, DLQ, worker Lambda, and related least-privilege permissions. It does not send SMS.
+
+## Security And Privacy Rules
+
+- Never commit secrets or subscriber data.
+- Do not expose raw email addresses, phone numbers, unsubscribe tokens, Twilio tokens, AWS keys, or recipient lists in browser responses or logs.
+- Admin identity comes from Auth.js/Microsoft Entra, not client input.
+- Production recipients are always derived server-side from DynamoDB consent records.
+- Admin SMS test destinations are derived from `ADMIN_SMS_TEST_RECIPIENTS`, not browser input.
+- Every production send must be idempotent and recipient-tracked.
+- Email sends must suppress unsubscribed, bounced, and complained records.
+- SMS sends must suppress STOP/opt-out, invalid, suppressed, and non-consented records.
+- RCS is not part of the production path. Use standard Twilio SMS through the approved Messaging Service.
+
+## Operational Notes
+
+- `pending_verification` SMS records are explicitly opted-in customer-care beta SMS records that have not been renamed/migrated to a later status. They are eligible for beta announcements when informational consent is true and no STOP/invalid/suppression state exists.
+- Manual audience refresh is required before every production announcement send.
+- Automatic live audience snapshot in `/admin` is informational and does not authorize sending.
+- A successful final action queues work; it does not mean messages were delivered.
+- Workers and provider callbacks update delivery history asynchronously.
+- `tsconfig.tsbuildinfo`, `.next/`, `out/`, and local env files are generated/local artifacts and should not be treated as source changes.
