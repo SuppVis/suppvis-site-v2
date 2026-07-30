@@ -21,7 +21,7 @@ import type {
 } from "./persistence";
 
 const BETA_SUBSCRIBER_METADATA_ID = "__beta_subscriber_metadata__";
-const DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE = 10;
+const DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE = 20;
 
 export type AdminSubscriberSort =
   | "name_asc"
@@ -86,6 +86,14 @@ export type AdminSubscriberListResult = {
   priorityLimit: number;
   totalCount: number;
   totalPages: number;
+};
+
+export type AdminSubscriberCollectionResult = {
+  backfillNeeded: boolean;
+  items: AdminBetaSubscriber[];
+  priorityCount: number;
+  priorityLimit: number;
+  totalCount: number;
 };
 
 type SubscriberSearchMatch = {
@@ -775,13 +783,11 @@ function subscriberSearchScore(
   return scores.length ? Math.max(...scores) : null;
 }
 
-export async function listAdminBetaSubscribers(input?: {
-  page?: number;
-  pageSize?: number;
+async function getAdminBetaSubscriberCollection(input?: {
   priorityFilter?: AdminSubscriberPriorityFilter;
   search?: string;
   sort?: AdminSubscriberSort;
-}): Promise<AdminSubscriberListResult> {
+}): Promise<AdminSubscriberCollectionResult> {
   const priorityLimit = getPriorityBetaLimit();
   const rawApplications = await scanBetaApplications();
   const applications = deriveEffectiveBetaApplications(rawApplications);
@@ -839,24 +845,54 @@ export async function listAdminBetaSubscribers(input?: {
         matches.map((match) => match.subscriber),
         sort,
       );
+
+  return {
+    backfillNeeded,
+    items: sorted,
+    priorityCount: profiles.filter((profile) => profile.priorityBeta).length,
+    priorityLimit,
+    totalCount: sorted.length,
+  };
+}
+
+export async function listAdminBetaSubscribers(input?: {
+  page?: number;
+  pageSize?: number;
+  priorityFilter?: AdminSubscriberPriorityFilter;
+  search?: string;
+  sort?: AdminSubscriberSort;
+}): Promise<AdminSubscriberListResult> {
+  const collection = await getAdminBetaSubscriberCollection({
+    priorityFilter: input?.priorityFilter,
+    search: input?.search,
+    sort: input?.sort,
+  });
   const pageSize = Math.max(
     5,
     Math.min(input?.pageSize || DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE, 100),
   );
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(collection.items.length / pageSize));
   const page = Math.max(1, Math.min(input?.page || 1, totalPages));
   const startIndex = (page - 1) * pageSize;
 
   return {
-    backfillNeeded,
-    items: sorted.slice(startIndex, startIndex + pageSize),
+    backfillNeeded: collection.backfillNeeded,
+    items: collection.items.slice(startIndex, startIndex + pageSize),
     page,
     pageSize,
-    priorityCount: profiles.filter((profile) => profile.priorityBeta).length,
-    priorityLimit,
-    totalCount: sorted.length,
+    priorityCount: collection.priorityCount,
+    priorityLimit: collection.priorityLimit,
+    totalCount: collection.totalCount,
     totalPages,
   };
+}
+
+export async function listAdminBetaSubscribersForExport(input?: {
+  priorityFilter?: AdminSubscriberPriorityFilter;
+  search?: string;
+  sort?: AdminSubscriberSort;
+}) {
+  return getAdminBetaSubscriberCollection(input);
 }
 
 export async function getAdminBetaSubscriber(id: string) {

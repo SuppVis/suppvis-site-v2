@@ -330,6 +330,7 @@ type BusyAction =
   | "saveSms"
   | "sentHistory"
   | "subscriberDetail"
+  | "subscriberExport"
   | "subscriberList"
   | "subscriberNotes"
   | "subscriberPriority"
@@ -348,7 +349,6 @@ type NextActionKey =
   | "emailSave"
   | "emailSubject"
   | "emailTest"
-  | "newAnnouncement"
   | "recipientCount"
   | "sendAnnouncement"
   | "smsBody"
@@ -379,11 +379,24 @@ function formatIdleCountdown(milliseconds: number) {
 
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
-const FOCUS_GUIDE_INITIAL_IDLE_MS = 30 * 1000;
 const FOCUS_GUIDE_STEP_IDLE_MS = 10 * 1000;
-const SUBSCRIBER_PAGE_SIZE = 10;
+const SUBSCRIBERS_PER_PAGE = 20;
 const SUBSCRIBER_SEARCH_DEBOUNCE_MS = 250;
 const SUBSCRIBER_SUGGESTION_LIMIT = 5;
+const SUBSCRIBER_PRIORITY_FILTER_OPTIONS: Array<
+  AdminSelectOption<AdminSubscriberPriorityFilter>
+> = [
+  { label: "All subscribers", value: "all" },
+  { label: "Priority only", value: "priority" },
+  { label: "Standard only", value: "standard" },
+];
+const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
+  { label: "Signup order", value: "signup_order_asc" },
+  { label: "Signup order descending", value: "signup_order_desc" },
+  { label: "Newest first", value: "newest" },
+  { label: "Name A-Z", value: "name_asc" },
+  { label: "Priority first", value: "priority_first" },
+];
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -1175,10 +1188,10 @@ function Modal({
     >
       <div
         ref={dialogRef}
-        className={`max-h-[92vh] w-full ${maxWidth} overflow-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50 ${panelClassName}`}
+        className={`flex max-h-[92vh] w-full ${maxWidth} flex-col overflow-hidden rounded-[8px] border border-white/10 bg-[#0D1117] shadow-2xl shadow-black/50 ${panelClassName}`}
       >
         <div
-          className={`sticky top-0 z-20 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-white/10 bg-[#0D1117] px-5 py-4 shadow-[0_14px_24px_rgba(0,0,0,0.26)] ${headerClassName}`}
+          className={`relative z-20 flex shrink-0 items-start justify-between gap-4 border-b border-white/10 bg-[#0D1117] px-5 py-4 shadow-[0_14px_24px_rgba(0,0,0,0.26)] ${headerClassName}`}
         >
           <h2
             id="admin-modal-title"
@@ -1200,7 +1213,9 @@ function Modal({
             </button>
           ) : null}
         </div>
-        <div className={`mt-5 ${bodyClassName}`}>{children}</div>
+        <div className={`min-h-0 flex-1 overflow-y-auto p-5 ${bodyClassName}`}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -1256,6 +1271,138 @@ function FocusGuideDirectionCue({
       </svg>
       ) : null}
     </button>
+  );
+}
+
+type AdminSelectOption<T extends string> = {
+  label: string;
+  value: T;
+};
+
+function AdminSelect<T extends string>({
+  disabled = false,
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  disabled?: boolean;
+  label: string;
+  onChange: (value: T) => void;
+  options: Array<AdminSelectOption<T>>;
+  value: T;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === value),
+  );
+  const [highlightedIndex, setHighlightedIndex] = useState(selectedIndex);
+  const [open, setOpen] = useState(false);
+  const selected = options[selectedIndex] || options[0];
+
+  useEffect(() => {
+    setHighlightedIndex(selectedIndex);
+  }, [selectedIndex]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (
+        containerRef.current &&
+        event.target instanceof Node &&
+        !containerRef.current.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+    };
+  }, [open]);
+
+  function selectOption(option: AdminSelectOption<T>) {
+    onChange(option.value);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+            return;
+          }
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setOpen(true);
+            setHighlightedIndex((index) =>
+              Math.min(options.length - 1, index + 1),
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+            setHighlightedIndex((index) => Math.max(0, index - 1));
+            return;
+          }
+
+          if ((event.key === "Enter" || event.key === " ") && open) {
+            event.preventDefault();
+            selectOption(options[highlightedIndex] || selected);
+          }
+        }}
+        className="flex w-full items-center justify-between gap-3 rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-left text-sm font-semibold text-text-primary outline-none transition hover:border-accent/50 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className="truncate">{selected?.label}</span>
+        <span aria-hidden="true" className="text-text-muted">
+          v
+        </span>
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-[8px] border border-white/10 bg-[#080D12] p-1 shadow-2xl shadow-black/40"
+        >
+          {options.map((option, index) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              onMouseEnter={() => setHighlightedIndex(index)}
+              onClick={() => selectOption(option)}
+              className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm transition ${
+                option.value === value
+                  ? "bg-accent/15 font-semibold text-text-primary"
+                  : index === highlightedIndex
+                    ? "bg-white/[0.06] text-text-primary"
+                    : "text-text-secondary hover:bg-white/[0.05] hover:text-text-primary"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1384,7 +1531,7 @@ export default function AdminCampaignDraft({
   const [subscriberError, setSubscriberError] = useState<string | null>(null);
   const [subscriberList, setSubscriberList] = useState<AdminBetaSubscriber[]>([]);
   const [subscriberPage, setSubscriberPage] = useState(1);
-  const [subscriberPageSize] = useState(SUBSCRIBER_PAGE_SIZE);
+  const [subscriberPageSize] = useState(SUBSCRIBERS_PER_PAGE);
   const [subscriberPriorityCount, setSubscriberPriorityCount] = useState(0);
   const [subscriberPriorityFilter, setSubscriberPriorityFilter] =
     useState<AdminSubscriberPriorityFilter>("all");
@@ -1979,6 +2126,69 @@ export default function AdminCampaignDraft({
     }
   }
 
+  async function exportSubscribers() {
+    if (isBusy) {
+      return;
+    }
+
+    const params = new URLSearchParams({
+      priority: subscriberPriorityFilter,
+      sort: subscriberSort,
+    });
+
+    if (subscriberSearch.trim()) {
+      params.set("search", subscriberSearch.trim());
+    }
+
+    setBusyAction("subscriberExport");
+    setSubscriberError(null);
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/subscribers/export?${params}`,
+        { cache: "no-store" },
+      );
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+
+        if (response.status === 401 || payload?.code === "admin_auth_required") {
+          throw new Error("Your admin session expired. Sign in again and retry.");
+        }
+
+        throw new Error(
+          payload?.message ||
+            "Beta subscriber export could not be generated. Please try again.",
+        );
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const filename =
+        filenameMatch?.[1] ||
+        `suppvis-beta-subscribers-${new Date()
+          .toISOString()
+          .slice(0, 10)}.xlsx`;
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setSubscriberError(
+        error instanceof Error
+          ? error.message
+          : "Beta subscriber export could not be generated. Please try again.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function loadSubscriberSuggestions(search: string) {
     const trimmed = search.trim();
     const requestSeq = subscriberSuggestionsSeqRef.current + 1;
@@ -2331,6 +2541,17 @@ export default function AdminCampaignDraft({
     ];
 
     const onWorkflowActivity = (event: Event) => {
+      if (!workflowStarted && !focusGuideVisible) {
+        return;
+      }
+
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-subscriber-management]")
+      ) {
+        return;
+      }
+
       if (event.type === "scroll" && workflowGuideScrollInProgressRef.current) {
         return;
       }
@@ -2360,7 +2581,7 @@ export default function AdminCampaignDraft({
         window.removeEventListener(eventName, onWorkflowActivity);
       });
     };
-  }, [dismissFocusGuide]);
+  }, [dismissFocusGuide, focusGuideVisible, workflowStarted]);
 
   useEffect(() => {
     if (heartbeatIntervalRef.current) {
@@ -2950,13 +3171,6 @@ export default function AdminCampaignDraft({
       }
       setDeleteTarget(null);
       setMessage({ tone: "success", text: "Draft deleted." });
-      if (deletingOpenAnnouncement) {
-        delayedScrollToElement(topRef, { block: "start" });
-        window.setTimeout(
-          () => newAnnouncementButtonRef.current?.focus({ preventScroll: true }),
-          usesReducedMotion() ? 0 : 750,
-        );
-      }
     } catch (error) {
       setMessage({
         tone: "error",
@@ -3738,11 +3952,7 @@ export default function AdminCampaignDraft({
     }
 
     if (!workflowStarted) {
-      return {
-        key: "newAnnouncement",
-        label: "New announcement",
-        ref: newAnnouncementButtonRef,
-      };
+      return null;
     }
 
     if (!form.subject.trim()) {
@@ -3964,10 +4174,6 @@ export default function AdminCampaignDraft({
       return "Type the confirmation phrase next.";
     }
 
-    if (action.key === "newAnnouncement") {
-      return "Click New announcement to start.";
-    }
-
     if (
       action.key === "emailSubject" ||
       action.key === "emailHeading" ||
@@ -4000,10 +4206,7 @@ export default function AdminCampaignDraft({
       return;
     }
 
-    const delay =
-      !workflowStarted && nextWorkflowAction.key === "newAnnouncement"
-        ? FOCUS_GUIDE_INITIAL_IDLE_MS
-        : FOCUS_GUIDE_STEP_IDLE_MS;
+    const delay = FOCUS_GUIDE_STEP_IDLE_MS;
 
     focusGuideTimeoutRef.current = window.setTimeout(() => {
       const target = nextWorkflowAction.ref.current;
@@ -4020,7 +4223,7 @@ export default function AdminCampaignDraft({
       setFocusGuideVisible(true);
       focusGuideTimeoutRef.current = null;
 
-      if ((below || above) && nextWorkflowAction.key !== "newAnnouncement") {
+      if (below || above) {
         workflowGuideScrollInProgressRef.current = true;
         scrollToElement(nextWorkflowAction.ref, { block: "center" });
         window.setTimeout(
@@ -4052,7 +4255,6 @@ export default function AdminCampaignDraft({
     nextWorkflowAction?.key,
     scrollToElement,
     usesReducedMotion,
-    workflowStarted,
   ]);
 
   useEffect(() => {
@@ -4645,7 +4847,10 @@ export default function AdminCampaignDraft({
         </p>
       ) : null}
 
-      <div className="mt-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+      <div
+        data-subscriber-management="true"
+        className="mt-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="font-headline text-lg font-bold text-text-primary">
@@ -4774,43 +4979,28 @@ export default function AdminCampaignDraft({
               </div>
             ) : null}
           </label>
-          <label className="block">
-            <span className="sr-only">Priority filter</span>
-            <select
-              value={subscriberPriorityFilter}
-              onChange={(event) => {
-                const next = event.target
-                  .value as AdminSubscriberPriorityFilter;
-                setSubscriberPriorityFilter(next);
-                setSubscriberPage(1);
-                setSubscriberSuggestionsOpen(false);
-              }}
-              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
-            >
-              <option value="all">All subscribers</option>
-              <option value="priority">Priority only</option>
-              <option value="standard">Standard only</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="sr-only">Subscriber sort</span>
-            <select
-              value={subscriberSort}
-              onChange={(event) => {
-                const next = event.target.value as AdminSubscriberSort;
-                setSubscriberSort(next);
-                setSubscriberPage(1);
-                setSubscriberSuggestionsOpen(false);
-              }}
-              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
-            >
-              <option value="signup_order_asc">Signup order</option>
-              <option value="signup_order_desc">Signup order descending</option>
-              <option value="newest">Newest first</option>
-              <option value="name_asc">Name A-Z</option>
-              <option value="priority_first">Priority first</option>
-            </select>
-          </label>
+          <AdminSelect
+            label="Priority filter"
+            value={subscriberPriorityFilter}
+            options={SUBSCRIBER_PRIORITY_FILTER_OPTIONS}
+            disabled={isBusy}
+            onChange={(next) => {
+              setSubscriberPriorityFilter(next);
+              setSubscriberPage(1);
+              setSubscriberSuggestionsOpen(false);
+            }}
+          />
+          <AdminSelect
+            label="Subscriber sort"
+            value={subscriberSort}
+            options={SUBSCRIBER_SORT_OPTIONS}
+            disabled={isBusy}
+            onChange={(next) => {
+              setSubscriberSort(next);
+              setSubscriberPage(1);
+              setSubscriberSuggestionsOpen(false);
+            }}
+          />
           <button
             type="submit"
             disabled={isBusy}
@@ -4827,6 +5017,14 @@ export default function AdminCampaignDraft({
               : "Showing 0 of 0 subscribers"}
           </span>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => exportSubscribers()}
+              disabled={isBusy}
+              className="rounded-full border border-white/10 px-3 py-1 font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busyAction === "subscriberExport" ? "Exporting..." : "Export Excel"}
+            </button>
             <button
               type="button"
               onClick={() => loadSubscribers()}
@@ -5194,7 +5392,7 @@ export default function AdminCampaignDraft({
             type="button"
             onClick={startAnotherAnnouncement}
             disabled={isBusy}
-            className={`${primaryButtonClass("teal")} min-h-16 w-full max-w-xl px-10 text-lg shadow-[0_0_34px_rgba(36,196,182,0.26)] hover:shadow-[0_0_46px_rgba(36,196,182,0.36)] ${guidedControlClass("newAnnouncement")}`}
+            className={`${primaryButtonClass("teal")} min-h-16 w-full max-w-xl px-10 text-lg shadow-[0_0_34px_rgba(36,196,182,0.26)] hover:shadow-[0_0_46px_rgba(36,196,182,0.36)]`}
           >
             New announcement
           </button>
@@ -6002,6 +6200,7 @@ export default function AdminCampaignDraft({
 
       {selectedSubscriber ? (
         <Modal
+          bodyClassName="subscriber-detail-scroll"
           panelClassName="subscriber-detail-modal"
           maxWidth="max-w-4xl"
           title={selectedSubscriber.fullName}
