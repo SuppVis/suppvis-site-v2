@@ -380,7 +380,7 @@ export const adminSubscriberIdSchema = z
 
 export const adminSubscriberListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
-  pageSize: z.coerce.number().int().min(5).max(100).optional().default(25),
+  pageSize: z.coerce.number().int().min(5).max(100).optional().default(10),
   priority: z
     .enum(["all", "priority", "standard"])
     .optional()

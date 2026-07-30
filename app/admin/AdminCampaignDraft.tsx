@@ -329,7 +329,6 @@ type BusyAction =
   | "saveEmail"
   | "saveSms"
   | "sentHistory"
-  | "subscriberBackfill"
   | "subscriberDetail"
   | "subscriberList"
   | "subscriberNotes"
@@ -382,7 +381,7 @@ function formatIdleCountdown(milliseconds: number) {
 }
 const FOCUS_GUIDE_INITIAL_IDLE_MS = 30 * 1000;
 const FOCUS_GUIDE_STEP_IDLE_MS = 10 * 1000;
-const SUBSCRIBER_PAGE_SIZE = 25;
+const SUBSCRIBER_PAGE_SIZE = 10;
 const SUBSCRIBER_SEARCH_DEBOUNCE_MS = 250;
 const SUBSCRIBER_SUGGESTION_LIMIT = 5;
 
@@ -612,6 +611,18 @@ function phoneDisplay(subscriber: AdminBetaSubscriber) {
   }
 
   return value;
+}
+
+function adminStatusLabel(value?: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return value
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
 }
 
 function statusLabel(status?: string) {
@@ -1043,21 +1054,27 @@ function HistoryIcon() {
 }
 
 function Modal({
+  bodyClassName = "",
   children,
   closeOnBackdrop = true,
   closeOnEscape = true,
+  headerClassName = "",
   lockScroll = true,
   maxWidth = "max-w-lg",
   onClose,
+  panelClassName = "",
   showCloseButton = true,
   title,
 }: {
+  bodyClassName?: string;
   children: ReactNode;
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
+  headerClassName?: string;
   lockScroll?: boolean;
   maxWidth?: string;
   onClose: () => void;
+  panelClassName?: string;
   showCloseButton?: boolean;
   title: string;
 }) {
@@ -1099,7 +1116,7 @@ function Modal({
         window.scrollTo(0, scrollY);
       }
 
-      previousFocusRef.current?.focus();
+      previousFocusRef.current?.focus({ preventScroll: true });
     };
   }, [lockScroll]);
 
@@ -1158,12 +1175,14 @@ function Modal({
     >
       <div
         ref={dialogRef}
-        className={`max-h-[92vh] w-full ${maxWidth} overflow-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50`}
+        className={`max-h-[92vh] w-full ${maxWidth} overflow-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-5 shadow-2xl shadow-black/50 ${panelClassName}`}
       >
-        <div className="sticky top-0 z-10 -mx-1 -mt-1 flex items-start justify-between gap-4 bg-[#0D1117]/95 px-1 pb-3 backdrop-blur">
+        <div
+          className={`sticky top-0 z-20 -mx-5 -mt-5 flex items-start justify-between gap-4 border-b border-white/10 bg-[#0D1117] px-5 py-4 shadow-[0_14px_24px_rgba(0,0,0,0.26)] ${headerClassName}`}
+        >
           <h2
             id="admin-modal-title"
-            className="font-headline text-2xl font-bold text-text-primary"
+            className="min-w-0 break-words pr-2 font-headline text-2xl font-bold text-text-primary"
           >
             {title}
           </h2>
@@ -1181,7 +1200,7 @@ function Modal({
             </button>
           ) : null}
         </div>
-        <div className="mt-4">{children}</div>
+        <div className={`mt-5 ${bodyClassName}`}>{children}</div>
       </div>
     </div>
   );
@@ -1295,6 +1314,7 @@ export default function AdminCampaignDraft({
   const workflowGuideScrollInProgressRef = useRef(false);
   const workflowGuideActivityThrottleRef = useRef(0);
   const draftsRequestSeqRef = useRef(0);
+  const subscriberListRequestSeqRef = useRef(0);
   const subscriberSuggestionsSeqRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
   const [audienceOverview, setAudienceOverview] =
@@ -1375,8 +1395,6 @@ export default function AdminCampaignDraft({
     useState<AdminSubscriberSort>("signup_order_asc");
   const [subscriberTotalCount, setSubscriberTotalCount] = useState(0);
   const [subscriberTotalPages, setSubscriberTotalPages] = useState(1);
-  const [subscriberBackfillNeeded, setSubscriberBackfillNeeded] =
-    useState(false);
   const [subscriberSuggestions, setSubscriberSuggestions] = useState<
     AdminBetaSubscriber[]
   >([]);
@@ -1904,6 +1922,8 @@ export default function AdminCampaignDraft({
     silent?: boolean;
     sort?: AdminSubscriberSort;
   }) {
+    const requestSeq = subscriberListRequestSeqRef.current + 1;
+    subscriberListRequestSeqRef.current = requestSeq;
     const page = options?.page ?? subscriberPage;
     const filter = options?.filter ?? subscriberPriorityFilter;
     const search = options?.search ?? subscriberSearch;
@@ -1928,15 +1948,23 @@ export default function AdminCampaignDraft({
         cache: "no-store",
       });
       const payload = await parseJsonResponse(response);
+
+      if (subscriberListRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       setSubscriberList(payload.items || []);
       setSubscriberPage(payload.page || page);
       setSubscriberTotalCount(payload.totalCount || 0);
       setSubscriberTotalPages(payload.totalPages || 1);
       setSubscriberPriorityCount(payload.priorityCount || 0);
       setSubscriberPriorityLimit(payload.priorityLimit || 300);
-      setSubscriberBackfillNeeded(Boolean(payload.backfillNeeded));
       setSubscriberError(null);
     } catch (error) {
+      if (subscriberListRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       setSubscriberError(
         error instanceof Error
           ? error.message
@@ -2135,38 +2163,6 @@ export default function AdminCampaignDraft({
             ? error.message
             : "Could not update priority status.",
       });
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function backfillSubscribers() {
-    if (isBusy) {
-      return;
-    }
-
-    setBusyAction("subscriberBackfill");
-    setSubscriberError(null);
-
-    try {
-      const response = await adminFetch("/api/admin/subscribers", {
-        method: "POST",
-      });
-      await parseJsonResponse(response);
-      await Promise.all([
-        loadSubscribers({ page: 1, silent: true }),
-        refreshAudienceOverview(),
-      ]);
-      setSubscriberActionMessage({
-        tone: "success",
-        text: "Subscriber metadata backfilled.",
-      });
-    } catch (error) {
-      setSubscriberError(
-        error instanceof Error
-          ? error.message
-          : "Could not backfill subscriber metadata.",
-      );
     } finally {
       setBusyAction(null);
     }
@@ -4024,7 +4020,7 @@ export default function AdminCampaignDraft({
       setFocusGuideVisible(true);
       focusGuideTimeoutRef.current = null;
 
-      if (below || above) {
+      if ((below || above) && nextWorkflowAction.key !== "newAnnouncement") {
         workflowGuideScrollInProgressRef.current = true;
         scrollToElement(nextWorkflowAction.ref, { block: "center" });
         window.setTimeout(
@@ -4264,13 +4260,21 @@ export default function AdminCampaignDraft({
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
                 Email query status
               </dt>
-              <dd>{currentAudience?.diagnostics?.emailQueryStatus || "-"}</dd>
+              <dd>
+                {adminStatusLabel(
+                  currentAudience?.diagnostics?.emailQueryStatus,
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
                 Text query status
               </dt>
-              <dd>{currentAudience?.diagnostics?.smsQueryStatus || "-"}</dd>
+              <dd>
+                {adminStatusLabel(
+                  currentAudience?.diagnostics?.smsQueryStatus,
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
@@ -4311,7 +4315,10 @@ export default function AdminCampaignDraft({
                   ? Object.entries(
                       currentAudience.diagnostics.emailStatusGroups,
                     )
-                      .map(([label, value]) => `${label}: ${value}`)
+                      .map(
+                        ([label, value]) =>
+                          `${adminStatusLabel(label)}: ${value}`,
+                      )
                       .join(", ")
                   : "Not available"}
               </dd>
@@ -4323,7 +4330,10 @@ export default function AdminCampaignDraft({
               <dd>
                 {currentAudience?.diagnostics?.smsStatusGroups
                   ? Object.entries(currentAudience.diagnostics.smsStatusGroups)
-                      .map(([label, value]) => `${label}: ${value}`)
+                      .map(
+                        ([label, value]) =>
+                          `${adminStatusLabel(label)}: ${value}`,
+                      )
                       .join(", ")
                   : "Not available"}
               </dd>
@@ -4751,7 +4761,7 @@ export default function AdminCampaignDraft({
                       <span className="mt-0.5 block truncate text-xs text-text-muted">
                         {suggestion.email}
                         {phoneDisplay(suggestion) !== "-"
-                          ? ` · ${phoneDisplay(suggestion)}`
+                          ? ` - ${phoneDisplay(suggestion)}`
                           : ""}
                       </span>
                     </button>
@@ -4773,6 +4783,7 @@ export default function AdminCampaignDraft({
                   .value as AdminSubscriberPriorityFilter;
                 setSubscriberPriorityFilter(next);
                 setSubscriberPage(1);
+                setSubscriberSuggestionsOpen(false);
               }}
               className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
             >
@@ -4789,13 +4800,14 @@ export default function AdminCampaignDraft({
                 const next = event.target.value as AdminSubscriberSort;
                 setSubscriberSort(next);
                 setSubscriberPage(1);
+                setSubscriberSuggestionsOpen(false);
               }}
               className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
             >
               <option value="signup_order_asc">Signup order</option>
-              <option value="signup_order_desc">Signup order desc</option>
-              <option value="newest">Newest</option>
-              <option value="name_asc">Name</option>
+              <option value="signup_order_desc">Signup order descending</option>
+              <option value="newest">Newest first</option>
+              <option value="name_asc">Name A-Z</option>
               <option value="priority_first">Priority first</option>
             </select>
           </label>
@@ -4815,18 +4827,6 @@ export default function AdminCampaignDraft({
               : "Showing 0 of 0 subscribers"}
           </span>
           <div className="flex flex-wrap gap-2">
-            {subscriberBackfillNeeded ? (
-              <button
-                type="button"
-                onClick={backfillSubscribers}
-                disabled={isBusy}
-                className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-1 font-semibold text-yellow-50 transition hover:border-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busyAction === "subscriberBackfill"
-                  ? "Backfilling..."
-                  : "Backfill metadata"}
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={() => loadSubscribers()}
@@ -4883,9 +4883,15 @@ export default function AdminCampaignDraft({
                       {phoneDisplay(subscriber)}
                     </td>
                     <td className="py-3 pr-4 text-text-secondary">
-                      Email: {subscriber.emailStatus}
+                      <span className="font-semibold text-text-primary">
+                        Email:
+                      </span>{" "}
+                      {adminStatusLabel(subscriber.emailStatus)}
                       <br />
-                      Text: {subscriber.smsStatus}
+                      <span className="font-semibold text-text-primary">
+                        Text:
+                      </span>{" "}
+                      {adminStatusLabel(subscriber.smsStatus)}
                     </td>
                     <td className="py-3 pr-4">
                       <span
@@ -5967,7 +5973,8 @@ export default function AdminCampaignDraft({
               <p>{smsTestModalState.message}</p>
               {smsTestModalState.providerStatus ? (
                 <p className="mt-1 text-xs opacity-80">
-                  Provider status: {smsTestModalState.providerStatus}
+                  Provider status:{" "}
+                  {adminStatusLabel(smsTestModalState.providerStatus)}
                 </p>
               ) : null}
             </div>
@@ -5995,6 +6002,7 @@ export default function AdminCampaignDraft({
 
       {selectedSubscriber ? (
         <Modal
+          panelClassName="subscriber-detail-modal"
           maxWidth="max-w-4xl"
           title={selectedSubscriber.fullName}
           onClose={() => {
@@ -6011,8 +6019,8 @@ export default function AdminCampaignDraft({
               ["Signup date", formatOptionalDate(selectedSubscriber.createdAt)],
               ["Email", selectedSubscriber.email],
               ["Phone", phoneDisplay(selectedSubscriber)],
-              ["Email status", selectedSubscriber.emailStatus],
-              ["Text status", selectedSubscriber.smsStatus],
+              ["Email status", adminStatusLabel(selectedSubscriber.emailStatus)],
+              ["Text status", adminStatusLabel(selectedSubscriber.smsStatus)],
               ["Priority", selectedSubscriber.priorityBadge],
               ["Source", selectedSubscriber.sourcePage],
             ].map(([label, value]) => (
@@ -6045,9 +6053,9 @@ export default function AdminCampaignDraft({
                   </dt>
                   <dd>
                     Informational:{" "}
-                    {selectedSubscriber.smsConsent.informational ? "yes" : "no"}
+                    {selectedSubscriber.smsConsent.informational ? "Yes" : "No"}
                     . Marketing:{" "}
-                    {selectedSubscriber.smsConsent.marketing ? "yes" : "no"}.
+                    {selectedSubscriber.smsConsent.marketing ? "Yes" : "No"}.
                   </dd>
                 </div>
                 <div>
@@ -6075,9 +6083,10 @@ export default function AdminCampaignDraft({
                     Last text provider status
                   </dt>
                   <dd>
-                    {selectedSubscriber.smsDelivery.providerStatus ||
-                      selectedSubscriber.smsDelivery.lastSmsStatus ||
-                      "-"}
+                    {adminStatusLabel(
+                      selectedSubscriber.smsDelivery.providerStatus ||
+                        selectedSubscriber.smsDelivery.lastSmsStatus,
+                    )}
                   </dd>
                 </div>
               </dl>

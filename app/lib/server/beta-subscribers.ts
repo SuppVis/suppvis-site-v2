@@ -21,6 +21,7 @@ import type {
 } from "./persistence";
 
 const BETA_SUBSCRIBER_METADATA_ID = "__beta_subscriber_metadata__";
+const DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE = 10;
 
 export type AdminSubscriberSort =
   | "name_asc"
@@ -393,6 +394,7 @@ export async function backfillBetaSubscriberMetadata(input?: {
   );
   let nextOrder = 1;
   let priorityCount = 0;
+  let updatedCount = 0;
 
   for (const application of applications) {
     const original = rawById.get(application.id);
@@ -451,6 +453,7 @@ export async function backfillBetaSubscriberMetadata(input?: {
           "#id": "id",
         },
       });
+      updatedCount += 1;
     }
 
     nextOrder = Math.max(nextOrder, signupOrderNumber + 1);
@@ -463,7 +466,8 @@ export async function backfillBetaSubscriberMetadata(input?: {
   });
 
   return {
-    backfilledCount: applications.length,
+    backfilledCount: updatedCount,
+    examinedCount: applications.length,
     lastSignupOrderNumber: nextOrder - 1,
     priorityCount,
     priorityLimit,
@@ -835,7 +839,10 @@ export async function listAdminBetaSubscribers(input?: {
         matches.map((match) => match.subscriber),
         sort,
       );
-  const pageSize = Math.max(5, Math.min(input?.pageSize || 25, 100));
+  const pageSize = Math.max(
+    5,
+    Math.min(input?.pageSize || DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE, 100),
+  );
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const page = Math.max(1, Math.min(input?.page || 1, totalPages));
   const startIndex = (page - 1) * pageSize;

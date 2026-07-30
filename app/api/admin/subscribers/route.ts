@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     await recordAdminCampaignAudit({
       action: "subscriber_metadata_backfilled",
       adminIdentifier: admin.identifier,
-      status: `count=${result.backfilledCount} priority=${result.priorityCount}`,
+      status: `updated=${result.backfilledCount} examined=${result.examinedCount} priority=${result.priorityCount}`,
     });
 
     return NextResponse.json({
