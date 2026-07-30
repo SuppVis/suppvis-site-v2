@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { sendUnsubscribeConfirmationEmail } from "@/app/lib/server/email/welcome";
 import { handleApiError } from "@/app/lib/server/errors";
+import { markBetaSubscriberPriorityRemovedByEmail } from "@/app/lib/server/beta-subscribers";
 import {
   unsubscribeEmailSubscriber,
   type EmailSubscriberRecord,
@@ -83,10 +84,11 @@ export async function POST(request: NextRequest) {
     }
 
     const submission = parsedSubmission.data;
+    const now = new Date().toISOString();
     const unsubscribeResult = await unsubscribeEmailSubscriber({
       id: submission.subscriberId,
       token: submission.token,
-      now: new Date().toISOString(),
+      now,
     });
 
     logUnsubscribeResult({ status: unsubscribeResult.status });
@@ -109,6 +111,15 @@ export async function POST(request: NextRequest) {
         message: "You're already unsubscribed from SuppVis emails.",
       });
     }
+
+    await markBetaSubscriberPriorityRemovedByEmail({
+      normalizedEmail: unsubscribeResult.subscriber.normalized_email,
+      now,
+    }).catch((error) => {
+      console.error("[beta-priority] email unsubscribe demotion failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    });
 
     await sendUnsubscribeConfirmationIfEnabled(unsubscribeResult.subscriber);
 

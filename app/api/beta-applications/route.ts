@@ -16,6 +16,13 @@ import {
 import { handleApiError } from "@/app/lib/server/errors";
 import { isWelcomeEmailEnabled } from "@/app/lib/server/messages/welcome";
 import {
+  betaSignupPriorityFieldsForOrder,
+  getBetaApplicationById,
+  maybeRestoreBetaSubscriberPriorityByEmail,
+  maybeRestoreBetaSubscriberPriorityByPhone,
+  reserveNextBetaSignupOrder,
+} from "@/app/lib/server/beta-subscribers";
+import {
   markEmailResubscribeIfUnsubscribed,
   markSmsResubscribeIfUnsubscribed,
   saveBetaApplication,
@@ -161,8 +168,17 @@ export async function POST(request: NextRequest) {
 
     assertDynamoTablesConfigured(...requiredTables);
 
+    const existingBetaApplication = await getBetaApplicationById(betaId);
+    const signupOrderNumber =
+      existingBetaApplication?.signup_order_number ||
+      (await reserveNextBetaSignupOrder({ now }));
+    const prioritySignupFields = existingBetaApplication
+      ? {}
+      : betaSignupPriorityFieldsForOrder({ now, signupOrderNumber });
+
     const betaCreated = await saveBetaApplication({
       id: betaId,
+      record_type: "beta_application",
       first_name: firstName,
       last_name: lastName,
       email: submission.email.trim(),
@@ -176,6 +192,9 @@ export async function POST(request: NextRequest) {
       sms_consent_version: SMS_CONSENT_VERSION,
       status: "new",
       source_page: submission.sourcePage,
+      signup_order_assigned_at: now,
+      subscriber_admin_version: 1,
+      ...prioritySignupFields,
       created_at: now,
       updated_at: now,
     });
@@ -204,6 +223,17 @@ export async function POST(request: NextRequest) {
     });
     const emailWasResubscribed = emailResubscribeResult.wrote;
 
+    if (emailWasResubscribed) {
+      await maybeRestoreBetaSubscriberPriorityByEmail({
+        normalizedEmail,
+        now,
+      }).catch((error) => {
+        console.error("[beta-priority] beta email resubscribe restore failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
+    }
+
     const emailSubscriber = await saveEmailSubscriber({
       id: emailSubscriberId,
       email: submission.email.trim(),
@@ -222,10 +252,21 @@ export async function POST(request: NextRequest) {
     if (hasSmsConsent && phoneRaw && phoneE164) {
       const smsSubscriberId = stableId("sms", phoneE164);
 
-      await markSmsResubscribeIfUnsubscribed({
+      const smsResubscribeResult = await markSmsResubscribeIfUnsubscribed({
         id: smsSubscriberId,
         now,
       });
+
+      if (smsResubscribeResult.wrote) {
+        await maybeRestoreBetaSubscriberPriorityByPhone({
+          phoneE164,
+          now,
+        }).catch((error) => {
+          console.error("[beta-priority] beta sms resubscribe restore failed", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+          });
+        });
+      }
 
       smsSubscriber = await saveSmsSubscriber({
         id: smsSubscriberId,

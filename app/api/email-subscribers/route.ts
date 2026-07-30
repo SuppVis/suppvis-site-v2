@@ -3,6 +3,7 @@ import {
   createUrlSafeToken,
   stableId,
 } from "@/app/lib/server/crypto";
+import { maybeRestoreBetaSubscriberPriorityByEmail } from "@/app/lib/server/beta-subscribers";
 import { handleApiError } from "@/app/lib/server/errors";
 import {
   markEmailResubscribeIfUnsubscribed,
@@ -44,10 +45,21 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = normalizeEmail(submission.email);
     const subscriberId = stableId("email", normalizedEmail);
 
-    await markEmailResubscribeIfUnsubscribed({
+    const resubscribeResult = await markEmailResubscribeIfUnsubscribed({
       id: subscriberId,
       now,
     });
+
+    if (resubscribeResult.wrote) {
+      await maybeRestoreBetaSubscriberPriorityByEmail({
+        normalizedEmail,
+        now,
+      }).catch((error) => {
+        console.error("[beta-priority] email resubscribe restore failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
+    }
 
     await saveEmailSubscriber({
       id: subscriberId,

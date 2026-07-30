@@ -5,6 +5,7 @@ import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
 import {
   archiveEmailCampaignDraft,
   getEmailCampaign,
+  updateEmailCampaignAudienceSegment,
   updateEmailCampaignEmailDraft,
   updateEmailCampaignSmsDraft,
   type EmailCampaignRecord,
@@ -16,6 +17,7 @@ import {
 } from "@/app/lib/server/request";
 import {
   adminCampaignIdSchema,
+  adminCampaignAudienceSegmentUpdateSchema,
   adminCampaignVersionSchema,
   updateAdminCampaignEmailSchema,
   updateAdminCampaignSmsSchema,
@@ -102,6 +104,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
+    audienceSegment: record.audience_segment || "all",
     readiness: campaignReadinessResponse(record),
     isPinned: record.is_pinned || false,
     pinnedAt: record.pinned_at || null,
@@ -167,7 +170,18 @@ export async function PATCH(
     let updated: EmailCampaignRecord | null;
     let auditStatus: string;
 
-    if (saveChannel === "sms") {
+    if (saveChannel === "audience") {
+      const submission = adminCampaignAudienceSegmentUpdateSchema.parse(body);
+
+      updated = await updateEmailCampaignAudienceSegment({
+        id,
+        audience_segment: submission.audienceSegment,
+        expectedVersion: submission.expectedVersion,
+        now,
+        updated_by: admin.identifier,
+      });
+      auditStatus = `audience ${submission.audienceSegment}`;
+    } else if (saveChannel === "sms") {
       const submission = updateAdminCampaignSmsSchema.parse(body);
       const smsPreview = renderAdminSmsAnnouncement(submission.smsBody);
 

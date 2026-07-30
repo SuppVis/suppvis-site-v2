@@ -102,10 +102,13 @@ type CampaignDraft = {
   audienceBothEligible?: number | null;
   audienceLastErrorCode?: string | null;
   audienceLastErrorAt?: string | null;
+  audienceSegment?: BetaAudienceSegment;
   readiness?: CampaignReadiness;
   isPinned?: boolean;
   pinnedAt?: string | null;
 };
+
+type BetaAudienceSegment = "all" | "priority" | "standard";
 
 type CampaignReadiness = {
   audienceCurrent: boolean;
@@ -156,6 +159,7 @@ type ProgressSummary = {
 };
 
 type AudienceSummary = {
+  audienceSegment?: BetaAudienceSegment;
   confirmationPhrase: string;
   countedAt?: string;
   diagnostics?: {
@@ -212,6 +216,57 @@ type AudienceOverview = {
     totalCount: number;
   };
 };
+
+type AdminBetaSubscriber = {
+  adminNotes: string;
+  adminNotesUpdatedAt: string | null;
+  createdAt: string;
+  email: string;
+  emailDelivery: {
+    lastEmailMessageId: string | null;
+    lastEmailSentAt: string | null;
+    lastEmailType: string | null;
+    welcomeEmailSentAt: string | null;
+  };
+  emailStatus: string;
+  firstName: string;
+  fullName: string;
+  id: string;
+  lastName: string;
+  phoneE164: string | null;
+  phoneRaw: string | null;
+  priorityBadge: string;
+  priorityBeta: boolean;
+  priorityUpdatedAt: string | null;
+  signupOrderNumber: number | null;
+  smsConsent: {
+    informational: boolean;
+    informationalAt: string | null;
+    marketing: boolean;
+    marketingAt: string | null;
+    version: string | null;
+  };
+  smsDelivery: {
+    lastSmsMessageSid: string | null;
+    lastSmsSentAt: string | null;
+    lastSmsStatus: string | null;
+    providerStatus: string | null;
+    welcomeSmsSentAt: string | null;
+  };
+  smsStatus: string;
+  sourcePage: string;
+  subscriberAdminVersion: number;
+  updatedAt: string;
+};
+
+type AdminSubscriberSort =
+  | "name_asc"
+  | "newest"
+  | "priority_first"
+  | "signup_order_asc"
+  | "signup_order_desc";
+
+type AdminSubscriberPriorityFilter = "all" | "priority" | "standard";
 
 type Preview = {
   html: string;
@@ -274,6 +329,11 @@ type BusyAction =
   | "saveEmail"
   | "saveSms"
   | "sentHistory"
+  | "subscriberBackfill"
+  | "subscriberDetail"
+  | "subscriberList"
+  | "subscriberNotes"
+  | "subscriberPriority"
   | "smsPreview"
   | "smsTest"
   | "start"
@@ -407,6 +467,7 @@ function audienceFromCampaign(
   const smsStatus = campaign.audienceSmsStatus || "not_counted";
 
   return {
+    audienceSegment: campaign.audienceSegment || "all",
     confirmationPhrase: confirmationPhraseForCounts(
       emailStatus === "success" ? emailEligible : 0,
       smsStatus === "success" ? smsEligible : 0,
@@ -514,6 +575,26 @@ function audienceRefreshWarning(audience: AudienceSummary | null) {
   }
 
   return null;
+}
+
+function audienceSegmentLabel(segment: BetaAudienceSegment) {
+  if (segment === "priority") {
+    return "Priority beta subscribers only";
+  }
+
+  if (segment === "standard") {
+    return "Standard beta subscribers only";
+  }
+
+  return "All beta subscribers";
+}
+
+function formatOptionalDate(value?: string | null) {
+  return value ? new Date(value).toLocaleString() : "-";
+}
+
+function phoneDisplay(subscriber: AdminBetaSubscriber) {
+  return subscriber.phoneRaw || subscriber.phoneE164 || "-";
 }
 
 function statusLabel(status?: string) {
@@ -1203,6 +1284,8 @@ export default function AdminCampaignDraft({
   const [audienceOverviewError, setAudienceOverviewError] =
     useState<string | null>(null);
   const [audienceRefreshError, setAudienceRefreshError] = useState<string | null>(null);
+  const [audienceSegment, setAudienceSegment] =
+    useState<BetaAudienceSegment>("all");
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
   const [focusGuideVisible, setFocusGuideVisible] = useState(false);
@@ -1260,6 +1343,37 @@ export default function AdminCampaignDraft({
   const [idleCountdown, setIdleCountdown] = useState(
     formatIdleCountdown(ADMIN_IDLE_WARNING_DURATION_MS),
   );
+  const [subscriberError, setSubscriberError] = useState<string | null>(null);
+  const [subscriberList, setSubscriberList] = useState<AdminBetaSubscriber[]>([]);
+  const [subscriberPage, setSubscriberPage] = useState(1);
+  const [subscriberPageSize] = useState(10);
+  const [subscriberPriorityCount, setSubscriberPriorityCount] = useState(0);
+  const [subscriberPriorityFilter, setSubscriberPriorityFilter] =
+    useState<AdminSubscriberPriorityFilter>("all");
+  const [subscriberPriorityLimit, setSubscriberPriorityLimit] = useState(300);
+  const [subscriberSearch, setSubscriberSearch] = useState("");
+  const [subscriberSearchInput, setSubscriberSearchInput] = useState("");
+  const [subscriberSort, setSubscriberSort] =
+    useState<AdminSubscriberSort>("signup_order_asc");
+  const [subscriberTotalCount, setSubscriberTotalCount] = useState(0);
+  const [subscriberTotalPages, setSubscriberTotalPages] = useState(1);
+  const [subscriberBackfillNeeded, setSubscriberBackfillNeeded] =
+    useState(false);
+  const [selectedSubscriber, setSelectedSubscriber] =
+    useState<AdminBetaSubscriber | null>(null);
+  const [subscriberNotesDraft, setSubscriberNotesDraft] = useState("");
+  const [subscriberPriorityReplacementId, setSubscriberPriorityReplacementId] =
+    useState("");
+  const [priorityOptions, setPriorityOptions] = useState<AdminBetaSubscriber[]>(
+    [],
+  );
+  const [standardOptions, setStandardOptions] = useState<AdminBetaSubscriber[]>(
+    [],
+  );
+  const [subscriberActionMessage, setSubscriberActionMessage] = useState<{
+    tone: "error" | "success" | "info";
+    text: string;
+  } | null>(null);
 
   const isBusy = Boolean(busyAction);
   const status = useMemo(() => statusLabel(campaign?.status), [campaign]);
@@ -1427,6 +1541,7 @@ export default function AdminCampaignDraft({
     Boolean(deleteTarget) ||
     newAnnouncementConfirmOpen ||
     sentHistoryOpen ||
+    Boolean(selectedSubscriber) ||
     idleWarningOpen;
 
   useEffect(() => {
@@ -1746,6 +1861,233 @@ export default function AdminCampaignDraft({
     }
   }
 
+  async function loadSubscribers(options?: {
+    filter?: AdminSubscriberPriorityFilter;
+    page?: number;
+    search?: string;
+    silent?: boolean;
+    sort?: AdminSubscriberSort;
+  }) {
+    const page = options?.page ?? subscriberPage;
+    const filter = options?.filter ?? subscriberPriorityFilter;
+    const search = options?.search ?? subscriberSearch;
+    const sort = options?.sort ?? subscriberSort;
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(subscriberPageSize),
+      priority: filter,
+      sort,
+    });
+
+    if (search.trim()) {
+      params.set("search", search.trim());
+    }
+
+    if (!options?.silent) {
+      setBusyAction((current) => current || "subscriberList");
+    }
+
+    try {
+      const response = await adminFetch(`/api/admin/subscribers?${params}`, {
+        cache: "no-store",
+      });
+      const payload = await parseJsonResponse(response);
+      setSubscriberList(payload.items || []);
+      setSubscriberPage(payload.page || page);
+      setSubscriberTotalCount(payload.totalCount || 0);
+      setSubscriberTotalPages(payload.totalPages || 1);
+      setSubscriberPriorityCount(payload.priorityCount || 0);
+      setSubscriberPriorityLimit(payload.priorityLimit || 300);
+      setSubscriberBackfillNeeded(Boolean(payload.backfillNeeded));
+      setSubscriberError(null);
+    } catch (error) {
+      setSubscriberError(
+        error instanceof Error
+          ? error.message
+          : "Could not load beta subscribers.",
+      );
+    } finally {
+      if (!options?.silent) {
+        setBusyAction((current) =>
+          current === "subscriberList" ? null : current,
+        );
+      }
+    }
+  }
+
+  async function loadPriorityOptions() {
+    const [priorityResponse, standardResponse] = await Promise.all([
+      adminFetch(
+        "/api/admin/subscribers?page=1&pageSize=100&priority=priority&sort=signup_order_asc",
+        { cache: "no-store" },
+      ),
+      adminFetch(
+        "/api/admin/subscribers?page=1&pageSize=100&priority=standard&sort=signup_order_asc",
+        { cache: "no-store" },
+      ),
+    ]);
+    const [priorityPayload, standardPayload] = await Promise.all([
+      parseJsonResponse(priorityResponse),
+      parseJsonResponse(standardResponse),
+    ]);
+    setPriorityOptions(priorityPayload.items || []);
+    setStandardOptions(standardPayload.items || []);
+  }
+
+  async function openSubscriber(subscriber: AdminBetaSubscriber) {
+    setBusyAction("subscriberDetail");
+    setSubscriberActionMessage(null);
+    setSubscriberPriorityReplacementId("");
+
+    try {
+      const response = await adminFetch(`/api/admin/subscribers/${subscriber.id}`, {
+        cache: "no-store",
+      });
+      const payload = await parseJsonResponse(response);
+      const detail = payload.subscriber as AdminBetaSubscriber;
+      setSelectedSubscriber(detail);
+      setSubscriberNotesDraft(detail.adminNotes || "");
+      await loadPriorityOptions();
+    } catch (error) {
+      setSubscriberError(
+        error instanceof Error
+          ? error.message
+          : "Could not open subscriber details.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function saveSubscriberNotes() {
+    if (!selectedSubscriber || isBusy) {
+      return;
+    }
+
+    setBusyAction("subscriberNotes");
+    setSubscriberActionMessage(null);
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/subscribers/${selectedSubscriber.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            expectedVersion: selectedSubscriber.subscriberAdminVersion,
+            notes: subscriberNotesDraft,
+          }),
+        },
+      );
+      const payload = await parseJsonResponse(response);
+      const next = payload.subscriber as AdminBetaSubscriber;
+      setSelectedSubscriber(next);
+      setSubscriberNotesDraft(next.adminNotes || "");
+      setSubscriberActionMessage({
+        tone: "success",
+        text: "Subscriber notes saved.",
+      });
+      await loadSubscribers({ silent: true });
+    } catch (error) {
+      setSubscriberActionMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not save subscriber notes.",
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function updateSubscriberPriority(priority: boolean) {
+    if (!selectedSubscriber || isBusy) {
+      return;
+    }
+
+    setBusyAction("subscriberPriority");
+    setSubscriberActionMessage(null);
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/subscribers/${selectedSubscriber.id}/priority`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            expectedVersion: selectedSubscriber.subscriberAdminVersion,
+            priority,
+            replacementSubscriberId:
+              subscriberPriorityReplacementId || undefined,
+          }),
+        },
+      );
+      const payload = await parseJsonResponse(response);
+      const next = payload.subscriber as AdminBetaSubscriber;
+      setSelectedSubscriber(next);
+      setSubscriberNotesDraft(next.adminNotes || "");
+      setSubscriberPriorityReplacementId("");
+      setSubscriberActionMessage({
+        tone: "success",
+        text: priority
+          ? "Subscriber promoted to priority."
+          : "Subscriber removed from priority.",
+      });
+      await Promise.all([
+        loadSubscribers({ silent: true }),
+        loadPriorityOptions(),
+        refreshAudienceOverview(),
+      ]);
+    } catch (error) {
+      setSubscriberActionMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not update priority status.",
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function backfillSubscribers() {
+    if (isBusy) {
+      return;
+    }
+
+    setBusyAction("subscriberBackfill");
+    setSubscriberError(null);
+
+    try {
+      const response = await adminFetch("/api/admin/subscribers", {
+        method: "POST",
+      });
+      await parseJsonResponse(response);
+      await Promise.all([
+        loadSubscribers({ page: 1, silent: true }),
+        refreshAudienceOverview(),
+      ]);
+      setSubscriberActionMessage({
+        tone: "success",
+        text: "Subscriber metadata backfilled.",
+      });
+    } catch (error) {
+      setSubscriberError(
+        error instanceof Error
+          ? error.message
+          : "Could not backfill subscriber metadata.",
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function refreshSentAnnouncements() {
     setBusyAction((current) => current || "sentHistory");
     try {
@@ -1819,6 +2161,10 @@ export default function AdminCampaignDraft({
     });
     refreshAudienceOverview().catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    loadSubscribers({ silent: true }).catch(() => undefined);
+  }, [subscriberPage, subscriberPriorityFilter, subscriberSearch, subscriberSort]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -2144,6 +2490,17 @@ export default function AdminCampaignDraft({
     }
   }
 
+  function updateAudienceSegment(nextSegment: BetaAudienceSegment) {
+    setAudienceSegment(nextSegment);
+    setAudience(null);
+    setAudienceRefreshError(null);
+    setStartPhrase("");
+    setMessage({
+      tone: "info",
+      text: `Audience set to ${audienceSegmentLabel(nextSegment)}. Refresh recipient counts before sending.`,
+    });
+  }
+
   function updateCampaignFromPartial(partial: Partial<CampaignDraft>) {
     setCampaign((current) => {
       if (!current) {
@@ -2206,6 +2563,7 @@ export default function AdminCampaignDraft({
   function beginNewAnnouncement() {
     setAudience(null);
     setAudienceRefreshError(null);
+    setAudienceSegment("all");
     setCampaign(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
@@ -2266,6 +2624,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudienceSegment(payload.campaign?.audienceSegment || "all");
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -2318,6 +2677,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudienceSegment(payload.campaign?.audienceSegment || audienceSegment);
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -2370,6 +2730,7 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
+      setAudienceSegment(payload.campaign?.audienceSegment || audienceSegment);
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -2405,6 +2766,7 @@ export default function AdminCampaignDraft({
       const loadedForm = campaignToForm(payload.campaign);
       const loadedAudience = audienceFromCampaign(payload.campaign);
       setCampaign(payload.campaign);
+      setAudienceSegment(payload.campaign?.audienceSegment || "all");
       setAudience(loadedAudience);
       setAudienceRefreshError(audienceRefreshWarning(loadedAudience));
       setForm(loadedForm);
@@ -2866,6 +3228,10 @@ export default function AdminCampaignDraft({
       `/api/admin/email-campaigns/${campaignId}/audience`,
       {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ audienceSegment }),
       },
     );
     const payload = await parseJsonResponse(response);
@@ -2876,6 +3242,7 @@ export default function AdminCampaignDraft({
     const nextAudience = payload.audience as AudienceSummary;
     if (payload.campaign) {
       updateCampaignFromPartial(payload.campaign);
+      setAudienceSegment(payload.campaign.audienceSegment || audienceSegment);
     }
     setAudience(nextAudience);
     setAudienceRefreshError(audienceRefreshWarning(nextAudience));
@@ -3016,10 +3383,15 @@ export default function AdminCampaignDraft({
   const smsTestReady = smsTestAcceptedForCurrentDraft;
   const adminTestsReady = Boolean(emailTestReady && smsTestReady);
   const persistedAudience =
-    !emailChangedSinceSave && !smsChangedSinceSave
+    !emailChangedSinceSave &&
+    !smsChangedSinceSave &&
+    (campaign?.audienceSegment || "all") === audienceSegment
       ? audienceFromCampaign(campaign)
       : null;
-  const currentAudience = audience || persistedAudience;
+  const currentAudience =
+    (audience?.audienceSegment || "all") === audienceSegment
+      ? audience
+      : persistedAudience;
   const canStart = Boolean(
     campaign &&
       selectedChannelsSaved &&
@@ -3913,6 +4285,32 @@ export default function AdminCampaignDraft({
         </details>
       </div>
 
+      <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+        <label className="block max-w-xl">
+          <span className="text-sm font-semibold text-text-primary">
+            Announcement audience
+          </span>
+          <select
+            value={audienceSegment}
+            onChange={(event) =>
+              updateAudienceSegment(event.target.value as BetaAudienceSegment)
+            }
+            disabled={isBusy || isSendStarted}
+            className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="all">All beta subscribers</option>
+            <option value="priority">Priority beta subscribers only</option>
+            <option value="standard">
+              Standard, non-priority beta subscribers only
+            </option>
+          </select>
+        </label>
+        <p className="mt-2 text-xs leading-5 text-text-muted">
+          Current selection: {audienceSegmentLabel(audienceSegment)}. Counts are
+          locked to this choice only after you click Refresh recipient count.
+        </p>
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"
@@ -4135,6 +4533,227 @@ export default function AdminCampaignDraft({
             : null}
         </p>
       ) : null}
+
+      <div className="mt-5 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-headline text-lg font-bold text-text-primary">
+              Beta subscriber management
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-text-secondary">
+              Search subscribers by name, email, phone, or signup number. Open a
+              subscriber to edit internal notes or manage priority status.
+            </p>
+          </div>
+          <div className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+            {subscriberPriorityCount} / {subscriberPriorityLimit} priority
+          </div>
+        </div>
+
+        <form
+          className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_190px_auto]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubscriberPage(1);
+            setSubscriberSearch(subscriberSearchInput);
+          }}
+        >
+          <label className="block">
+            <span className="sr-only">Search beta subscribers</span>
+            <input
+              value={subscriberSearchInput}
+              onChange={(event) => setSubscriberSearchInput(event.target.value)}
+              placeholder="Search name, email, phone, or #"
+              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="sr-only">Priority filter</span>
+            <select
+              value={subscriberPriorityFilter}
+              onChange={(event) => {
+                const next = event.target
+                  .value as AdminSubscriberPriorityFilter;
+                setSubscriberPriorityFilter(next);
+                setSubscriberPage(1);
+              }}
+              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
+            >
+              <option value="all">All subscribers</option>
+              <option value="priority">Priority only</option>
+              <option value="standard">Standard only</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="sr-only">Subscriber sort</span>
+            <select
+              value={subscriberSort}
+              onChange={(event) => {
+                const next = event.target.value as AdminSubscriberSort;
+                setSubscriberSort(next);
+                setSubscriberPage(1);
+              }}
+              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
+            >
+              <option value="signup_order_asc">Signup order</option>
+              <option value="signup_order_desc">Signup order desc</option>
+              <option value="newest">Newest</option>
+              <option value="name_asc">Name</option>
+              <option value="priority_first">Priority first</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={isBusy}
+            className={primaryButtonClass("dark")}
+          >
+            Search
+          </button>
+        </form>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted">
+          <span>
+            Showing {subscriberList.length} of {subscriberTotalCount} subscribers
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {subscriberBackfillNeeded ? (
+              <button
+                type="button"
+                onClick={backfillSubscribers}
+                disabled={isBusy}
+                className="rounded-full border border-yellow-400/25 bg-yellow-400/10 px-3 py-1 font-semibold text-yellow-50 transition hover:border-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busyAction === "subscriberBackfill"
+                  ? "Backfilling..."
+                  : "Backfill metadata"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => loadSubscribers()}
+              disabled={isBusy}
+              className="rounded-full border border-white/10 px-3 py-1 font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busyAction === "subscriberList" ? "Refreshing..." : "Refresh list"}
+            </button>
+          </div>
+        </div>
+
+        {subscriberError ? (
+          <p className="mt-3 rounded-[8px] border border-red-400/25 bg-red-400/10 p-3 text-sm text-red-100">
+            {subscriberError}
+          </p>
+        ) : null}
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-[840px] w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-[0.12em] text-text-muted">
+              <tr>
+                <th className="py-2 pr-4 font-semibold">Name</th>
+                <th className="py-2 pr-4 font-semibold">#</th>
+                <th className="py-2 pr-4 font-semibold">Email</th>
+                <th className="py-2 pr-4 font-semibold">Phone</th>
+                <th className="py-2 pr-4 font-semibold">Status</th>
+                <th className="py-2 pr-4 font-semibold">Priority</th>
+                <th className="py-2 pr-4 font-semibold">Signup date</th>
+                <th className="py-2 font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/10">
+              {subscriberList.length ? (
+                subscriberList.map((subscriber) => (
+                  <tr key={subscriber.id} className="align-top">
+                    <td className="py-3 pr-4 font-semibold text-text-primary">
+                      {subscriber.fullName}
+                    </td>
+                    <td className="py-3 pr-4 text-text-secondary">
+                      {subscriber.signupOrderNumber
+                        ? `#${subscriber.signupOrderNumber}`
+                        : "-"}
+                    </td>
+                    <td
+                      className="max-w-[220px] truncate py-3 pr-4 text-text-secondary"
+                      title={subscriber.email}
+                    >
+                      {subscriber.email}
+                    </td>
+                    <td
+                      className="max-w-[160px] truncate py-3 pr-4 text-text-secondary"
+                      title={phoneDisplay(subscriber)}
+                    >
+                      {phoneDisplay(subscriber)}
+                    </td>
+                    <td className="py-3 pr-4 text-text-secondary">
+                      Email: {subscriber.emailStatus}
+                      <br />
+                      Text: {subscriber.smsStatus}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span
+                        className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                          subscriber.priorityBeta
+                            ? "border-accent/25 bg-accent/10 text-accent"
+                            : "border-white/10 bg-white/[0.03] text-text-secondary"
+                        }`}
+                      >
+                        {subscriber.priorityBadge}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-text-secondary">
+                      {formatOptionalDate(subscriber.createdAt)}
+                    </td>
+                    <td className="py-3">
+                      <button
+                        type="button"
+                        onClick={() => openSubscriber(subscriber)}
+                        disabled={isBusy}
+                        className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Open
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="py-8 text-center text-sm font-semibold text-text-secondary"
+                  >
+                    No beta subscribers match this view.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setSubscriberPage((page) => Math.max(1, page - 1))}
+            disabled={isBusy || subscriberPage <= 1}
+            className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <span className="text-xs text-text-muted">
+            Page {subscriberPage} of {subscriberTotalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              setSubscriberPage((page) =>
+                Math.min(subscriberTotalPages, page + 1),
+              )
+            }
+            disabled={isBusy || subscriberPage >= subscriberTotalPages}
+            className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </section>
   );
 
@@ -4500,7 +5119,8 @@ export default function AdminCampaignDraft({
                 className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaLabel")}`}
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
-                The words shown on the email button, such as "Open TestFlight."
+                Optional. Leave link text and URL blank for an email with no
+                button.
               </span>
             </label>
             <label className="block">
@@ -4516,7 +5136,7 @@ export default function AdminCampaignDraft({
                 className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaUrl")}`}
               />
               <span className="mt-2 block text-xs leading-5 text-text-muted">
-                The secure web address opened by the button.
+                Optional. URLs are validated only when supplied.
               </span>
             </label>
           </div>
@@ -5171,6 +5791,209 @@ export default function AdminCampaignDraft({
               {busyAction === "smsTest" ? "Sending test..." : "Send test"}
             </button>
           </div>
+        </Modal>
+      ) : null}
+
+      {selectedSubscriber ? (
+        <Modal
+          maxWidth="max-w-4xl"
+          title={selectedSubscriber.fullName}
+          onClose={() => {
+            if (!isBusy) {
+              setSelectedSubscriber(null);
+              setSubscriberActionMessage(null);
+              setSubscriberPriorityReplacementId("");
+            }
+          }}
+        >
+          <div className="grid gap-3 text-sm md:grid-cols-2">
+            {[
+              ["Signup order", selectedSubscriber.signupOrderNumber ? `#${selectedSubscriber.signupOrderNumber}` : "-"],
+              ["Signup date", formatOptionalDate(selectedSubscriber.createdAt)],
+              ["Email", selectedSubscriber.email],
+              ["Phone", phoneDisplay(selectedSubscriber)],
+              ["Email status", selectedSubscriber.emailStatus],
+              ["Text status", selectedSubscriber.smsStatus],
+              ["Priority", selectedSubscriber.priorityBadge],
+              ["Source", selectedSubscriber.sourcePage],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="min-w-0 rounded-[8px] border border-white/10 bg-[#080D12] p-3"
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                  {label}
+                </p>
+                <p
+                  className="mt-1 truncate font-semibold text-text-primary"
+                  title={String(value)}
+                >
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+              <h3 className="font-semibold text-text-primary">
+                Consent and delivery
+              </h3>
+              <dl className="mt-3 space-y-2 text-sm text-text-secondary">
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                    Text consent
+                  </dt>
+                  <dd>
+                    Informational:{" "}
+                    {selectedSubscriber.smsConsent.informational ? "yes" : "no"}
+                    . Marketing:{" "}
+                    {selectedSubscriber.smsConsent.marketing ? "yes" : "no"}.
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                    Welcome email
+                  </dt>
+                  <dd>
+                    {formatOptionalDate(
+                      selectedSubscriber.emailDelivery.welcomeEmailSentAt,
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                    Welcome text
+                  </dt>
+                  <dd>
+                    {formatOptionalDate(
+                      selectedSubscriber.smsDelivery.welcomeSmsSentAt,
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-[0.12em] text-text-muted">
+                    Last text provider status
+                  </dt>
+                  <dd>
+                    {selectedSubscriber.smsDelivery.providerStatus ||
+                      selectedSubscriber.smsDelivery.lastSmsStatus ||
+                      "-"}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+              <h3 className="font-semibold text-text-primary">
+                Priority controls
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-text-secondary">
+                Current priority group: {subscriberPriorityCount} /{" "}
+                {subscriberPriorityLimit}.
+              </p>
+              <label className="mt-3 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">
+                  Replacement
+                </span>
+                <select
+                  value={subscriberPriorityReplacementId}
+                  onChange={(event) =>
+                    setSubscriberPriorityReplacementId(event.target.value)
+                  }
+                  disabled={isBusy}
+                  className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="">
+                    {selectedSubscriber.priorityBeta
+                      ? "No replacement - leave slot open"
+                      : "No replacement selected"}
+                  </option>
+                  {(selectedSubscriber.priorityBeta
+                    ? standardOptions
+                    : priorityOptions
+                  )
+                    .filter((option) => option.id !== selectedSubscriber.id)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.fullName}{" "}
+                        {option.signupOrderNumber
+                          ? `#${option.signupOrderNumber}`
+                          : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p className="mt-2 text-xs leading-5 text-text-muted">
+                Removing a priority user can optionally promote a standard
+                subscriber into the freed slot. Promoting a standard user while
+                the group is full requires choosing a priority user to replace.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  updateSubscriberPriority(!selectedSubscriber.priorityBeta)
+                }
+                disabled={isBusy}
+                className={`mt-4 ${
+                  selectedSubscriber.priorityBeta
+                    ? primaryButtonClass("dark")
+                    : primaryButtonClass("teal")
+                }`}
+              >
+                {busyAction === "subscriberPriority"
+                  ? "Updating..."
+                  : selectedSubscriber.priorityBeta
+                    ? "Remove from priority"
+                    : "Make priority"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+            <label className="block">
+              <span className="font-semibold text-text-primary">
+                Internal admin notes
+              </span>
+              <textarea
+                value={subscriberNotesDraft}
+                onChange={(event) =>
+                  setSubscriberNotesDraft(event.target.value)
+                }
+                rows={5}
+                maxLength={4000}
+                disabled={isBusy}
+                className="mt-2 w-full resize-y rounded-[8px] border border-white/10 bg-[#0D1117] px-4 py-3 text-sm leading-6 text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-text-muted">
+                Notes are internal only and never shown to subscribers.
+              </p>
+              <button
+                type="button"
+                onClick={saveSubscriberNotes}
+                disabled={isBusy}
+                className={primaryButtonClass("teal")}
+              >
+                {busyAction === "subscriberNotes" ? "Saving..." : "Save notes"}
+              </button>
+            </div>
+          </div>
+
+          {subscriberActionMessage ? (
+            <div
+              className={`mt-4 rounded-[8px] border p-3 text-sm leading-6 ${
+                subscriberActionMessage.tone === "success"
+                  ? "border-accent/25 bg-accent/10 text-teal-50"
+                  : subscriberActionMessage.tone === "error"
+                    ? "border-red-400/25 bg-red-400/10 text-red-100"
+                    : "border-white/10 bg-[#080D12] text-text-secondary"
+              }`}
+            >
+              {subscriberActionMessage.text}
+            </div>
+          ) : null}
         </Modal>
       ) : null}
 

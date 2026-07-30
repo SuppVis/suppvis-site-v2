@@ -7,6 +7,10 @@ import {
   confirmationPhraseForCounts,
 } from "@/app/lib/server/admin/audience";
 import {
+  betaAudienceSegmentAuditValue,
+  normalizeBetaAudienceSegment,
+} from "@/app/lib/server/beta-priority";
+import {
   campaignReadinessResponse,
   hasCurrentAdminTests,
   hasCurrentEmailPreview,
@@ -20,7 +24,10 @@ import {
   type EmailCampaignRecord,
 } from "@/app/lib/server/persistence";
 import { enforceRateLimit } from "@/app/lib/server/request";
-import { adminCampaignIdSchema } from "@/app/lib/server/validation";
+import {
+  adminCampaignAudienceRefreshSchema,
+  adminCampaignIdSchema,
+} from "@/app/lib/server/validation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +56,7 @@ function audienceCampaignResponse(record: EmailCampaignRecord) {
     audienceBothEligible: record.audience_both_eligible ?? null,
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
+    audienceSegment: record.audience_segment || "all",
     readiness: campaignReadinessResponse(record),
   };
 }
@@ -72,6 +80,11 @@ export async function POST(
 
     const admin = await requireAdminSession();
     const id = adminCampaignIdSchema.parse(params.id);
+    const body = await request.json().catch(() => ({}));
+    const submission = adminCampaignAudienceRefreshSchema.parse(body);
+    const audienceSegment = normalizeBetaAudienceSegment(
+      submission.audienceSegment,
+    );
     const campaign = await getEmailCampaign(id);
     campaignForFailure = campaign;
 
@@ -122,10 +135,11 @@ export async function POST(
     console.info("[admin-email] audience refresh started", {
       campaignId: id,
       campaignVersion: campaign.version,
+      audienceSegment,
     });
 
     const [snapshot, health] = await Promise.all([
-      buildAudienceSnapshot(),
+      buildAudienceSnapshot({ audienceSegment }),
       buildAudienceHealth(),
     ]);
     console.info("[admin-email] audience channels completed", {
@@ -137,11 +151,13 @@ export async function POST(
       smsEligible: snapshot.sms.eligibleCount,
       smsErrorCode: snapshot.sms.errorCode,
       refreshResult: snapshot.refreshResult,
+      audienceSegment,
     });
 
     const persisted = await markEmailCampaignAudienceCounted({
       id,
       expectedVersion: campaign.version,
+      audienceSegment,
       now: snapshot.countedAt,
       updated_by: admin.identifier,
       emailTotalCount: snapshot.email.totalCount,
@@ -174,7 +190,7 @@ export async function POST(
       action: "recipient_count_generated",
       adminIdentifier: admin.identifier,
       campaignId: id,
-      status: `email=${snapshot.email.status}:${snapshot.email.eligibleCount} sms=${snapshot.sms.status}:${snapshot.sms.eligibleCount}`,
+      status: `audience=${betaAudienceSegmentAuditValue(audienceSegment)} email=${snapshot.email.status}:${snapshot.email.eligibleCount} sms=${snapshot.sms.status}:${snapshot.sms.eligibleCount}`,
     });
 
     const confirmationPhrase = confirmationPhraseForCounts(
@@ -217,6 +233,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       audience: {
+        audienceSegment,
         totalCount: snapshot.email.totalCount,
         eligibleCount: snapshot.email.eligibleCount,
         excludedCount: snapshot.email.excludedCount,

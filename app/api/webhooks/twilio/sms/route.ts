@@ -1,6 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { stableId } from "@/app/lib/server/crypto";
 import {
+  markBetaSubscriberPriorityRemovedByPhone,
+  maybeRestoreBetaSubscriberPriorityByPhone,
+} from "@/app/lib/server/beta-subscribers";
+import {
   PersistenceError,
   ServerConfigError,
 } from "@/app/lib/server/errors";
@@ -93,6 +97,14 @@ export async function POST(request: NextRequest) {
         keyword,
         now,
       });
+      await markBetaSubscriberPriorityRemovedByPhone({
+        phoneE164,
+        now,
+      }).catch((error) => {
+        console.error("[beta-priority] sms stop demotion failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
 
       return twimlResponse();
     }
@@ -103,6 +115,14 @@ export async function POST(request: NextRequest) {
         phone_number_e164: phoneE164,
         keyword,
         now,
+      });
+      await maybeRestoreBetaSubscriberPriorityByPhone({
+        phoneE164,
+        now,
+      }).catch((error) => {
+        console.error("[beta-priority] sms start restore failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
       });
 
       return twimlResponse();

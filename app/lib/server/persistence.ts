@@ -12,6 +12,7 @@ import {
 
 export type BetaApplicationRecord = {
   id: string;
+  record_type?: "beta_application";
   first_name: string;
   last_name: string;
   email: string;
@@ -25,6 +26,18 @@ export type BetaApplicationRecord = {
   sms_consent_version: string;
   status: "new";
   source_page: string;
+  signup_order_number?: number;
+  signup_order_assigned_at?: string;
+  priority_beta?: boolean;
+  priority_beta_assigned_at?: string | null;
+  priority_beta_removed_at?: string | null;
+  priority_beta_removed_reason?: "admin" | "unsubscribe" | null;
+  priority_beta_updated_at?: string | null;
+  priority_beta_updated_by?: string | null;
+  admin_notes?: string;
+  admin_notes_updated_at?: string | null;
+  admin_notes_updated_by?: string | null;
+  subscriber_admin_version?: number;
   created_at: string;
   updated_at: string;
 };
@@ -380,6 +393,7 @@ export type EmailCampaignRecord = {
   audience_both_eligible?: number | null;
   audience_last_error_code?: string | null;
   audience_last_error_at?: string | null;
+  audience_segment?: "all" | "priority" | "standard";
   is_pinned?: boolean;
   pinned_at?: string | null;
   pinned_by?: string | null;
@@ -511,6 +525,7 @@ export type EmailCampaignSummary = Pick<
   | "audience_both_eligible"
   | "audience_last_error_code"
   | "audience_last_error_at"
+  | "audience_segment"
   | "is_pinned"
   | "pinned_at"
   | "pinned_by"
@@ -570,6 +585,12 @@ function emailCampaignMessageTypeAttribute(value: unknown) {
     value === "feedback_request"
     ? value
     : undefined;
+}
+
+function betaAudienceSegmentAttribute(value: unknown) {
+  return value === "priority" || value === "standard" || value === "all"
+    ? value
+    : "all";
 }
 
 function nullableStringAttribute(value: unknown) {
@@ -741,6 +762,7 @@ function emailCampaignFromAttributes(
       nullableStringAttribute(attributes?.audience_last_error_code) || null,
     audience_last_error_at:
       nullableStringAttribute(attributes?.audience_last_error_at) || null,
+    audience_segment: betaAudienceSegmentAttribute(attributes?.audience_segment),
     is_pinned: booleanAttribute(attributes?.is_pinned) || false,
     pinned_at: nullableStringAttribute(attributes?.pinned_at) || null,
     pinned_by: nullableStringAttribute(attributes?.pinned_by) || null,
@@ -881,6 +903,7 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     audience_both_eligible: record.audience_both_eligible,
     audience_last_error_code: record.audience_last_error_code,
     audience_last_error_at: record.audience_last_error_at,
+    audience_segment: record.audience_segment || "all",
     is_pinned: record.is_pinned,
     pinned_at: record.pinned_at,
     pinned_by: record.pinned_by,
@@ -894,6 +917,7 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
     operation: "save_beta_application",
     conditionAttributeNotExists: ["id"],
     set: {
+      record_type: "beta_application",
       first_name: record.first_name,
       last_name: record.last_name,
       email: record.email,
@@ -1601,6 +1625,7 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       audience_both_eligible: record.audience_both_eligible ?? null,
       audience_last_error_code: record.audience_last_error_code || null,
       audience_last_error_at: record.audience_last_error_at || null,
+      audience_segment: record.audience_segment || "all",
       is_pinned: record.is_pinned || false,
       pinned_at: record.pinned_at || null,
       pinned_by: record.pinned_by || null,
@@ -2043,6 +2068,63 @@ export async function updateEmailCampaignDraft(input: {
       ":draft": "draft",
       ":testReady": "test_ready",
       ":tested": "tested",
+    },
+  });
+
+  return result.wrote
+    ? emailCampaignFromAttributes(result.attributes)
+    : null;
+}
+
+export async function updateEmailCampaignAudienceSegment(input: {
+  audience_segment: "all" | "priority" | "standard";
+  expectedVersion: number;
+  id: string;
+  now: string;
+  updated_by: string;
+}) {
+  const nextVersion = input.expectedVersion + 1;
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.emailCampaigns,
+    key: { id: input.id },
+    operation: "update_email_campaign_audience_segment",
+    returnValues: "ALL_NEW",
+    set: {
+      audience_segment: input.audience_segment,
+      audience_counted_at: null,
+      audience_version: 0,
+      audience_email_total: 0,
+      audience_email_eligible: 0,
+      audience_email_excluded: 0,
+      audience_email_duplicate_count: 0,
+      audience_email_status: "not_counted",
+      audience_email_error_code: null,
+      audience_sms_total: 0,
+      audience_sms_eligible: 0,
+      audience_sms_excluded: 0,
+      audience_sms_duplicate_count: 0,
+      audience_sms_status: "not_counted",
+      audience_sms_error_code: null,
+      audience_both_eligible: null,
+      audience_last_error_code: null,
+      audience_last_error_at: null,
+      updated_by: input.updated_by,
+      updated_at: input.now,
+      version: nextVersion,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #version = :expectedVersion AND (#status = :draft OR #status = :testReady OR #status = :tested OR #status = :approved)",
+    conditionAttributeNames: {
+      "#id": "id",
+      "#version": "version",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":expectedVersion": input.expectedVersion,
+      ":draft": "draft",
+      ":testReady": "test_ready",
+      ":tested": "tested",
+      ":approved": "approved",
     },
   });
 
@@ -2515,6 +2597,7 @@ export async function archiveEmailCampaignDraft(input: {
 }
 
 export async function markEmailCampaignAudienceCounted(input: {
+  audienceSegment?: "all" | "priority" | "standard";
   bothEligibleCount?: number | null;
   emailDuplicateCount: number;
   emailEligibleCount: number;
@@ -2558,6 +2641,7 @@ export async function markEmailCampaignAudienceCounted(input: {
         input.emailErrorCode || input.smsErrorCode || null,
       audience_last_error_at:
         input.emailErrorCode || input.smsErrorCode ? input.now : null,
+      audience_segment: input.audienceSegment || "all",
       updated_by: input.updated_by,
       updated_at: input.now,
     },

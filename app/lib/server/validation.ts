@@ -351,9 +351,67 @@ export const adminCampaignPinSchema = adminCampaignVersionSchema.extend({
   pinned: z.boolean(),
 });
 
+export const betaAudienceSegmentSchema = z
+  .enum(["all", "priority", "standard"])
+  .default("all");
+
+export const adminCampaignAudienceRefreshSchema = z
+  .object({
+    audienceSegment: betaAudienceSegmentSchema,
+  })
+  .strict();
+
+export const adminCampaignAudienceSegmentUpdateSchema = z
+  .object({
+    audienceSegment: betaAudienceSegmentSchema,
+    expectedVersion: z.number().int().min(1).max(1_000_000),
+    saveChannel: z.literal("audience"),
+  })
+  .strict();
+
 export const adminCampaignStartSchema = adminCampaignVersionSchema.extend({
   confirmationPhrase: z.string().trim().min(1).max(80),
 });
+
+export const adminSubscriberIdSchema = z
+  .string()
+  .trim()
+  .regex(/^beta_[a-f0-9]{32}$/);
+
+export const adminSubscriberListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  pageSize: z.coerce.number().int().min(5).max(100).optional().default(25),
+  priority: z
+    .enum(["all", "priority", "standard"])
+    .optional()
+    .default("all"),
+  search: z.string().trim().max(120).optional().default(""),
+  sort: z
+    .enum([
+      "name_asc",
+      "newest",
+      "priority_first",
+      "signup_order_asc",
+      "signup_order_desc",
+    ])
+    .optional()
+    .default("signup_order_asc"),
+});
+
+export const adminSubscriberNotesSchema = z
+  .object({
+    expectedVersion: z.number().int().min(1).max(1_000_000),
+    notes: z.string().max(4000).default(""),
+  })
+  .strict();
+
+export const adminSubscriberPrioritySchema = z
+  .object({
+    expectedVersion: z.number().int().min(1).max(1_000_000),
+    priority: z.boolean(),
+    replacementSubscriberId: adminSubscriberIdSchema.optional(),
+  })
+  .strict();
 
 export const emailUnsubscribeSchema = z.object({
   subscriberId: z

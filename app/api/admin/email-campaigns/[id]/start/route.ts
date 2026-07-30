@@ -5,6 +5,7 @@ import {
   audienceErrorCode,
   confirmationPhraseForCounts,
 } from "@/app/lib/server/admin/audience";
+import { betaAudienceSegmentAuditValue } from "@/app/lib/server/beta-priority";
 import { buildCampaignAudience } from "@/app/lib/server/email/campaign-audience";
 import {
   getEmailCampaignReadiness,
@@ -117,8 +118,8 @@ export async function POST(
     }
 
     const [emailAudienceResult, smsAudienceResult] = await Promise.allSettled([
-      buildCampaignAudience(),
-      buildSmsCampaignAudience(),
+      buildCampaignAudience({ audienceSegment: campaign.audience_segment || "all" }),
+      buildSmsCampaignAudience({ audienceSegment: campaign.audience_segment || "all" }),
     ]);
     const emailAudience =
       emailAudienceResult.status === "fulfilled"
@@ -346,7 +347,7 @@ export async function POST(
         action: "campaign_queued",
         adminIdentifier: admin.identifier,
         campaignId: id,
-        status: `email=${queuedEmailCount} sms=${queuedSmsCount}`,
+        status: `audience=${betaAudienceSegmentAuditValue(campaign.audience_segment || "all")} email=${queuedEmailCount} sms=${queuedSmsCount}`,
       });
 
       return NextResponse.json({

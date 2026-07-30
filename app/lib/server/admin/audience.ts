@@ -12,6 +12,7 @@ import {
   buildSmsCampaignAudience,
   type SmsCampaignAudience,
 } from "@/app/lib/server/sms/campaign-audience";
+import type { BetaAudienceSegment } from "@/app/lib/server/beta-priority";
 import { PersistenceError } from "@/app/lib/server/errors";
 import type { AudienceChannelStatus } from "@/app/lib/server/persistence";
 
@@ -31,6 +32,7 @@ export type AudienceChannelSnapshot = {
 };
 
 export type AudienceSnapshot = {
+  audienceSegment: BetaAudienceSegment;
   countedAt: string;
   email: AudienceChannelSnapshot;
   refreshResult: AudienceRefreshResult;
@@ -175,11 +177,14 @@ function smsChannel(audience: SmsCampaignAudience): AudienceChannelSnapshot {
   };
 }
 
-export async function buildAudienceSnapshot() {
+export async function buildAudienceSnapshot(input?: {
+  audienceSegment?: BetaAudienceSegment;
+}) {
+  const audienceSegment = input?.audienceSegment || "all";
   const countedAt = new Date().toISOString();
   const [emailResult, smsResult] = await Promise.allSettled([
-    buildCampaignAudience(),
-    buildSmsCampaignAudience(),
+    buildCampaignAudience({ audienceSegment }),
+    buildSmsCampaignAudience({ audienceSegment }),
   ]);
 
   const email =
@@ -197,6 +202,7 @@ export async function buildAudienceSnapshot() {
     successCount === 2 ? "success" : successCount === 1 ? "partial" : "failed";
 
   return {
+    audienceSegment,
     countedAt,
     email,
     refreshResult,

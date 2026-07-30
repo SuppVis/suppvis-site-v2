@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import { stableId } from "@/app/lib/server/crypto";
+import { maybeRestoreBetaSubscriberPriorityByPhone } from "@/app/lib/server/beta-subscribers";
 import { handleApiError } from "@/app/lib/server/errors";
 import {
   markSmsResubscribeIfUnsubscribed,
@@ -54,10 +55,21 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const subscriberId = stableId("sms", phoneE164);
 
-    await markSmsResubscribeIfUnsubscribed({
+    const smsResubscribeResult = await markSmsResubscribeIfUnsubscribed({
       id: subscriberId,
       now,
     });
+
+    if (smsResubscribeResult.wrote) {
+      await maybeRestoreBetaSubscriberPriorityByPhone({
+        phoneE164,
+        now,
+      }).catch((error) => {
+        console.error("[beta-priority] sms resubscribe restore failed", {
+          errorName: error instanceof Error ? error.name : "UnknownError",
+        });
+      });
+    }
 
     await saveSmsSubscriber({
       id: subscriberId,

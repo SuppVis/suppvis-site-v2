@@ -1,4 +1,8 @@
 import {
+  getBetaAudienceMembership,
+} from "@/app/lib/server/beta-subscribers";
+import type { BetaAudienceSegment } from "@/app/lib/server/beta-priority";
+import {
   canSendSmsToSubscriber,
   listSmsSubscribersForAnnouncement,
   type CampaignAudienceCount,
@@ -61,12 +65,20 @@ function decideSmsAnnouncementEligibility(
   return { eligible: true, normalizedPhone };
 }
 
-export async function buildSmsCampaignAudience(): Promise<SmsCampaignAudience> {
+export async function buildSmsCampaignAudience(input?: {
+  audienceSegment?: BetaAudienceSegment;
+}): Promise<SmsCampaignAudience> {
   const subscribers = await listSmsSubscribersForAnnouncement();
+  const membership = await getBetaAudienceMembership(
+    input?.audienceSegment || "all",
+  );
   const seenPhones = new Set<string>();
   const candidates = subscribers.map((subscriber) => ({
     subscriber,
-    decision: decideSmsAnnouncementEligibility(subscriber, seenPhones),
+    decision:
+      membership && !membership.phones.has(subscriber.phone_number_e164)
+        ? ({ eligible: false, reason: "outside_audience_segment" } as const)
+        : decideSmsAnnouncementEligibility(subscriber, seenPhones),
   }));
   const eligibleCount = candidates.filter(
     (candidate) => candidate.decision.eligible,

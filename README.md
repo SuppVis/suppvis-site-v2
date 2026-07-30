@@ -1,6 +1,6 @@
 # SuppVis Site V2
 
-Next.js App Router site for SuppVis. The repo contains the public marketing and content pages, beta signup collection, subscriber consent persistence, an authenticated admin announcement console, and AWS worker code for queued email and SMS announcement delivery.
+Next.js App Router site for SuppVis. The repo contains the public marketing and content pages, beta signup collection, subscriber consent persistence, priority beta-user management, an authenticated admin announcement console, and AWS worker code for queued email and SMS announcement delivery.
 
 ## Stack
 
@@ -69,13 +69,29 @@ Do not commit `.env.local`, real secrets, access keys, Twilio tokens, or recipie
 
 The `/admin` route is intentionally not linked from public navigation. Security is enforced server-side and does not rely on the URL being hidden.
 
+### Page Actions
+
+| Area | Primary actions |
+| --- | --- |
+| Homepage | Read the product story, submit beta application, opt into email, optionally opt into SMS with explicit consent. |
+| About | Learn founder/company background. |
+| How It Works | Review the product workflow and expected user experience. |
+| Research | Browse supplements/research keys and open evidence detail pages. |
+| Blog | Browse journal posts and open article pages. |
+| Shop | Browse curated products and open product detail pages. |
+| Partnerships | Submit or review partner/affiliate interest content. |
+| Legal pages | Read privacy, terms, medical disclaimer, affiliate disclosure, and source notes. |
+| Unsubscribe | Confirm email unsubscribe with subscriber id/token. |
+| Admin sign-in | Start Microsoft Entra authentication for allowlisted admins. |
+| Admin console | Manage subscriber priority/notes, create announcement drafts, preview/test email and text, refresh audiences, and queue approved announcements. |
+
 ## Public Collection Flows
 
 ### Beta Signup
 
 `POST /api/beta-applications`
 
-Collects beta application details from the public site. The route validates input server-side, uses honeypot/rate-limit protections, normalizes email and phone data, writes the beta application, and upserts subscriber records where consent exists.
+Collects beta application details from the public site. The route validates input server-side, uses honeypot/rate-limit protections, normalizes email and phone data, writes the beta application, assigns stable beta subscriber metadata, and upserts subscriber records where consent exists.
 
 Behavior:
 
@@ -84,6 +100,25 @@ Behavior:
 - SMS subscriber records are created only when the user explicitly checks the SMS consent box.
 - SMS consent is informational/customer-care consent, not marketing consent.
 - Duplicate beta signups with the same normalized email return a friendly already-signed-up success result instead of creating duplicate applications.
+- Every beta applicant receives a stable signup-order number. That number stays with the person across unsubscribe/resubscribe and priority changes.
+- The public beta list is unlimited. The separate priority beta group defaults to the first 300 signup-order numbers and can be changed through server config/admin actions.
+
+### Priority Beta Users
+
+The priority beta group is a managed subset of beta subscribers. It is designed for operational access control and staged beta communication, not for public capacity limiting.
+
+Rules:
+
+- `PRIORITY_BETA_LIMIT` controls the maximum number of priority beta users. The default is `300`.
+- Until the priority group reaches the configured limit, new beta applicants are automatically marked priority.
+- Once the group is full, new beta applicants are still accepted as standard subscribers.
+- Raising the limit later does not automatically promote existing standard subscribers. This avoids surprising admins; promotions should be intentional or handled by a deliberate backfill/migration.
+- Unsubscribe/STOP removes a person from the priority group but preserves their signup-order number and history.
+- Resubscribe/START can restore priority only when the record was removed because of unsubscribe/STOP and there is room under the limit.
+- Admin promotion/removal is protected server-side and enforces the priority limit with optimistic version checks.
+- Admin notes are internal only and must never be rendered publicly or included in messages.
+
+Existing records that predate signup-order metadata are handled with a deterministic backfill strategy based on the best available original signup timestamp. The earliest subscribers receive the earliest signup-order numbers; Andrew is ranked first and Tanner second when legacy timestamps are insufficient, matching the initial operator preference.
 
 ### Email Subscriber Endpoint
 
@@ -151,10 +186,11 @@ The browser never controls production recipients, sender identity, arbitrary tes
 6. Save the text.
 7. Generate the text preview.
 8. Send one admin text test to the configured admin test number.
-9. Refresh recipient count.
-10. Type the generated confirmation phrase, such as `SEND EMAIL TO 3 AND TEXT TO 2`.
-11. Click `Approve & send announcement`.
-12. The server queues eligible email and SMS recipient jobs; delivery workers continue independently.
+9. Choose the audience segment.
+10. Refresh recipient count.
+11. Type the generated confirmation phrase, such as `SEND EMAIL TO 3 AND TEXT TO 2`.
+12. Click `Approve & send announcement`.
+13. The server queues eligible email and SMS recipient jobs; delivery workers continue independently.
 
 The per-channel test controls are grouped by workspace:
 
@@ -163,14 +199,36 @@ The per-channel test controls are grouped by workspace:
 
 Final production sending still requires both email and text authoring/test prerequisites.
 
+### Subscriber Management
+
+The admin portal includes a protected subscriber-management area near the live audience snapshot. It is for viewing and maintaining beta subscribers, not for sending directly.
+
+Admins can:
+
+- Search subscribers by first name, last name, full name, email, phone, or signup-order number.
+- Sort/paginate the list so the page remains usable as the beta grows.
+- Open a subscriber detail view with application, email, SMS, consent, priority, delivery, and internal-note metadata.
+- Promote a standard subscriber to priority when the priority group has room.
+- Remove a priority subscriber and optionally choose a standard subscriber to promote into the freed slot.
+- Save internal admin notes.
+
+Subscriber management routes never expose raw subscriber lists publicly. They require the same Microsoft Entra session and server-side admin allowlist as announcement routes. Admin notes and priority actions are audit logged with safe metadata only.
+
 ### Recipient Rules
 
 Manual recipient refresh queries the current Production subscriber records each time. It applies current eligibility, suppression, opt-out, bounce, complaint, invalid, and deduplication rules. It does not send or queue anything.
+
+Audience choices:
+
+- All beta subscribers
+- Priority beta subscribers only
+- Standard, non-priority beta subscribers only
 
 Sending rules:
 
 - Announcement content must include both email and text.
 - Both previews and both admin tests must be current.
+- The selected audience segment is validated server-side and persisted with the campaign recipient snapshot.
 - Email jobs are queued only for eligible email subscribers.
 - SMS jobs are queued only for eligible SMS subscribers.
 - If one channel has zero eligible recipients, the other channel may still queue if all authoring/test requirements are met and that channel infrastructure is ready.
@@ -229,6 +287,9 @@ Every admin route requires an authenticated, allowlisted admin session.
 | `/api/admin/audience/summary` | Protected safe aggregate live audience summary. |
 | `/api/admin/audience/health` | Protected safe audience table/index diagnostics. |
 | `/api/admin/broadcast-audit` | Legacy dry-run audit endpoint guarded by token hash. |
+| `/api/admin/subscribers` | Lists beta subscribers, searches/sorts/paginates, and runs protected metadata backfill. |
+| `/api/admin/subscribers/[id]` | Loads subscriber detail and updates internal notes. |
+| `/api/admin/subscribers/[id]/priority` | Protected priority promote/remove action with limit and version checks. |
 | `/api/admin/email-campaigns` | Lists/creates admin announcement drafts. |
 | `/api/admin/email-campaigns/[id]` | Loads, patches, archives, and hydrates an announcement. |
 | `/api/admin/email-campaigns/preview` | Server-rendered email preview. |
@@ -245,6 +306,14 @@ Every admin route requires an authenticated, allowlisted admin session.
 ## Email Rendering
 
 Email HTML is rendered server-side from structured fields, not raw admin HTML. The renderer is shared by preview, admin tests, and production subscriber emails.
+
+CTA behavior:
+
+- Link text and URL are optional.
+- If both are present, the email renders a CTA button and a safe raw-link fallback.
+- If both are blank, the email renders as a normal informational announcement with no empty button or awkward link spacing.
+- If one is present without the other, validation asks the admin to complete or remove the pair.
+- URLs are validated only when supplied.
 
 Branding:
 
@@ -332,12 +401,33 @@ Use separate table names for Production, Preview, and Development.
 
 | Environment variable | Purpose |
 | --- | --- |
-| `DYNAMODB_BETA_APPLICATIONS_TABLE` | Public beta application records. |
+| `DYNAMODB_BETA_APPLICATIONS_TABLE` | Public beta application records plus signup-order, priority, and internal admin-note metadata. |
 | `DYNAMODB_EMAIL_SUBSCRIBERS_TABLE` | Email subscriber consent, unsubscribe, bounce, and complaint state. |
 | `DYNAMODB_SMS_SUBSCRIBERS_TABLE` | SMS consent, STOP/START, invalid, and provider state. |
 | `DYNAMODB_EMAIL_CAMPAIGNS_TABLE` | Admin announcement drafts and campaign state. |
 | `DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE` | Per-recipient email/SMS campaign delivery records. |
 | `DYNAMODB_BROADCAST_AUDIT_LOGS_TABLE` | Audit-safe admin/broadcast events. |
+
+### Beta Application Metadata
+
+Beta applications are the operational source of truth for subscriber-facing identity fields such as name, signup date, stable signup-order number, priority status, and admin notes.
+
+Important fields:
+
+| Field | Purpose |
+| --- | --- |
+| `signup_order_number` | Stable unique signup order shown to admins. |
+| `signup_order_assigned_at` | Timestamp when the order number was assigned/backfilled. |
+| `priority_beta` | Boolean priority-group membership. |
+| `priority_beta_assigned_at` | Timestamp for current priority assignment. |
+| `priority_beta_removed_at` | Timestamp for latest priority removal. |
+| `priority_beta_removed_reason` | Safe reason such as `admin` or `unsubscribe`. |
+| `priority_beta_updated_at` | Last priority metadata update time. |
+| `priority_beta_updated_by` | Safe admin/system identifier. |
+| `admin_notes` | Internal admin-only notes. |
+| `subscriber_admin_version` | Optimistic concurrency value for admin subscriber edits. |
+
+The metadata item `__beta_subscriber_metadata__` stores the latest assigned signup-order number and current priority count. Do not delete it in production.
 
 ### Required Indexes
 
@@ -370,6 +460,8 @@ Campaign recipients:
 - Table: `suppvis-prod-email-campaign-recipients`
 - Partition key: `campaign_id` string
 - Sort key: `subscriber_id` string
+
+Admin subscriber management also requires protected server-side reads of beta application records plus batch lookups of matching email/SMS subscriber records. Keep these permissions least-privilege and scoped to the exact Production/Preview tables.
 
 Recommended table settings:
 
@@ -412,6 +504,15 @@ Use `.env.example` as the source of truth for local shape. Production values liv
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | Yes | Microsoft Entra client secret. |
 | `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | No | Single-tenant issuer URL. |
 | `ADMIN_ALLOWED_EMAILS` | Yes | Comma-separated allowlisted admin emails. |
+
+### Priority Beta Management
+
+| Key | Sensitive | Purpose |
+| --- | --- | --- |
+| `PRIORITY_BETA_LIMIT` | No | Maximum automatic/manual priority beta users, default `300`. |
+| `BETA_PRIORITY_LIMIT` | No | Backwards-compatible alias. Prefer `PRIORITY_BETA_LIMIT`. |
+
+Changing the limit changes future assignment and admin enforcement. It does not automatically promote existing standard subscribers unless a deliberate backfill or admin action does so.
 
 ### Admin Email Announcements
 
@@ -476,12 +577,14 @@ Use `.env.example` as the source of truth for local shape. Production values liv
 app/
   admin/                         Protected admin UI and sign-in page.
   api/                           Vercel serverless API routes.
+    admin/subscribers/           Protected subscriber search, detail, notes, and priority actions.
+    admin/email-campaigns/       Protected announcement draft, preview, test, audience, and send routes.
   blog/, research/, shop/         Public dynamic content pages.
   about/, how-it-works/, ...      Public static marketing/legal pages.
   components/                    Shared React UI components.
   hooks/                         Shared client hooks.
   lib/                           Client helpers and server-only business logic.
-    server/                      Auth, DynamoDB, validation, email/SMS, queues.
+    server/                      Auth, DynamoDB, validation, priority, email/SMS, queues.
 aws/
   lambdas/                       Python Lambda workers for campaign delivery/events.
   scripts/                       Provisioning scripts for AWS queues/workers.
@@ -514,6 +617,16 @@ Normal deployment is Git/Vercel driven:
 
 - push `main` for Production
 - push `andrew` or another non-production branch for Preview
+
+### Backfill Priority Subscriber Metadata
+
+Protected admin route:
+
+```text
+POST /api/admin/subscribers
+```
+
+This assigns missing signup-order numbers and priority metadata for legacy beta applications. Run it only from an authenticated admin session or a controlled internal maintenance script that carries the same admin protections. It does not send email or SMS.
 
 ### Provision Email Worker
 
