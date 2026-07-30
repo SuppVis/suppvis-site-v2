@@ -618,13 +618,33 @@ export async function scanDynamoItemsPage(input: ScanInput) {
       lastEvaluatedKey: result.LastEvaluatedKey as DynamoRecord | undefined,
     };
   } catch (error) {
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorMessage = safeDynamoErrorMessage(error);
+
     console.error("[dynamodb] scan failed", {
       operation: input.operation,
+      tableName,
       tableEnvName: input.tableEnvName,
-      errorName: error instanceof Error ? error.name : "UnknownError",
+      filterExpression: input.filterExpression || null,
+      projectionExpression: input.projectionExpression || null,
+      expressionAttributeNames: input.expressionAttributeNames || null,
+      expressionAttributeValues: safeExpressionAttributeValuesForLog(
+        input.operation,
+        input.expressionAttributeValues,
+      ),
+      exclusiveStartKeyPresent: Boolean(input.exclusiveStartKey),
+      limit: input.limit || null,
+      consistentRead: false,
+      errorName,
+      errorMessage,
     });
 
-    throw new PersistenceError();
+    throw new PersistenceError(
+      "DynamoDB scan failed",
+      "dynamodb_scan_failed",
+      errorName,
+      errorMessage,
+    );
   }
 }
 

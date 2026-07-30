@@ -382,6 +382,9 @@ function formatIdleCountdown(milliseconds: number) {
 }
 const FOCUS_GUIDE_INITIAL_IDLE_MS = 30 * 1000;
 const FOCUS_GUIDE_STEP_IDLE_MS = 10 * 1000;
+const SUBSCRIBER_PAGE_SIZE = 25;
+const SUBSCRIBER_SEARCH_DEBOUNCE_MS = 250;
+const SUBSCRIBER_SUGGESTION_LIMIT = 5;
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -594,7 +597,21 @@ function formatOptionalDate(value?: string | null) {
 }
 
 function phoneDisplay(subscriber: AdminBetaSubscriber) {
-  return subscriber.phoneRaw || subscriber.phoneE164 || "-";
+  const value = subscriber.phoneE164 || subscriber.phoneRaw;
+
+  if (!value) {
+    return "-";
+  }
+
+  const digits = value.replace(/\D/g, "");
+  const national =
+    digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+
+  if (national.length === 10) {
+    return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`;
+  }
+
+  return value;
 }
 
 function statusLabel(status?: string) {
@@ -1278,6 +1295,7 @@ export default function AdminCampaignDraft({
   const workflowGuideScrollInProgressRef = useRef(false);
   const workflowGuideActivityThrottleRef = useRef(0);
   const draftsRequestSeqRef = useRef(0);
+  const subscriberSuggestionsSeqRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
   const [audienceOverview, setAudienceOverview] =
     useState<AudienceOverview | null>(null);
@@ -1346,7 +1364,7 @@ export default function AdminCampaignDraft({
   const [subscriberError, setSubscriberError] = useState<string | null>(null);
   const [subscriberList, setSubscriberList] = useState<AdminBetaSubscriber[]>([]);
   const [subscriberPage, setSubscriberPage] = useState(1);
-  const [subscriberPageSize] = useState(10);
+  const [subscriberPageSize] = useState(SUBSCRIBER_PAGE_SIZE);
   const [subscriberPriorityCount, setSubscriberPriorityCount] = useState(0);
   const [subscriberPriorityFilter, setSubscriberPriorityFilter] =
     useState<AdminSubscriberPriorityFilter>("all");
@@ -1359,6 +1377,15 @@ export default function AdminCampaignDraft({
   const [subscriberTotalPages, setSubscriberTotalPages] = useState(1);
   const [subscriberBackfillNeeded, setSubscriberBackfillNeeded] =
     useState(false);
+  const [subscriberSuggestions, setSubscriberSuggestions] = useState<
+    AdminBetaSubscriber[]
+  >([]);
+  const [subscriberSuggestionsLoading, setSubscriberSuggestionsLoading] =
+    useState(false);
+  const [subscriberSuggestionsOpen, setSubscriberSuggestionsOpen] =
+    useState(false);
+  const [subscriberSuggestionIndex, setSubscriberSuggestionIndex] =
+    useState(-1);
   const [selectedSubscriber, setSelectedSubscriber] =
     useState<AdminBetaSubscriber | null>(null);
   const [subscriberNotesDraft, setSubscriberNotesDraft] = useState("");
@@ -1376,6 +1403,15 @@ export default function AdminCampaignDraft({
   } | null>(null);
 
   const isBusy = Boolean(busyAction);
+  const subscriberRangeStart = subscriberTotalCount
+    ? (subscriberPage - 1) * subscriberPageSize + 1
+    : 0;
+  const subscriberRangeEnd = subscriberTotalCount
+    ? Math.min(
+        subscriberTotalCount,
+        subscriberRangeStart + subscriberList.length - 1,
+      )
+    : 0;
   const status = useMemo(() => statusLabel(campaign?.status), [campaign]);
   const isSendStarted =
     campaign?.status === "queueing" ||
@@ -1915,6 +1951,54 @@ export default function AdminCampaignDraft({
     }
   }
 
+  async function loadSubscriberSuggestions(search: string) {
+    const trimmed = search.trim();
+    const requestSeq = subscriberSuggestionsSeqRef.current + 1;
+    subscriberSuggestionsSeqRef.current = requestSeq;
+
+    if (!trimmed) {
+      setSubscriberSuggestions([]);
+      setSubscriberSuggestionsLoading(false);
+      setSubscriberSuggestionIndex(-1);
+      return;
+    }
+
+    setSubscriberSuggestionsLoading(true);
+
+    const params = new URLSearchParams({
+      page: "1",
+      pageSize: String(SUBSCRIBER_SUGGESTION_LIMIT),
+      priority: subscriberPriorityFilter,
+      search: trimmed,
+      sort: "name_asc",
+    });
+
+    try {
+      const response = await adminFetch(`/api/admin/subscribers?${params}`, {
+        cache: "no-store",
+      });
+      const payload = await parseJsonResponse(response);
+
+      if (subscriberSuggestionsSeqRef.current !== requestSeq) {
+        return;
+      }
+
+      setSubscriberSuggestions(payload.items || []);
+      setSubscriberSuggestionIndex(payload.items?.length ? 0 : -1);
+    } catch {
+      if (subscriberSuggestionsSeqRef.current !== requestSeq) {
+        return;
+      }
+
+      setSubscriberSuggestions([]);
+      setSubscriberSuggestionIndex(-1);
+    } finally {
+      if (subscriberSuggestionsSeqRef.current === requestSeq) {
+        setSubscriberSuggestionsLoading(false);
+      }
+    }
+  }
+
   async function loadPriorityOptions() {
     const [priorityResponse, standardResponse] = await Promise.all([
       adminFetch(
@@ -2165,6 +2249,23 @@ export default function AdminCampaignDraft({
   useEffect(() => {
     loadSubscribers({ silent: true }).catch(() => undefined);
   }, [subscriberPage, subscriberPriorityFilter, subscriberSearch, subscriberSort]);
+
+  useEffect(() => {
+    if (!subscriberSuggestionsOpen || !subscriberSearchInput.trim()) {
+      setSubscriberSuggestions([]);
+      setSubscriberSuggestionsLoading(false);
+      setSubscriberSuggestionIndex(-1);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      loadSubscriberSuggestions(subscriberSearchInput).catch(() => undefined);
+    }, SUBSCRIBER_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [subscriberPriorityFilter, subscriberSearchInput, subscriberSuggestionsOpen]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -4541,8 +4642,8 @@ export default function AdminCampaignDraft({
               Beta subscriber management
             </h3>
             <p className="mt-1 text-sm leading-6 text-text-secondary">
-              Search subscribers by name, email, phone, or signup number. Open a
-              subscriber to edit internal notes or manage priority status.
+              Search subscribers by name, email, or phone. Open a subscriber to
+              edit internal notes or manage priority status.
             </p>
           </div>
           <div className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
@@ -4556,16 +4657,112 @@ export default function AdminCampaignDraft({
             event.preventDefault();
             setSubscriberPage(1);
             setSubscriberSearch(subscriberSearchInput);
+            setSubscriberSuggestionsOpen(false);
           }}
         >
-          <label className="block">
+          <label className="relative block">
             <span className="sr-only">Search beta subscribers</span>
             <input
+              aria-autocomplete="list"
+              aria-expanded={subscriberSuggestionsOpen}
+              aria-controls="subscriber-search-suggestions"
+              autoComplete="off"
               value={subscriberSearchInput}
-              onChange={(event) => setSubscriberSearchInput(event.target.value)}
-              placeholder="Search name, email, phone, or #"
+              onBlur={() => {
+                window.setTimeout(() => setSubscriberSuggestionsOpen(false), 150);
+              }}
+              onChange={(event) => {
+                setSubscriberSearchInput(event.target.value);
+                setSubscriberSuggestionsOpen(Boolean(event.target.value.trim()));
+              }}
+              onFocus={() => {
+                if (subscriberSearchInput.trim()) {
+                  setSubscriberSuggestionsOpen(true);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (!subscriberSuggestionsOpen) {
+                  return;
+                }
+
+                if (event.key === "Escape") {
+                  setSubscriberSuggestionsOpen(false);
+                  return;
+                }
+
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setSubscriberSuggestionIndex((index) =>
+                    Math.min(subscriberSuggestions.length - 1, index + 1),
+                  );
+                  return;
+                }
+
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setSubscriberSuggestionIndex((index) => Math.max(0, index - 1));
+                  return;
+                }
+
+                if (event.key === "Enter" && subscriberSuggestionIndex >= 0) {
+                  const suggestion = subscriberSuggestions[subscriberSuggestionIndex];
+
+                  if (suggestion) {
+                    event.preventDefault();
+                    setSubscriberSuggestionsOpen(false);
+                    openSubscriber(suggestion).catch(() => undefined);
+                  }
+                }
+              }}
+              placeholder="Search by name, email, or phone"
               className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
             />
+            {subscriberSuggestionsOpen ? (
+              <div
+                id="subscriber-search-suggestions"
+                role="listbox"
+                className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-[8px] border border-white/10 bg-[#080D12] p-1 shadow-2xl shadow-black/40"
+              >
+                {subscriberSuggestionsLoading ? (
+                  <div className="px-3 py-2 text-sm text-text-secondary">
+                    Searching...
+                  </div>
+                ) : subscriberSuggestions.length ? (
+                  subscriberSuggestions.map((suggestion, index) => (
+                    <button
+                      key={suggestion.id}
+                      type="button"
+                      role="option"
+                      aria-selected={index === subscriberSuggestionIndex}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setSubscriberSuggestionsOpen(false);
+                        openSubscriber(suggestion).catch(() => undefined);
+                      }}
+                      className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm transition ${
+                        index === subscriberSuggestionIndex
+                          ? "bg-accent/15 text-text-primary"
+                          : "text-text-secondary hover:bg-white/[0.05] hover:text-text-primary"
+                      }`}
+                    >
+                      <span className="block font-semibold text-text-primary">
+                        {suggestion.fullName}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-text-muted">
+                        {suggestion.email}
+                        {phoneDisplay(suggestion) !== "-"
+                          ? ` · ${phoneDisplay(suggestion)}`
+                          : ""}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-sm text-text-secondary">
+                    No subscribers match.
+                  </div>
+                )}
+              </div>
+            ) : null}
           </label>
           <label className="block">
             <span className="sr-only">Priority filter</span>
@@ -4613,7 +4810,9 @@ export default function AdminCampaignDraft({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted">
           <span>
-            Showing {subscriberList.length} of {subscriberTotalCount} subscribers
+            {subscriberTotalCount
+              ? `Showing ${subscriberRangeStart}-${subscriberRangeEnd} of ${subscriberTotalCount} subscribers`
+              : "Showing 0 of 0 subscribers"}
           </span>
           <div className="flex flex-wrap gap-2">
             {subscriberBackfillNeeded ? (

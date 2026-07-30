@@ -5,7 +5,11 @@ import {
   getAdminBetaSubscriber,
   updateBetaSubscriberNotes,
 } from "@/app/lib/server/beta-subscribers";
-import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
+import {
+  handleApiError,
+  PersistenceError,
+  PublicApiError,
+} from "@/app/lib/server/errors";
 import {
   enforceRateLimit,
   readJsonBody,
@@ -50,6 +54,16 @@ export async function GET(
       subscriber,
     });
   } catch (error) {
+    if (error instanceof PersistenceError) {
+      return handleApiError(
+        new PublicApiError(
+          503,
+          "subscriber_detail_failed",
+          "Beta subscriber details could not be loaded. Please try again.",
+        ),
+      );
+    }
+
     return handleApiError(error);
   }
 }

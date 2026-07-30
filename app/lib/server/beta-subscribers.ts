@@ -87,6 +87,11 @@ export type AdminSubscriberListResult = {
   totalPages: number;
 };
 
+type SubscriberSearchMatch = {
+  score: number;
+  subscriber: AdminBetaSubscriber;
+};
+
 function stringAttribute(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
@@ -273,6 +278,78 @@ async function scanBetaApplications() {
   return applications;
 }
 
+function deriveEffectiveBetaApplications(
+  applications: BetaApplicationRecord[],
+  input?: { now?: string },
+) {
+  const now = input?.now || new Date().toISOString();
+  const priorityLimit = getPriorityBetaLimit();
+  const usedSignupOrders = new Set(
+    applications
+      .map((application) => application.signup_order_number)
+      .filter((order): order is number => Boolean(order && order > 0)),
+  );
+  const orderById = new Map<string, number>();
+  let nextSignupOrder = 1;
+
+  for (const application of [...applications].sort(compareForSignupOrderBackfill)) {
+    if (application.signup_order_number && application.signup_order_number > 0) {
+      orderById.set(application.id, application.signup_order_number);
+      nextSignupOrder = Math.max(
+        nextSignupOrder,
+        application.signup_order_number + 1,
+      );
+      continue;
+    }
+
+    while (usedSignupOrders.has(nextSignupOrder)) {
+      nextSignupOrder += 1;
+    }
+
+    orderById.set(application.id, nextSignupOrder);
+    usedSignupOrders.add(nextSignupOrder);
+    nextSignupOrder += 1;
+  }
+
+  return applications.map((application) => {
+    const signupOrderNumber =
+      orderById.get(application.id) || application.signup_order_number || null;
+    const priorityMissing = application.priority_beta === undefined;
+    const priorityBeta = priorityMissing
+      ? Boolean(signupOrderNumber && signupOrderNumber <= priorityLimit)
+      : Boolean(application.priority_beta);
+
+    return {
+      ...application,
+      record_type: "beta_application" as const,
+      signup_order_number:
+        signupOrderNumber || application.signup_order_number || undefined,
+      signup_order_assigned_at:
+        application.signup_order_assigned_at || application.created_at || now,
+      priority_beta: priorityBeta,
+      priority_beta_assigned_at: priorityBeta
+        ? application.priority_beta_assigned_at || application.created_at || now
+        : application.priority_beta_assigned_at || null,
+      priority_beta_removed_at: priorityBeta
+        ? null
+        : application.priority_beta_removed_at || null,
+      priority_beta_removed_reason: priorityBeta
+        ? null
+        : application.priority_beta_removed_reason || null,
+      priority_beta_updated_at:
+        application.priority_beta_updated_at || application.updated_at || now,
+      priority_beta_updated_by:
+        application.priority_beta_updated_by ||
+        (priorityMissing ? "system:derived" : null),
+      subscriber_admin_version: application.subscriber_admin_version || 1,
+    } satisfies BetaApplicationRecord;
+  });
+}
+
+async function scanEffectiveBetaApplications(input?: { now?: string }) {
+  return deriveEffectiveBetaApplications(await scanBetaApplications(), input);
+}
+
 async function getBetaSubscriberMetadata() {
   return getDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.betaApplications,
@@ -305,20 +382,24 @@ export async function backfillBetaSubscriberMetadata(input?: {
 }) {
   const now = input?.now || new Date().toISOString();
   const priorityLimit = getPriorityBetaLimit();
-  const applications = (await scanBetaApplications()).sort(
+  const rawApplications = await scanBetaApplications();
+  const rawById = new Map(
+    rawApplications.map((application) => [application.id, application]),
+  );
+  const applications = deriveEffectiveBetaApplications(rawApplications, {
+    now,
+  }).sort(
     compareForSignupOrderBackfill,
   );
   let nextOrder = 1;
   let priorityCount = 0;
 
   for (const application of applications) {
-    const existingOrder = application.signup_order_number;
-    const signupOrderNumber = existingOrder || nextOrder;
-    const missingOrder = !existingOrder;
-    const priorityMissing = application.priority_beta === undefined;
-    const shouldBePriority =
-      application.priority_beta ||
-      (priorityMissing && signupOrderNumber <= priorityLimit);
+    const original = rawById.get(application.id);
+    const signupOrderNumber = application.signup_order_number || nextOrder;
+    const missingOrder = !original?.signup_order_number;
+    const priorityMissing = original?.priority_beta === undefined;
+    const shouldBePriority = Boolean(application.priority_beta);
     const nextAdminVersion = (application.subscriber_admin_version || 1) + 1;
 
     if (shouldBePriority) {
@@ -339,21 +420,29 @@ export async function backfillBetaSubscriberMetadata(input?: {
           record_type: "beta_application",
           signup_order_number: signupOrderNumber,
           signup_order_assigned_at:
-            application.signup_order_assigned_at || now,
+            original?.signup_order_assigned_at || application.created_at || now,
           priority_beta: shouldBePriority,
           priority_beta_assigned_at: shouldBePriority
-            ? application.priority_beta_assigned_at || now
+            ? original?.priority_beta_assigned_at ||
+              application.priority_beta_assigned_at ||
+              now
             : null,
           priority_beta_removed_at: shouldBePriority
             ? null
-            : application.priority_beta_removed_at || null,
+            : original?.priority_beta_removed_at ||
+              application.priority_beta_removed_at ||
+              null,
           priority_beta_removed_reason: shouldBePriority
             ? null
-            : application.priority_beta_removed_reason || null,
+            : original?.priority_beta_removed_reason ||
+              application.priority_beta_removed_reason ||
+              null,
           priority_beta_updated_at:
-            application.priority_beta_updated_at || now,
+            original?.priority_beta_updated_at ||
+            application.priority_beta_updated_at ||
+            now,
           priority_beta_updated_by:
-            application.priority_beta_updated_by || "system:backfill",
+            original?.priority_beta_updated_by || "system:backfill",
           subscriber_admin_version: nextAdminVersion,
           updated_at: application.updated_at,
         },
@@ -414,6 +503,12 @@ export async function getBetaApplicationById(id: string) {
   });
 
   return betaApplicationFromItem(item);
+}
+
+async function getEffectiveBetaApplicationById(id: string) {
+  const applications = await scanEffectiveBetaApplications();
+
+  return applications.find((application) => application.id === id) || null;
 }
 
 async function joinSubscriberRecords(applications: BetaApplicationRecord[]) {
@@ -521,61 +616,159 @@ function sortSubscribers(
   subscribers: AdminBetaSubscriber[],
   sort: AdminSubscriberSort,
 ) {
-  const byOrderAsc = (a: AdminBetaSubscriber, b: AdminBetaSubscriber) =>
-    (a.signupOrderNumber || Number.MAX_SAFE_INTEGER) -
-      (b.signupOrderNumber || Number.MAX_SAFE_INTEGER) ||
-    a.fullName.localeCompare(b.fullName);
-
-  return [...subscribers].sort((a, b) => {
-    if (sort === "name_asc") {
-      return a.fullName.localeCompare(b.fullName) || byOrderAsc(a, b);
-    }
-
-    if (sort === "newest") {
-      return b.createdAt.localeCompare(a.createdAt) || byOrderAsc(a, b);
-    }
-
-    if (sort === "priority_first") {
-      return Number(b.priorityBeta) - Number(a.priorityBeta) || byOrderAsc(a, b);
-    }
-
-    if (sort === "signup_order_desc") {
-      return (
-        (b.signupOrderNumber || 0) - (a.signupOrderNumber || 0) ||
-        a.fullName.localeCompare(b.fullName)
-      );
-    }
-
-    return byOrderAsc(a, b);
-  });
+  return [...subscribers].sort((a, b) => compareSubscribers(a, b, sort));
 }
 
-function subscriberMatchesSearch(
+function compareSubscribers(
+  a: AdminBetaSubscriber,
+  b: AdminBetaSubscriber,
+  sort: AdminSubscriberSort,
+) {
+  const byOrderAsc = (left: AdminBetaSubscriber, right: AdminBetaSubscriber) =>
+    (left.signupOrderNumber || Number.MAX_SAFE_INTEGER) -
+      (right.signupOrderNumber || Number.MAX_SAFE_INTEGER) ||
+    left.fullName.localeCompare(right.fullName);
+
+  if (sort === "name_asc") {
+    return a.fullName.localeCompare(b.fullName) || byOrderAsc(a, b);
+  }
+
+  if (sort === "newest") {
+    return b.createdAt.localeCompare(a.createdAt) || byOrderAsc(a, b);
+  }
+
+  if (sort === "priority_first") {
+    return Number(b.priorityBeta) - Number(a.priorityBeta) || byOrderAsc(a, b);
+  }
+
+  if (sort === "signup_order_desc") {
+    return (
+      (b.signupOrderNumber || 0) - (a.signupOrderNumber || 0) ||
+      a.fullName.localeCompare(b.fullName)
+    );
+  }
+
+  return byOrderAsc(a, b);
+}
+
+function normalizeSearchText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function phoneSearchDigits(value: string | null | undefined) {
+  return (value || "").replace(/\D/g, "");
+}
+
+function phoneDigitsMatchScore(source: string, query: string) {
+  if (!source || !query) {
+    return null;
+  }
+
+  const localSource =
+    source.length === 11 && source.startsWith("1") ? source.slice(1) : source;
+  const localQuery =
+    query.length === 11 && query.startsWith("1") ? query.slice(1) : query;
+
+  if (source === query || localSource === localQuery) {
+    return 130;
+  }
+
+  if (source.startsWith(query) || localSource.startsWith(localQuery)) {
+    return 105;
+  }
+
+  if (source.includes(query) || localSource.includes(localQuery)) {
+    return 65;
+  }
+
+  return null;
+}
+
+function isSubsequenceMatch(source: string, query: string) {
+  if (query.length < 3) {
+    return false;
+  }
+
+  let queryIndex = 0;
+
+  for (const character of source) {
+    if (character === query[queryIndex]) {
+      queryIndex += 1;
+    }
+
+    if (queryIndex === query.length) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function textMatchScore(source: string | null | undefined, query: string) {
+  const value = normalizeSearchText(source || "");
+
+  if (!value || !query) {
+    return null;
+  }
+
+  if (value === query) {
+    return 125;
+  }
+
+  if (value.startsWith(query)) {
+    return 110;
+  }
+
+  if (value.includes(` ${query}`)) {
+    return 95;
+  }
+
+  if (value.includes(query)) {
+    return 70;
+  }
+
+  return isSubsequenceMatch(value, query) ? 25 : null;
+}
+
+function subscriberSearchScore(
   subscriber: AdminBetaSubscriber,
   search: string,
 ) {
   const query = search.trim().toLowerCase();
 
   if (!query) {
-    return true;
+    return 0;
   }
 
-  const searchable = [
-    subscriber.firstName,
-    subscriber.lastName,
-    subscriber.fullName,
-    subscriber.email,
-    subscriber.phoneE164,
-    subscriber.phoneRaw,
-    subscriber.signupOrderNumber
-      ? String(subscriber.signupOrderNumber)
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  const textQuery = normalizeSearchText(query);
+  const digitQuery = phoneSearchDigits(query);
+  const scores = [
+    textMatchScore(subscriber.fullName, textQuery),
+    textMatchScore(subscriber.firstName, textQuery),
+    textMatchScore(subscriber.lastName, textQuery),
+    textMatchScore(subscriber.email, textQuery),
+  ].filter((score): score is number => score !== null);
 
-  return searchable.includes(query);
+  if (digitQuery) {
+    const phoneScores = [
+      phoneDigitsMatchScore(phoneSearchDigits(subscriber.phoneE164), digitQuery),
+      phoneDigitsMatchScore(phoneSearchDigits(subscriber.phoneRaw), digitQuery),
+    ].filter((score): score is number => score !== null);
+
+    scores.push(...phoneScores);
+
+    if (subscriber.signupOrderNumber) {
+      const signupOrder = String(subscriber.signupOrderNumber);
+
+      if (signupOrder === digitQuery) {
+        scores.push(90);
+      } else if (signupOrder.startsWith(digitQuery)) {
+        scores.push(55);
+      }
+    }
+  }
+
+  return scores.length ? Math.max(...scores) : null;
 }
 
 export async function listAdminBetaSubscribers(input?: {
@@ -586,12 +779,21 @@ export async function listAdminBetaSubscribers(input?: {
   sort?: AdminSubscriberSort;
 }): Promise<AdminSubscriberListResult> {
   const priorityLimit = getPriorityBetaLimit();
-  const applications = await scanBetaApplications();
+  const rawApplications = await scanBetaApplications();
+  const applications = deriveEffectiveBetaApplications(rawApplications);
+  const rawById = new Map(
+    rawApplications.map((application) => [application.id, application]),
+  );
   const backfillNeeded = applications.some(
-    (application) =>
-      !application.signup_order_number ||
-      application.priority_beta === undefined ||
-      !application.subscriber_admin_version,
+    (application) => {
+      const raw = rawById.get(application.id);
+
+      return (
+        !raw?.signup_order_number ||
+        raw.priority_beta === undefined ||
+        !raw.subscriber_admin_version
+      );
+    },
   );
   const { emailById, smsById } = await joinSubscriberRecords(applications);
   const profiles = applications.map((application) =>
@@ -605,16 +807,34 @@ export async function listAdminBetaSubscribers(input?: {
     }),
   );
   const priorityFilter = input?.priorityFilter || "all";
-  const filtered = profiles
+  const filteredProfiles = profiles
     .filter((profile) =>
       priorityFilter === "priority"
         ? profile.priorityBeta
         : priorityFilter === "standard"
           ? !profile.priorityBeta
           : true,
-    )
-    .filter((profile) => subscriberMatchesSearch(profile, input?.search || ""));
-  const sorted = sortSubscribers(filtered, input?.sort || "signup_order_asc");
+    );
+  const search = input?.search || "";
+  const matches = filteredProfiles
+    .map((subscriber): SubscriberSearchMatch | null => {
+      const score = subscriberSearchScore(subscriber, search);
+
+      return score === null ? null : { score, subscriber };
+    })
+    .filter((match): match is SubscriberSearchMatch => Boolean(match));
+  const sort = input?.sort || "signup_order_asc";
+  const sorted = search.trim()
+    ? matches
+        .sort(
+          (a, b) =>
+            b.score - a.score || compareSubscribers(a.subscriber, b.subscriber, sort),
+        )
+        .map((match) => match.subscriber)
+    : sortSubscribers(
+        matches.map((match) => match.subscriber),
+        sort,
+      );
   const pageSize = Math.max(5, Math.min(input?.pageSize || 25, 100));
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const page = Math.max(1, Math.min(input?.page || 1, totalPages));
@@ -633,7 +853,7 @@ export async function listAdminBetaSubscribers(input?: {
 }
 
 export async function getAdminBetaSubscriber(id: string) {
-  const application = await getBetaApplicationById(id);
+  const application = await getEffectiveBetaApplicationById(id);
 
   if (!application) {
     return null;
@@ -652,7 +872,7 @@ export async function getAdminBetaSubscriber(id: string) {
 }
 
 async function countPrioritySubscribers(exceptId?: string) {
-  const applications = await scanBetaApplications();
+  const applications = await scanEffectiveBetaApplications();
 
   return applications.filter(
     (application) => application.priority_beta && application.id !== exceptId,
@@ -706,7 +926,7 @@ async function setBetaSubscriberPriorityFlag(input: {
   removedReason?: "admin" | "unsubscribe" | null;
   now: string;
 }) {
-  const current = await getBetaApplicationById(input.id);
+  const current = await getEffectiveBetaApplicationById(input.id);
 
   if (!current) {
     return null;
@@ -743,7 +963,7 @@ async function setBetaSubscriberPriorityFlag(input: {
     },
   });
 
-  return result.wrote ? getBetaApplicationById(input.id) : null;
+  return result.wrote ? getEffectiveBetaApplicationById(input.id) : null;
 }
 
 export async function setAdminBetaSubscriberPriority(input: {
@@ -754,7 +974,7 @@ export async function setAdminBetaSubscriberPriority(input: {
   replacementSubscriberId?: string;
 }) {
   const now = new Date().toISOString();
-  const current = await getBetaApplicationById(input.id);
+  const current = await getEffectiveBetaApplicationById(input.id);
 
   if (!current) {
     return { status: "not_found" as const, subscriber: null };
@@ -784,7 +1004,7 @@ export async function setAdminBetaSubscriberPriority(input: {
         return { status: "priority_full" as const, subscriber: null };
       }
 
-      const replacement = await getBetaApplicationById(
+      const replacement = await getEffectiveBetaApplicationById(
         input.replacementSubscriberId,
       );
 
@@ -835,7 +1055,9 @@ export async function setAdminBetaSubscriberPriority(input: {
   }
 
   if (input.replacementSubscriberId) {
-    const replacement = await getBetaApplicationById(input.replacementSubscriberId);
+    const replacement = await getEffectiveBetaApplicationById(
+      input.replacementSubscriberId,
+    );
 
     if (replacement && !replacement.priority_beta) {
       await setBetaSubscriberPriorityFlag({
@@ -858,7 +1080,7 @@ export async function markBetaSubscriberPriorityRemovedByEmail(input: {
   now: string;
 }) {
   const id = stableId("beta", input.normalizedEmail);
-  const application = await getBetaApplicationById(id);
+  const application = await getEffectiveBetaApplicationById(id);
 
   if (!application?.priority_beta) {
     return;
@@ -878,7 +1100,7 @@ export async function maybeRestoreBetaSubscriberPriorityByEmail(input: {
   now: string;
 }) {
   const id = stableId("beta", input.normalizedEmail);
-  const application = await getBetaApplicationById(id);
+  const application = await getEffectiveBetaApplicationById(id);
 
   if (
     !application ||
@@ -906,7 +1128,7 @@ export async function markBetaSubscriberPriorityRemovedByPhone(input: {
   phoneE164: string;
   now: string;
 }) {
-  const applications = await scanBetaApplications();
+  const applications = await scanEffectiveBetaApplications();
   const application = applications.find(
     (candidate) => candidate.phone_e164 === input.phoneE164,
   );
@@ -928,7 +1150,7 @@ export async function maybeRestoreBetaSubscriberPriorityByPhone(input: {
   phoneE164: string;
   now: string;
 }) {
-  const applications = await scanBetaApplications();
+  const applications = await scanEffectiveBetaApplications();
   const application = applications.find(
     (candidate) => candidate.phone_e164 === input.phoneE164,
   );
@@ -960,7 +1182,7 @@ export async function getBetaAudienceMembership(segment: BetaAudienceSegment) {
     return null;
   }
 
-  const applications = await scanBetaApplications();
+  const applications = await scanEffectiveBetaApplications();
   const filtered = applications.filter((application) =>
     segment === "priority"
       ? application.priority_beta
