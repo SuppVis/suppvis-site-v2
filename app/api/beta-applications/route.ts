@@ -32,6 +32,7 @@ import {
   saveBetaApplication,
   saveEmailSubscriber,
   saveSmsSubscriber,
+  type EmailSubscriberRecord,
   updateBetaApplicationSmsContact,
 } from "@/app/lib/server/persistence";
 import {
@@ -107,6 +108,18 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
   }
+}
+
+function needsResubscribeEmailCatchup(subscriber: EmailSubscriberRecord) {
+  const resubscribedAt = Date.parse(subscriber.resubscribed_at || "");
+
+  if (!Number.isFinite(resubscribedAt)) {
+    return false;
+  }
+
+  const sentAt = Date.parse(subscriber.resubscribe_email_sent_at || "");
+
+  return !Number.isFinite(sentAt) || sentAt < resubscribedAt;
 }
 
 async function sendBetaWelcomeSmsIfEnabled(input: {
@@ -259,6 +272,11 @@ export async function POST(request: NextRequest) {
       updated_at: now,
       unsubscribe_token: createUrlSafeToken(),
     });
+    const shouldCatchUpResubscribeEmail =
+      !betaCreated &&
+      !emailWasResubscribed &&
+      emailSubscriber.status === "subscribed" &&
+      needsResubscribeEmailCatchup(emailSubscriber);
 
     let smsSubscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null =
       null;
@@ -306,8 +324,9 @@ export async function POST(request: NextRequest) {
 
     await sendBetaWelcomeEmailIfEnabled({
       includeSmsOptInPrompt: betaCreated && !phoneE164,
-      shouldSendWelcomeEmail: betaCreated || emailWasResubscribed,
-      sendReason: emailWasResubscribed
+      shouldSendWelcomeEmail:
+        betaCreated || emailWasResubscribed || shouldCatchUpResubscribeEmail,
+      sendReason: emailWasResubscribed || shouldCatchUpResubscribeEmail
         ? "email_resubscribed"
         : "new_beta_application",
       firstName,

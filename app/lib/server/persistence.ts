@@ -120,7 +120,45 @@ function emailSubscriberFromAttributes(
     unsubscribe_source:
       stringAttribute(attributes?.unsubscribe_source) ||
       fallback.unsubscribe_source,
+    last_email_sent_at:
+      stringAttribute(attributes?.last_email_sent_at) ||
+      fallback.last_email_sent_at,
+    last_email_message_id:
+      stringAttribute(attributes?.last_email_message_id) ||
+      fallback.last_email_message_id,
+    last_email_type:
+      emailTrackingMessageTypeAttribute(attributes?.last_email_type) ||
+      fallback.last_email_type,
+    welcome_email_sent_at:
+      stringAttribute(attributes?.welcome_email_sent_at) ||
+      fallback.welcome_email_sent_at,
+    welcome_email_message_id:
+      stringAttribute(attributes?.welcome_email_message_id) ||
+      fallback.welcome_email_message_id,
+    welcome_email_type:
+      emailTrackingMessageTypeAttribute(attributes?.welcome_email_type) ||
+      fallback.welcome_email_type,
+    resubscribe_email_sent_at:
+      stringAttribute(attributes?.resubscribe_email_sent_at) ||
+      fallback.resubscribe_email_sent_at,
+    resubscribe_email_message_id:
+      stringAttribute(attributes?.resubscribe_email_message_id) ||
+      fallback.resubscribe_email_message_id,
+    unsubscribe_confirmation_email_sent_at:
+      stringAttribute(attributes?.unsubscribe_confirmation_email_sent_at) ||
+      fallback.unsubscribe_confirmation_email_sent_at,
+    unsubscribe_confirmation_email_message_id:
+      stringAttribute(attributes?.unsubscribe_confirmation_email_message_id) ||
+      fallback.unsubscribe_confirmation_email_message_id,
   };
+}
+
+function emailTrackingMessageTypeAttribute(value: unknown) {
+  return value === "welcome_beta" ||
+    value === "beta_resubscribe" ||
+    value === "beta_unsubscribe_confirmation"
+    ? value
+    : undefined;
 }
 
 function smsSubscriberStatusAttribute(value: unknown) {
