@@ -60,16 +60,26 @@ export function shouldAutoAssignPriority(signupOrderNumber: number) {
 export function compareForSignupOrderBackfill<
   T extends {
     created_at?: string;
+    id?: string;
     email?: string;
     first_name?: string;
     last_name?: string;
     normalized_email?: string;
+    signup_order_assigned_at?: string;
   },
 >(a: T, b: T) {
-  const createdCompare = (a.created_at || "").localeCompare(b.created_at || "");
+  const leftTimestamp = a.created_at || a.signup_order_assigned_at || "";
+  const rightTimestamp = b.created_at || b.signup_order_assigned_at || "";
+  const createdCompare = leftTimestamp.localeCompare(rightTimestamp);
 
   if (createdCompare !== 0) {
     return createdCompare;
+  }
+
+  const idCompare = (a.id || "").localeCompare(b.id || "");
+
+  if (idCompare !== 0) {
+    return idCompare;
   }
 
   return (a.normalized_email || a.email || "").localeCompare(

@@ -262,7 +262,6 @@ type AdminBetaSubscriber = {
 type AdminSubscriberSort =
   | "name_asc"
   | "newest"
-  | "priority_first"
   | "signup_order_asc";
 
 type AdminSubscriberPriorityFilter = "all" | "priority" | "standard";
@@ -393,7 +392,6 @@ const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
   { label: "Signup order", value: "signup_order_asc" },
   { label: "Newest first", value: "newest" },
   { label: "Name A-Z", value: "name_asc" },
-  { label: "Priority first", value: "priority_first" },
 ];
 
 const initialForm: FormValues = {

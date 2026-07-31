@@ -118,7 +118,7 @@ Rules:
 - Admin promotion/removal is protected server-side and enforces the priority limit with optimistic version checks.
 - Admin notes are internal only and must never be rendered publicly or included in messages.
 
-Existing records that predate signup-order metadata are handled with a deterministic backfill strategy based on the best available original signup timestamp. The earliest subscribers receive the earliest signup-order numbers; Andrew is ranked first and Tanner second when legacy timestamps are insufficient, matching the initial operator preference.
+Existing records that predate signup-order metadata are handled with a deterministic backfill strategy based on the best available original signup timestamp. The earliest subscribers receive the earliest signup-order numbers. If two records have the same original timestamp, the immutable beta application ID is the tie-breaker.
 
 ### Email Subscriber Endpoint
 
@@ -627,6 +627,17 @@ POST /api/admin/subscribers
 ```
 
 This assigns missing signup-order numbers and priority metadata for legacy beta applications. Run it only from an authenticated admin session or a controlled internal maintenance script that carries the same admin protections. It does not send email or SMS.
+
+### Recalculate Signup Order Chronologically
+
+Use this one-time maintenance script from AWS CloudShell when existing signup-order values must be corrected to the original chronological order:
+
+```bash
+bash aws/scripts/recalculate-beta-signup-order-chronological.sh
+APPLY_CHRONOLOGICAL_SIGNUP_ORDER_FIX=yes bash aws/scripts/recalculate-beta-signup-order-chronological.sh
+```
+
+The first command is a dry run. The apply command requires the explicit environment flag, preserves consent/status/priority/notes data, verifies unique contiguous signup-order numbers, and does not send email or SMS.
 
 ### Provision Email Worker
 

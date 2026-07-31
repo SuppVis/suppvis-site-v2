@@ -155,9 +155,5 @@ function sortLabel(sort: AdminSubscriberSort) {
     return "Name A-Z";
   }
 
-  if (sort === "priority_first") {
-    return "Priority first";
-  }
-
   return "Signup order";
 }

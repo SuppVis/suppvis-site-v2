@@ -14,7 +14,11 @@ import {
   DYNAMO_TABLE_ENVS,
 } from "@/app/lib/server/dynamo";
 import { handleApiError } from "@/app/lib/server/errors";
-import { isWelcomeEmailEnabled } from "@/app/lib/server/messages/welcome";
+import {
+  FOUNDING_MEMBER_COPY_LIMIT,
+  isWelcomeEmailEnabled,
+} from "@/app/lib/server/messages/welcome";
+import { getPriorityBetaLimit } from "@/app/lib/server/beta-priority";
 import {
   betaSignupPriorityFieldsForOrder,
   getBetaApplicationById,
@@ -58,6 +62,7 @@ function logWelcomeEmailResult(input: {
 }
 
 async function sendBetaWelcomeEmailIfEnabled(input: {
+  foundingNumber?: number | null;
   includeSmsOptInPrompt?: boolean;
   shouldSendWelcomeEmail: boolean;
   sendReason: "new_beta_application" | "email_resubscribed";
@@ -87,6 +92,7 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
     const result = await sendEmail({
       subscriber: input.subscriber,
       firstName: input.firstName,
+      foundingNumber: input.foundingNumber,
       includeSmsOptInPrompt: input.includeSmsOptInPrompt,
     });
     const resultReason =
@@ -104,6 +110,7 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
 }
 
 async function sendBetaWelcomeSmsIfEnabled(input: {
+  foundingNumber?: number | null;
   firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null;
@@ -115,6 +122,7 @@ async function sendBetaWelcomeSmsIfEnabled(input: {
   try {
     await sendWelcomeSms({
       firstName: input.firstName,
+      foundingNumber: input.foundingNumber,
       shouldSendWelcomeSms: input.shouldSendWelcomeSms,
       subscriber: input.subscriber,
     });
@@ -172,6 +180,12 @@ export async function POST(request: NextRequest) {
     const signupOrderNumber =
       existingBetaApplication?.signup_order_number ||
       (await reserveNextBetaSignupOrder({ now }));
+    const foundingNumber =
+      signupOrderNumber > 0 &&
+      signupOrderNumber <= getPriorityBetaLimit() &&
+      signupOrderNumber <= FOUNDING_MEMBER_COPY_LIMIT
+        ? signupOrderNumber
+        : null;
     const prioritySignupFields = existingBetaApplication
       ? {}
       : betaSignupPriorityFieldsForOrder({ now, signupOrderNumber });
@@ -297,11 +311,13 @@ export async function POST(request: NextRequest) {
         ? "email_resubscribed"
         : "new_beta_application",
       firstName,
+      foundingNumber,
       subscriber: emailSubscriber,
     });
 
     await sendBetaWelcomeSmsIfEnabled({
       firstName,
+      foundingNumber,
       shouldSendWelcomeSms:
         betaCreated ||
         Boolean(

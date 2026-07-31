@@ -12,11 +12,11 @@ import {
   buildUnsubscribeConfirmationEmailText,
   buildWelcomeEmailHtml,
   buildWelcomeEmailText,
+  getResubscribeEmailSubject,
+  getWelcomeEmailSubject,
   isUnsubscribeConfirmationEmailEnabled,
   isWelcomeEmailEnabled,
-  RESUBSCRIBE_EMAIL_SUBJECT,
   UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT,
-  WELCOME_EMAIL_SUBJECT,
 } from "../messages/welcome";
 import {
   canSendEmailToSubscriber,
@@ -40,6 +40,7 @@ type EmailSubscriber = {
 };
 
 type SubscriberEmailInput = {
+  foundingNumber?: number | null;
   subscriber: EmailSubscriber | null | undefined;
   firstName?: string;
   includeSmsOptInPrompt?: boolean;
@@ -403,13 +404,17 @@ export async function sendWelcomeEmail(
     buildContent: ({ appBaseUrl, unsubscribeUrl }) => ({
       html: buildWelcomeEmailHtml({
         appBaseUrl,
+        foundingNumber: input.foundingNumber,
         firstName: input.firstName || "there",
         includeSmsOptInPrompt: input.includeSmsOptInPrompt,
         unsubscribeUrl,
       }),
-      subject: WELCOME_EMAIL_SUBJECT,
+      subject: getWelcomeEmailSubject({
+        foundingNumber: input.foundingNumber,
+      }),
       text: buildWelcomeEmailText({
         appBaseUrl,
+        foundingNumber: input.foundingNumber,
         firstName: input.firstName || "there",
         includeSmsOptInPrompt: input.includeSmsOptInPrompt,
         unsubscribeUrl,
@@ -430,11 +435,16 @@ export async function sendResubscribeEmail(
     buildContent: ({ appBaseUrl, unsubscribeUrl }) => ({
       html: buildResubscribeEmailHtml({
         appBaseUrl,
+        foundingNumber: input.foundingNumber,
         firstName: input.firstName || "there",
         unsubscribeUrl,
       }),
-      subject: RESUBSCRIBE_EMAIL_SUBJECT,
+      subject: getResubscribeEmailSubject({
+        foundingNumber: input.foundingNumber,
+      }),
       text: buildResubscribeEmailText({
+        appBaseUrl,
+        foundingNumber: input.foundingNumber,
         firstName: input.firstName || "there",
         unsubscribeUrl,
       }),

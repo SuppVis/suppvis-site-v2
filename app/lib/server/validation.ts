@@ -379,9 +379,19 @@ export const adminSubscriberIdSchema = z
   .regex(/^beta_[a-f0-9]{32}$/);
 
 const adminSubscriberSortSchema = z.preprocess(
-  (value) => (value === "signup_order_desc" ? "newest" : value),
+  (value) => {
+    if (value === "signup_order_desc") {
+      return "newest";
+    }
+
+    if (value === "priority_first") {
+      return "signup_order_asc";
+    }
+
+    return value;
+  },
   z
-    .enum(["name_asc", "newest", "priority_first", "signup_order_asc"])
+    .enum(["name_asc", "newest", "signup_order_asc"])
     .optional()
     .default("signup_order_asc"),
 );

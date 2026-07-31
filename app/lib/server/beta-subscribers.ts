@@ -26,7 +26,6 @@ const DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE = 20;
 export type AdminSubscriberSort =
   | "name_asc"
   | "newest"
-  | "priority_first"
   | "signup_order_asc";
 
 export type AdminSubscriberPriorityFilter =
@@ -646,10 +645,6 @@ function compareSubscribers(
 
   if (sort === "newest") {
     return b.createdAt.localeCompare(a.createdAt) || byOrderAsc(a, b);
-  }
-
-  if (sort === "priority_first") {
-    return Number(b.priorityBeta) - Number(a.priorityBeta) || byOrderAsc(a, b);
   }
 
   return byOrderAsc(a, b);

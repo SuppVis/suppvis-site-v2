@@ -935,6 +935,15 @@ export async function saveBetaApplication(record: BetaApplicationRecord) {
     setIfNotExists: {
       id: record.id,
       status: record.status,
+      signup_order_number: record.signup_order_number,
+      signup_order_assigned_at: record.signup_order_assigned_at,
+      priority_beta: record.priority_beta,
+      priority_beta_assigned_at: record.priority_beta_assigned_at,
+      priority_beta_removed_at: record.priority_beta_removed_at,
+      priority_beta_removed_reason: record.priority_beta_removed_reason,
+      priority_beta_updated_at: record.priority_beta_updated_at,
+      priority_beta_updated_by: record.priority_beta_updated_by,
+      subscriber_admin_version: record.subscriber_admin_version,
       created_at: record.created_at,
     },
   });

@@ -83,6 +83,7 @@ function isValidE164(phone: string | undefined) {
 }
 
 export async function sendWelcomeSms(input: {
+  foundingNumber?: number | null;
   firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: SmsSubscriber | null | undefined;
@@ -198,6 +199,7 @@ export async function sendWelcomeSms(input: {
     });
     const sendResult = await sendTwilioSms({
       body: getSmsConfirmationTemplate(consentCategory, {
+        foundingNumber: input.foundingNumber,
         firstName: input.firstName,
       }),
       statusCallbackUrl,
