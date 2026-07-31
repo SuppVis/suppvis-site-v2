@@ -8,7 +8,10 @@ import {
   sendResubscribeEmail,
   sendWelcomeEmail,
 } from "@/app/lib/server/email/welcome";
-import { sendWelcomeSms } from "@/app/lib/server/sms/welcome";
+import {
+  sendWelcomeSms,
+  type WelcomeSmsSendResult,
+} from "@/app/lib/server/sms/welcome";
 import {
   assertDynamoTablesConfigured,
   DYNAMO_TABLE_ENVS,
@@ -131,9 +134,9 @@ async function sendBetaWelcomeSmsIfEnabled(input: {
   firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null;
-}) {
+}): Promise<WelcomeSmsSendResult | null> {
   if (!input.subscriber) {
-    return;
+    return null;
   }
 
   try {
@@ -149,11 +152,49 @@ async function sendBetaWelcomeSmsIfEnabled(input: {
       reason: "reason" in result ? result.reason : undefined,
       status: result.status,
     });
+
+    return result;
   } catch (error) {
     console.error("[sms] beta signup failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
+
+    return null;
   }
+}
+
+function formatSmsSenderForDisplay() {
+  const value = (
+    process.env.TWILIO_SMS_FROM_NUMBER?.trim() || "+16507025913"
+  ).replace(/[^\d+]/g, "");
+  const match = value.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+
+  return match ? `+1 ${match[1]} ${match[2]} ${match[3]}` : value;
+}
+
+function isSmsProviderOptOutResult(
+  result: WelcomeSmsSendResult | null,
+  subscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null,
+) {
+  return Boolean(
+    result &&
+      ((result.status === "skipped" &&
+        result.reason === "subscriber_suppressed" &&
+        (subscriber?.status === "unsubscribed" ||
+          subscriber?.status === "opt_out_provider" ||
+          subscriber?.sms_global_opt_out)) ||
+        (result.status === "failed" && result.errorCode === "21610")),
+  );
+}
+
+function smsStartRequiredMessage(prefix: "created" | "phone_added") {
+  const sender = formatSmsSenderForDisplay();
+
+  if (prefix === "phone_added") {
+    return `Your phone number was added, but this number previously opted out of SuppVis texts. Text START to ${sender}, then submit the form again to receive your welcome text.`;
+  }
+
+  return `You're in. Your email signup is confirmed, but this phone number previously opted out of SuppVis texts. Text START to ${sender}, then submit the form again to receive your welcome text.`;
 }
 
 export async function POST(request: NextRequest) {
@@ -213,6 +254,13 @@ export async function POST(request: NextRequest) {
     assertDynamoTablesConfigured(...requiredTables);
 
     const existingBetaApplication = await getBetaApplicationById(betaId);
+    const existingBetaPhoneE164 = existingBetaApplication?.phone_e164 || "";
+    const submittedSmsPhone = Boolean(hasSmsConsent && phoneRaw && phoneE164);
+    const phoneAddedToExistingBeta = Boolean(
+      existingBetaApplication &&
+        submittedSmsPhone &&
+        existingBetaPhoneE164 !== phoneE164,
+    );
     const signupOrderNumber =
       existingBetaApplication?.signup_order_number ||
       (await reserveNextBetaSignupOrder({ now }));
@@ -383,43 +431,74 @@ export async function POST(request: NextRequest) {
       subscriber: emailSubscriber,
     });
 
-    await sendBetaWelcomeSmsIfEnabled({
+    const smsWelcomeResult = await sendBetaWelcomeSmsIfEnabled({
       firstName,
       foundingNumber,
       shouldSendWelcomeSms: Boolean(hasSmsConsent && phoneRaw && phoneE164),
       subscriber: smsSubscriber,
     });
+    const smsStartRequired = isSmsProviderOptOutResult(
+      smsWelcomeResult,
+      smsSubscriber,
+    );
+    const smsWelcomeSent = smsWelcomeResult?.status === "sent";
 
     if (emailWasResubscribed) {
       return NextResponse.json({
         ok: true,
+        result: "resubscribed",
         resubscribed: true,
+        smsStartRequired,
         message:
           "You're subscribed again. We'll send SuppVis beta updates to your email.",
       });
     }
 
     if (!betaCreated) {
-      if (betaSmsContactUpdated) {
+      if (smsStartRequired) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          phoneUpdated: betaSmsContactUpdated,
+          result: "sms_start_required",
+          smsStartRequired: true,
+          smsUpdated: false,
+          message: smsStartRequiredMessage(
+            phoneAddedToExistingBeta ? "phone_added" : "created",
+          ),
+        });
+      }
+
+      if (phoneAddedToExistingBeta) {
         return NextResponse.json({
           ok: true,
           duplicate: true,
           phoneUpdated: true,
+          result: "phone_added",
           smsUpdated: hasSmsConsent,
-          message: hasSmsConsent
-            ? "Your phone number is saved for SuppVis beta text updates."
-            : "Your phone number is saved on your SuppVis beta signup.",
+          smsWelcomeSent,
+          message:
+            "Your phone number has been added. Check your messages for your SuppVis welcome text.",
         });
       }
 
       return NextResponse.json({
         ok: true,
         duplicate: true,
-        message: "You're already signed up. We'll reach out with beta access details soon.",
+        result: "already_registered",
+        smsWelcomeSent,
+        message: "You're already signed up for the SuppVis beta.",
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      result: smsStartRequired ? "sms_start_required" : "created",
+      smsStartRequired,
+      message: smsStartRequired
+        ? smsStartRequiredMessage("created")
+        : undefined,
+    });
   } catch (error) {
     return handleApiError(error);
   }

@@ -153,14 +153,18 @@ export default function WaitlistClose() {
           : "You’re in. We’ll send beta testing access details soon.",
       );
       setSuccessSupport(
-        result?.resubscribed
+        result?.smsStartRequired
+          ? "Texts will stay paused until that phone number opts back in with Twilio. Your email signup still worked."
+          : result?.resubscribed || result?.result === "resubscribed"
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
-          : result?.phoneUpdated
+          : result?.result === "phone_added" || result?.phoneUpdated
             ? result?.smsUpdated
               ? "We'll only text you about SuppVis beta access and account updates. Reply STOP anytime."
               : "SMS consent stays off unless you check the text-message box."
-          : result?.duplicate
-            ? "You do not need to submit again."
+          : result?.result === "already_registered" || result?.duplicate
+            ? result?.smsWelcomeSent
+              ? "Check your messages for your SuppVis welcome text. You do not need to submit again."
+              : "You do not need to submit again."
             : "If you opted into texts, we'll only message you about your SuppVis beta access and account updates.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));

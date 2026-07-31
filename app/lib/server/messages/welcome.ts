@@ -377,9 +377,6 @@ Tanner and Connor Haslinger
 Co-founders, SuppVis
 
 You're receiving this because you claimed a founding member spot at suppvis.health.
-Privacy Policy: https://www.suppvis.health/privacy
-Terms of Use: https://www.suppvis.health/terms
-Medical Disclaimer: https://www.suppvis.health/medical-disclaimer
 Unsubscribe: ${unsubscribeUrl}
 
 2026 SuppVis. Not medical advice. Always consult your healthcare provider.`;
@@ -397,12 +394,6 @@ function foundingWelcomeEmailHtml({
     ? `Founding Member #${foundingNumber} of ${FOUNDING_MEMBER_COPY_LIMIT}`
     : `Founding Member of ${FOUNDING_MEMBER_COPY_LIMIT}`;
   const howItWorksUrl = buildPublicAssetUrl("/how-it-works", appBaseUrl);
-  const privacyUrl = buildPublicAssetUrl("/privacy", appBaseUrl);
-  const termsUrl = buildPublicAssetUrl("/terms", appBaseUrl);
-  const disclaimerUrl = buildPublicAssetUrl(
-    "/medical-disclaimer",
-    appBaseUrl,
-  );
   const bodyHtml = [
     paragraphHtml(foundingLabel, "primary"),
     paragraphHtml(
@@ -440,7 +431,6 @@ function foundingWelcomeEmailHtml({
     rawLinkHtml(howItWorksUrl),
     paragraphHtml("Clarity over complexity. Science over hype.", "primary"),
     `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Tanner and Connor Haslinger<br />Co-founders, SuppVis</p>`,
-    `<p style="margin:24px 0 0 0;color:#5A7089;font-size:12px;line-height:1.6;">Privacy Policy: <a href="${escapeHtml(privacyUrl)}" style="color:#14B8A6;text-decoration:underline;">${escapeHtml(privacyUrl)}</a><br />Terms of Use: <a href="${escapeHtml(termsUrl)}" style="color:#14B8A6;text-decoration:underline;">${escapeHtml(termsUrl)}</a><br />Medical Disclaimer: <a href="${escapeHtml(disclaimerUrl)}" style="color:#14B8A6;text-decoration:underline;">${escapeHtml(disclaimerUrl)}</a></p>`,
   ].join("\n                ");
 
   return buildBrandedEmailHtml({
@@ -468,11 +458,6 @@ function foundingWelcomeEmailHtmlLegacyStandalone({
   );
   const howItWorksUrl = escapeHtml(
     buildPublicAssetUrl("/how-it-works", appBaseUrl),
-  );
-  const privacyUrl = escapeHtml(buildPublicAssetUrl("/privacy", appBaseUrl));
-  const termsUrl = escapeHtml(buildPublicAssetUrl("/terms", appBaseUrl));
-  const disclaimerUrl = escapeHtml(
-    buildPublicAssetUrl("/medical-disclaimer", appBaseUrl),
   );
   const numberMarkup = escapeHtml(foundingNumberDisplay(foundingNumber));
   const numberSubtext = isValidFoundingNumber(foundingNumber)
@@ -617,7 +602,7 @@ function foundingWelcomeEmailHtmlLegacyStandalone({
         You're receiving this because you claimed a founding member spot at suppvis.health.
       </p>
       <p style="font-family:'DM Sans',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; font-size:12px; line-height:19px; color:#8AA09D; margin:0 0 10px 0;">
-        <a href="${privacyUrl}" style="color:#8AA09D;">Privacy Policy</a> &nbsp;&middot;&nbsp; <a href="${termsUrl}" style="color:#8AA09D;">Terms of Use</a> &nbsp;&middot;&nbsp; <a href="${disclaimerUrl}" style="color:#8AA09D;">Medical Disclaimer</a> &nbsp;&middot;&nbsp; <a href="${escapeHtml(unsubscribeUrl)}" style="color:#8AA09D;">Unsubscribe</a>
+        <a href="${escapeHtml(unsubscribeUrl)}" style="color:#8AA09D;">Unsubscribe</a>
       </p>
       <p style="font-family:'DM Sans',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif; font-size:12px; line-height:19px; color:#8AA09D; margin:0;">
         &copy; 2026 SuppVis. Not medical advice. Always consult your healthcare provider.
