@@ -25,7 +25,7 @@ export default function Footer() {
         body: JSON.stringify({
           email: data.get("email"),
           consentSource: "footer",
-          botField: data.get("botField"),
+          botField: "",
         }),
       });
 

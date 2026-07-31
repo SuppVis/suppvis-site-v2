@@ -55,7 +55,7 @@ function logWelcomeEmailResult(input: {
   reason?: string;
   messageId?: string;
 }) {
-  console.info("[welcome-email] beta signup result", {
+  console.warn("[welcome-email] beta signup result", {
     status: input.status,
     reason: input.reason,
     messageId: input.messageId,
@@ -137,11 +137,17 @@ async function sendBetaWelcomeSmsIfEnabled(input: {
   }
 
   try {
-    await sendWelcomeSms({
+    const result = await sendWelcomeSms({
       firstName: input.firstName,
       foundingNumber: input.foundingNumber,
       shouldSendWelcomeSms: input.shouldSendWelcomeSms,
       subscriber: input.subscriber,
+    });
+
+    console.warn("[sms] beta signup result", {
+      messageSid: "messageSid" in result ? result.messageSid : undefined,
+      reason: "reason" in result ? result.reason : undefined,
+      status: result.status,
     });
   } catch (error) {
     console.error("[sms] beta signup failed", {
@@ -166,7 +172,18 @@ export async function POST(request: NextRequest) {
     const submission = betaApplicationSchema.parse(body);
 
     if (isHoneypotFilled(submission.botField)) {
-      return NextResponse.json({ ok: true });
+      console.warn("[beta-application] honeypot rejected", {
+        route: "/api/beta-applications",
+      });
+
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "invalid_submission",
+          message: "Please submit the form again.",
+        },
+        { status: 400 },
+      );
     }
 
     const now = new Date().toISOString();
@@ -298,7 +315,7 @@ export async function POST(request: NextRequest) {
       shouldCatchUpResubscribeEmail ||
       shouldCatchUpWelcomeEmail;
 
-    console.info("[welcome-email] beta application decision", {
+    console.warn("[welcome-email] beta application decision", {
       requestId,
       route: "/api/beta-applications",
       betaCreated,

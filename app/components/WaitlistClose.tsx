@@ -89,8 +89,6 @@ export default function WaitlistClose() {
     setError("");
     setDuplicateSubmission(false);
 
-    const form = e.currentTarget;
-    const data = new FormData(form);
     const firstName = formValues.firstName.trim();
     const lastName = formValues.lastName.trim();
     const email = formValues.email.trim();
@@ -131,7 +129,7 @@ export default function WaitlistClose() {
           smsMarketingConsent: false,
           smsConsentVersion: SMS_CONSENT_VERSION,
           sourcePage: `${window.location.pathname}${window.location.hash || "#waitlist"}`,
-          botField: data.get("botField"),
+          botField: "",
         }),
       });
 
