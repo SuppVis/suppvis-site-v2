@@ -8,7 +8,10 @@ import {
   maybeRestoreBetaSubscriberPriorityByEmail,
 } from "@/app/lib/server/beta-subscribers";
 import { getPriorityBetaLimit } from "@/app/lib/server/beta-priority";
-import { sendResubscribeEmail } from "@/app/lib/server/email/welcome";
+import {
+  sendResubscribeEmail,
+  sendWelcomeEmail,
+} from "@/app/lib/server/email/welcome";
 import { handleApiError } from "@/app/lib/server/errors";
 import { FOUNDING_MEMBER_COPY_LIMIT } from "@/app/lib/server/messages/welcome";
 import {
@@ -50,6 +53,18 @@ function needsResubscribeEmailCatchup(subscriber: EmailSubscriberRecord) {
   return !Number.isFinite(sentAt) || sentAt < resubscribedAt;
 }
 
+function needsWelcomeEmailCatchup(subscriber: EmailSubscriberRecord) {
+  if (subscriber.status !== "subscribed") {
+    return false;
+  }
+
+  if (Number.isFinite(Date.parse(subscriber.welcome_email_sent_at || ""))) {
+    return false;
+  }
+
+  return !needsResubscribeEmailCatchup(subscriber);
+}
+
 async function sendResubscribeEmailIfNeeded(input: {
   foundingNumber?: number | null;
   firstName?: string;
@@ -80,6 +95,36 @@ async function sendResubscribeEmailIfNeeded(input: {
   }
 }
 
+async function sendWelcomeEmailIfNeeded(input: {
+  foundingNumber?: number | null;
+  firstName?: string;
+  shouldSend: boolean;
+  subscriber: EmailSubscriberRecord;
+}) {
+  if (!input.shouldSend) {
+    return;
+  }
+
+  try {
+    const result = await sendWelcomeEmail({
+      subscriber: input.subscriber,
+      firstName: input.firstName || "there",
+      foundingNumber: input.foundingNumber,
+    });
+    const reason = "reason" in result ? result.reason : "welcome_catchup";
+
+    console.info("[welcome-email] email subscriber welcome result", {
+      status: result.status,
+      reason,
+      messageId: "messageId" in result ? result.messageId : undefined,
+    });
+  } catch (error) {
+    console.error("[welcome-email] email subscriber welcome failed", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const rateLimited = enforceRateLimit(request, {
@@ -100,6 +145,8 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date().toISOString();
+    const requestId =
+      request.headers.get("x-vercel-id") || createUrlSafeToken().slice(0, 16);
     const normalizedEmail = normalizeEmail(submission.email);
     const subscriberId = stableId("email", normalizedEmail);
     const betaApplication = await getBetaApplicationById(
@@ -138,11 +185,34 @@ export async function POST(request: NextRequest) {
     });
     const shouldSendResubscribeEmail =
       resubscribeResult.wrote || needsResubscribeEmailCatchup(subscriber);
+    const shouldSendWelcomeEmail =
+      Boolean(betaApplication) &&
+      !shouldSendResubscribeEmail &&
+      needsWelcomeEmailCatchup(subscriber);
+
+    console.info("[welcome-email] email subscriber decision", {
+      requestId,
+      route: "/api/email-subscribers",
+      betaFound: Boolean(betaApplication),
+      emailSubscriberId: subscriberId,
+      emailSubscriberStatus: subscriber.status,
+      foundingEligible: Boolean(foundingNumber),
+      resubscribeTransitionWrote: resubscribeResult.wrote,
+      sendResubscribePlanned: shouldSendResubscribeEmail,
+      sendWelcomePlanned: shouldSendWelcomeEmail,
+      signupOrderPresent: Boolean(betaApplication?.signup_order_number),
+    });
 
     await sendResubscribeEmailIfNeeded({
       foundingNumber,
       firstName: betaApplication?.first_name,
       shouldSend: shouldSendResubscribeEmail,
+      subscriber,
+    });
+    await sendWelcomeEmailIfNeeded({
+      foundingNumber,
+      firstName: betaApplication?.first_name,
+      shouldSend: shouldSendWelcomeEmail,
       subscriber,
     });
 

@@ -65,6 +65,22 @@ export const UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV =
   "UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED";
 export const WELCOME_SMS_ENABLED_ENV = "WELCOME_SMS_ENABLED";
 
+export function envFlagState(name: string) {
+  const raw = process.env[name];
+  const normalized = raw?.trim().toLowerCase();
+  const enabled =
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "on";
+
+  return {
+    enabled,
+    present: raw !== undefined,
+    value: raw === undefined ? "missing" : raw.trim() ? raw.trim() : "empty",
+  };
+}
+
 type WelcomeTemplateInput = {
   foundingNumber?: number | null;
   firstName: string;
@@ -154,15 +170,15 @@ export function getResubscribeEmailSubject(input?: {
 }
 
 export function isWelcomeEmailEnabled() {
-  return process.env[WELCOME_EMAIL_ENABLED_ENV] === "true";
+  return envFlagState(WELCOME_EMAIL_ENABLED_ENV).enabled;
 }
 
 export function isUnsubscribeConfirmationEmailEnabled() {
-  return process.env[UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV] === "true";
+  return envFlagState(UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV).enabled;
 }
 
 export function isWelcomeSmsEnabled() {
-  return process.env[WELCOME_SMS_ENABLED_ENV] === "true";
+  return envFlagState(WELCOME_SMS_ENABLED_ENV).enabled;
 }
 
 export function buildEmailUnsubscribeUrl({

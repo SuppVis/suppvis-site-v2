@@ -122,6 +122,18 @@ function needsResubscribeEmailCatchup(subscriber: EmailSubscriberRecord) {
   return !Number.isFinite(sentAt) || sentAt < resubscribedAt;
 }
 
+function needsWelcomeEmailCatchup(subscriber: EmailSubscriberRecord) {
+  if (subscriber.status !== "subscribed") {
+    return false;
+  }
+
+  if (Number.isFinite(Date.parse(subscriber.welcome_email_sent_at || ""))) {
+    return false;
+  }
+
+  return !needsResubscribeEmailCatchup(subscriber);
+}
+
 async function sendBetaWelcomeSmsIfEnabled(input: {
   foundingNumber?: number | null;
   firstName: string;
@@ -166,6 +178,8 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date().toISOString();
+    const requestId =
+      request.headers.get("x-vercel-id") || createUrlSafeToken().slice(0, 16);
     const firstName = normalizeDisplayName(submission.firstName);
     const lastName = normalizeDisplayName(submission.lastName);
     const normalizedEmail = normalizeEmail(submission.email);
@@ -277,6 +291,36 @@ export async function POST(request: NextRequest) {
       !emailWasResubscribed &&
       emailSubscriber.status === "subscribed" &&
       needsResubscribeEmailCatchup(emailSubscriber);
+    const shouldCatchUpWelcomeEmail =
+      !betaCreated &&
+      !emailWasResubscribed &&
+      emailSubscriber.status === "subscribed" &&
+      needsWelcomeEmailCatchup(emailSubscriber);
+    const emailSendReason =
+      emailWasResubscribed || shouldCatchUpResubscribeEmail
+        ? "email_resubscribed"
+        : "new_beta_application";
+    const shouldSendWelcomeEmail =
+      betaCreated ||
+      emailWasResubscribed ||
+      shouldCatchUpResubscribeEmail ||
+      shouldCatchUpWelcomeEmail;
+
+    console.info("[welcome-email] beta application decision", {
+      requestId,
+      route: "/api/beta-applications",
+      betaCreated,
+      emailSubscriberId,
+      emailSubscriberStatus: emailSubscriber.status,
+      emailWasResubscribed,
+      foundingEligible: Boolean(foundingNumber),
+      sendAttemptPlanned: shouldSendWelcomeEmail,
+      sendReason: emailSendReason,
+      shouldCatchUpResubscribeEmail,
+      shouldCatchUpWelcomeEmail,
+      signupOrderPresent: signupOrderNumber > 0,
+      welcomeEmailEnabled: isWelcomeEmailEnabled(),
+    });
 
     let smsSubscriber: Awaited<ReturnType<typeof saveSmsSubscriber>> | null =
       null;
@@ -323,12 +367,10 @@ export async function POST(request: NextRequest) {
     }
 
     await sendBetaWelcomeEmailIfEnabled({
-      includeSmsOptInPrompt: betaCreated && !phoneE164,
-      shouldSendWelcomeEmail:
-        betaCreated || emailWasResubscribed || shouldCatchUpResubscribeEmail,
-      sendReason: emailWasResubscribed || shouldCatchUpResubscribeEmail
-        ? "email_resubscribed"
-        : "new_beta_application",
+      includeSmsOptInPrompt:
+        (betaCreated || shouldCatchUpWelcomeEmail) && !phoneE164,
+      shouldSendWelcomeEmail,
+      sendReason: emailSendReason,
       firstName,
       foundingNumber,
       subscriber: emailSubscriber,
