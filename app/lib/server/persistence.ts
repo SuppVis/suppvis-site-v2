@@ -1064,22 +1064,57 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
       sms_consent_timestamp: record.sms_consent_timestamp,
       sms_consent_source: record.sms_consent_source,
       sms_consent_version: record.sms_consent_version,
+      updated_at: record.updated_at,
+    },
+    setIfNotExists: {
+      id: record.id,
+      status: record.status,
       sms_global_opt_out: record.sms_global_opt_out,
       sms_global_opt_out_at: record.sms_global_opt_out_at,
       opt_out_timestamp: record.opt_out_timestamp,
       opt_out_source: record.opt_out_source,
       last_opt_out_keyword: record.last_opt_out_keyword,
       resubscribed_at: record.resubscribed_at,
-      updated_at: record.updated_at,
-    },
-    setIfNotExists: {
-      id: record.id,
-      status: record.status,
       created_at: record.created_at,
     },
   });
 
   return smsSubscriberFromAttributes(result.attributes, record);
+}
+
+export async function getSmsSubscriberById(id: string) {
+  const item = await getDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id },
+    operation: "get_sms_subscriber_by_id",
+  });
+
+  if (!item) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+
+  return smsSubscriberFromAttributes(item, {
+    id,
+    phone_number_raw: "",
+    phone_number_e164: "",
+    status: "unsubscribed",
+    sms_informational_consent: false,
+    sms_informational_consent_at: null,
+    sms_marketing_consent: false,
+    sms_marketing_consent_at: null,
+    sms_consent_timestamp: "",
+    sms_consent_source: "unknown",
+    sms_consent_version: "unknown",
+    sms_global_opt_out: false,
+    sms_global_opt_out_at: null,
+    opt_out_timestamp: null,
+    opt_out_source: null,
+    last_opt_out_keyword: null,
+    created_at: now,
+    updated_at: now,
+  });
 }
 
 export async function markSmsWelcomeRetryIfFailed(input: {
@@ -1091,7 +1126,7 @@ export async function markSmsWelcomeRetryIfFailed(input: {
     key: { id: input.subscriber.id },
     operation: "mark_sms_welcome_retry_if_failed",
     set: {
-      status: "pending_verification",
+      status: "subscribed",
       sms_provider_status: "retry_pending",
       sms_status_updated_at: input.now,
       updated_at: input.now,
@@ -1107,6 +1142,39 @@ export async function markSmsWelcomeRetryIfFailed(input: {
     conditionAttributeValues: {
       ":failed": "failed",
       ":false": false,
+    },
+    returnValues: "ALL_NEW",
+  });
+
+  return result.wrote
+    ? smsSubscriberFromAttributes(result.attributes, input.subscriber)
+    : input.subscriber;
+}
+
+export async function markSmsSubscribedIfLegacyPending(input: {
+  now: string;
+  subscriber: SmsSubscriberRecord;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.subscriber.id },
+    operation: "mark_sms_subscribed_if_legacy_pending",
+    set: {
+      status: "subscribed",
+      sms_provider_status: "subscribed",
+      sms_status_updated_at: input.now,
+      updated_at: input.now,
+    },
+    conditionExpression:
+      "attribute_exists(#id) AND #status = :pending AND (attribute_not_exists(#globalOptOut) OR #globalOptOut = :false)",
+    conditionAttributeNames: {
+      "#globalOptOut": "sms_global_opt_out",
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":false": false,
+      ":pending": "pending_verification",
     },
     returnValues: "ALL_NEW",
   });
@@ -1314,6 +1382,8 @@ export async function recordSmsSendAccepted(input: {
       last_sms_sent_at: input.now,
       last_sms_message_sid: input.messageSid,
       last_sms_status: "accepted",
+      last_sms_error_code: null,
+      last_sms_error_message_safe: null,
       sms_provider_status: "accepted",
       sms_status_updated_at: input.now,
       updated_at: input.now,
@@ -1374,6 +1444,7 @@ export async function recordSmsProviderStatus(input: {
     providerStatus: input.providerStatus,
   });
   const isProviderOptOut = status === "opt_out_provider";
+  const hasProviderError = Boolean(input.errorCode || input.errorMessageSafe);
 
   return updateDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
@@ -1387,8 +1458,10 @@ export async function recordSmsProviderStatus(input: {
       opt_out_source: isProviderOptOut ? "twilio_provider" : undefined,
       last_sms_message_sid: input.messageSid,
       last_sms_status: input.providerStatus,
-      last_sms_error_code: input.errorCode,
-      last_sms_error_message_safe: input.errorMessageSafe,
+      last_sms_error_code: hasProviderError ? input.errorCode : null,
+      last_sms_error_message_safe: hasProviderError
+        ? input.errorMessageSafe
+        : null,
       sms_provider_status: input.providerStatus,
       sms_status_updated_at: input.now,
       updated_at: input.now,
@@ -1409,12 +1482,16 @@ export async function markSmsResubscribeIfUnsubscribed(input: {
     key: { id: input.id },
     operation: "mark_sms_resubscribe",
     set: {
-      status: "pending_verification",
+      status: "subscribed",
       sms_global_opt_out: false,
       sms_global_opt_out_at: null,
       opt_out_timestamp: null,
       opt_out_source: null,
       last_opt_out_keyword: null,
+      last_sms_error_code: null,
+      last_sms_error_message_safe: null,
+      sms_provider_status: "subscribed",
+      sms_status_updated_at: input.now,
       resubscribed_at: input.now,
       updated_at: input.now,
     },
@@ -1476,12 +1553,16 @@ export async function resubscribeSmsSubscriberFromKeyword(input: {
     set: {
       phone_number_raw: input.phone_number_e164,
       phone_number_e164: input.phone_number_e164,
-      status: "pending_verification",
+      status: "subscribed",
       sms_global_opt_out: false,
       sms_global_opt_out_at: null,
       opt_out_timestamp: null,
       opt_out_source: null,
       last_opt_out_keyword: input.keyword,
+      last_sms_error_code: null,
+      last_sms_error_message_safe: null,
+      sms_provider_status: "subscribed",
+      sms_status_updated_at: input.now,
       resubscribed_at: input.now,
       updated_at: input.now,
     },
@@ -1528,8 +1609,7 @@ export function canSendSmsToSubscriber(
 
   return (
     record.status === "subscribed" ||
-    record.status === "active" ||
-    record.status === "pending_verification"
+    record.status === "active"
   );
 }
 

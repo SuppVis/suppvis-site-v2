@@ -130,7 +130,7 @@ Creates or reactivates an email subscriber with a deterministic unsubscribe toke
 
 `POST /api/sms-subscribers`
 
-Creates or reactivates an SMS subscriber only after explicit informational consent. Valid consented records may initially use `pending_verification`; this means the user opted in through the website and the record is eligible for customer-care beta announcements unless stopped, invalid, suppressed, or missing required consent.
+Creates or updates an SMS subscriber only after explicit informational consent. A valid consented phone record is stored as `subscribed` and is eligible for customer-care beta SMS unless stopped, invalid, suppressed, or missing required consent. There is no separate verification-code challenge in the current SMS workflow.
 
 Email-only signup should not create an eligible SMS subscriber record.
 
@@ -555,6 +555,7 @@ Changing the limit changes future assignment and admin enforcement. It does not 
 | `TWILIO_AUTH_TOKEN` | Yes | Twilio auth token and webhook verification secret. |
 | `TWILIO_MESSAGING_SERVICE_SID` | Yes | Approved Messaging Service SID. |
 | `TWILIO_SMS_FROM_NUMBER` | No | Approved sender, recommended `+16507025913`. |
+| `SMS_ADMIN_ALLOWLIST` | Yes | Optional comma/newline-separated E.164 phone numbers allowed to exercise non-keyword inbound SMS test handling. Does not grant subscriber consent and is never exposed to the browser. |
 | `TWILIO_WEBHOOK_SIGNATURE_REQUIRED` | No | Require Twilio signatures in production. |
 | `TWILIO_STATUS_CALLBACK_URL` | No | Status callback URL, usually `https://www.suppvis.health/api/webhooks/twilio/status`. |
 
@@ -669,7 +670,7 @@ Use from AWS CloudShell or another secure AWS CLI environment. The script create
 
 ## Operational Notes
 
-- `pending_verification` SMS records are explicitly opted-in customer-care beta SMS records that have not been renamed/migrated to a later status. They are eligible for beta announcements when informational consent is true and no STOP/invalid/suppression state exists.
+- SMS status is intentionally simple: `subscribed` is eligible, `unsubscribed`/`opt_out_provider` is opted out, `failed`/`invalid` is suppressed until corrected, and no SMS record means not linked. Legacy `pending_verification` records should be migrated or recreated; new public signup and START flows no longer create that state.
 - Manual audience refresh is required before every production announcement send.
 - Automatic live audience snapshot in `/admin` is informational and does not authorize sending.
 - A successful final action queues work; it does not mean messages were delivered.

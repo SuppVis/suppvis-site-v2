@@ -24,6 +24,26 @@ type SmsSubscriber = Pick<
   | "welcome_sms_message_sid"
 >;
 
+type WelcomeSmsSkipReason =
+  | "already_sent"
+  | "duplicate_beta_application"
+  | "invalid_phone"
+  | "missing_sms_consent"
+  | "missing_subscriber"
+  | "subscriber_suppressed";
+
+type WelcomeSmsDueReason = "send_due" | "welcome_retry_due";
+
+type WelcomeSmsDecision =
+  | {
+      reason: WelcomeSmsSkipReason;
+      shouldSend: false;
+    }
+  | {
+      reason: WelcomeSmsDueReason;
+      shouldSend: true;
+    };
+
 export type WelcomeSmsSendResult =
   | {
       ok: true;
@@ -33,13 +53,7 @@ export type WelcomeSmsSendResult =
   | {
       ok: true;
       status: "skipped";
-      reason:
-        | "already_sent"
-        | "duplicate_beta_application"
-        | "invalid_phone"
-        | "missing_sms_consent"
-        | "missing_subscriber"
-        | "subscriber_suppressed";
+      reason: WelcomeSmsSkipReason;
     }
   | {
       ok: true;
@@ -84,29 +98,111 @@ function isValidE164(phone: string | undefined) {
   return Boolean(phone && /^\+\d{8,15}$/.test(phone));
 }
 
+function priorWelcomeFailed(subscriber: SmsSubscriber) {
+  const lastProviderStatus = (
+    subscriber.sms_provider_status ||
+    subscriber.last_sms_status ||
+    ""
+  ).toLowerCase();
+
+  return (
+    subscriber.status === "failed" ||
+    lastProviderStatus === "failed" ||
+    lastProviderStatus === "undelivered"
+  );
+}
+
+export function decideWelcomeSmsSend(input: {
+  formSubmittedWithSmsConsent: boolean;
+  subscriber: SmsSubscriber | null | undefined;
+}): WelcomeSmsDecision {
+  if (!input.formSubmittedWithSmsConsent) {
+    return {
+      reason: "duplicate_beta_application",
+      shouldSend: false,
+    };
+  }
+
+  if (!input.subscriber) {
+    return {
+      reason: "missing_subscriber",
+      shouldSend: false,
+    };
+  }
+
+  const consentCategory = getSmsConsentCategory({
+    informational: input.subscriber.sms_informational_consent,
+    marketing: input.subscriber.sms_marketing_consent,
+  });
+
+  if (!consentCategory) {
+    return {
+      reason: "missing_sms_consent",
+      shouldSend: false,
+    };
+  }
+
+  if (!isValidE164(input.subscriber.phone_number_e164)) {
+    return {
+      reason: "invalid_phone",
+      shouldSend: false,
+    };
+  }
+
+  if (!canSendSmsToSubscriber(input.subscriber, consentCategory)) {
+    return {
+      reason: "subscriber_suppressed",
+      shouldSend: false,
+    };
+  }
+
+  if (input.subscriber.welcome_sms_message_sid) {
+    return priorWelcomeFailed(input.subscriber)
+      ? {
+          reason: "welcome_retry_due",
+          shouldSend: true,
+        }
+      : {
+          reason: "already_sent",
+          shouldSend: false,
+        };
+  }
+
+  return {
+    reason: "send_due",
+    shouldSend: true,
+  };
+}
+
 export async function sendWelcomeSms(input: {
   foundingNumber?: number | null;
   firstName: string;
   shouldSendWelcomeSms: boolean;
   subscriber: SmsSubscriber | null | undefined;
 }): Promise<WelcomeSmsSendResult> {
+  const decision = decideWelcomeSmsSend({
+    formSubmittedWithSmsConsent: input.shouldSendWelcomeSms,
+    subscriber: input.subscriber,
+  });
+
   console.info("[sms] welcome send attempt", {
     ...subscriberLogContext(input.subscriber),
+    decisionReason: decision.reason,
     enabled: isWelcomeSmsEnabled(),
-    shouldSendWelcomeSms: input.shouldSendWelcomeSms,
+    shouldSendWelcomeSms: decision.shouldSend,
     subscriberStatus: input.subscriber?.status,
   });
 
-  if (!input.shouldSendWelcomeSms) {
+  if (!decision.shouldSend) {
     console.info("[sms] welcome send skipped", {
       ...subscriberLogContext(input.subscriber),
-      reason: "duplicate_beta_application",
+      reason: decision.reason,
     });
 
     return {
       ok: true,
       status: "skipped",
-      reason: "duplicate_beta_application",
+      reason: decision.reason,
     };
   }
 
@@ -123,11 +219,9 @@ export async function sendWelcomeSms(input: {
     };
   }
 
-  if (!input.subscriber) {
-    console.info("[sms] welcome send skipped", {
-      reason: "missing_subscriber",
-    });
+  const subscriber = input.subscriber;
 
+  if (!subscriber) {
     return {
       ok: true,
       status: "skipped",
@@ -136,70 +230,15 @@ export async function sendWelcomeSms(input: {
   }
 
   const consentCategory = getSmsConsentCategory({
-    informational: input.subscriber.sms_informational_consent,
-    marketing: input.subscriber.sms_marketing_consent,
+    informational: subscriber.sms_informational_consent,
+    marketing: subscriber.sms_marketing_consent,
   });
 
   if (!consentCategory) {
-    console.info("[sms] welcome send skipped", {
-      ...subscriberLogContext(input.subscriber),
-      reason: "missing_sms_consent",
-    });
-
     return {
       ok: true,
       status: "skipped",
       reason: "missing_sms_consent",
-    };
-  }
-
-  if (!isValidE164(input.subscriber.phone_number_e164)) {
-    console.info("[sms] welcome send skipped", {
-      ...subscriberLogContext(input.subscriber),
-      reason: "invalid_phone",
-    });
-
-    return {
-      ok: true,
-      status: "skipped",
-      reason: "invalid_phone",
-    };
-  }
-
-  if (!canSendSmsToSubscriber(input.subscriber, consentCategory)) {
-    console.info("[sms] welcome send skipped", {
-      ...subscriberLogContext(input.subscriber),
-      reason: "subscriber_suppressed",
-      subscriberStatus: input.subscriber.status,
-    });
-
-    return {
-      ok: true,
-      status: "skipped",
-      reason: "subscriber_suppressed",
-    };
-  }
-
-  const lastProviderStatus = (
-    input.subscriber.sms_provider_status ||
-    input.subscriber.last_sms_status ||
-    ""
-  ).toLowerCase();
-  const priorWelcomeFailed =
-    input.subscriber.status === "failed" ||
-    lastProviderStatus === "failed" ||
-    lastProviderStatus === "undelivered";
-
-  if (input.subscriber.welcome_sms_message_sid && !priorWelcomeFailed) {
-    console.info("[sms] welcome send skipped", {
-      ...subscriberLogContext(input.subscriber),
-      reason: "already_sent",
-    });
-
-    return {
-      ok: true,
-      status: "skipped",
-      reason: "already_sent",
     };
   }
 
@@ -207,7 +246,7 @@ export async function sendWelcomeSms(input: {
     const messageType = "sms_informational_confirmation";
     const statusCallbackUrl = buildSmsStatusCallbackUrl({
       messageType,
-      subscriberId: input.subscriber.id,
+      subscriberId: subscriber.id,
     });
     const sendResult = await sendTwilioSms({
       body: getSmsConfirmationTemplate(consentCategory, {
@@ -215,19 +254,19 @@ export async function sendWelcomeSms(input: {
         firstName: input.firstName,
       }),
       statusCallbackUrl,
-      to: input.subscriber.phone_number_e164,
+      to: subscriber.phone_number_e164,
     });
     const now = new Date().toISOString();
 
     await recordSmsSendAccepted({
-      id: input.subscriber.id,
+      id: subscriber.id,
       messageSid: sendResult.messageSid,
       messageType,
       now,
     });
 
     console.info("[sms] twilio accepted", {
-      ...subscriberLogContext(input.subscriber),
+      ...subscriberLogContext(subscriber),
       messageSid: sendResult.messageSid,
       providerStatus: sendResult.status,
     });
@@ -242,21 +281,21 @@ export async function sendWelcomeSms(input: {
     const errorMessageSafe = safeTwilioErrorMessage(error);
 
     console.error("[sms] welcome send failed", {
-      ...subscriberLogContext(input.subscriber),
+      ...subscriberLogContext(subscriber),
       errorCode,
       errorName: error instanceof Error ? error.name : "UnknownError",
     });
 
     try {
       await recordSmsSendFailure({
-        id: input.subscriber.id,
+        id: subscriber.id,
         errorCode,
         errorMessageSafe,
         now: new Date().toISOString(),
       });
     } catch (trackingError) {
       console.error("[sms] failure tracking failed", {
-        ...subscriberLogContext(input.subscriber),
+        ...subscriberLogContext(subscriber),
         errorName:
           trackingError instanceof Error ? trackingError.name : "UnknownError",
       });

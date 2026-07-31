@@ -16,7 +16,7 @@ dynamodb = boto3.resource("dynamodb")
 
 MAX_RETRIES = int(os.environ.get("MAX_SEND_RETRIES", "3"))
 PHONE_RE = re.compile(r"^\+\d{8,15}$")
-ELIGIBLE_SMS_STATUSES = {"pending_verification", "subscribed", "active"}
+ELIGIBLE_SMS_STATUSES = {"subscribed", "active"}
 PERMANENT_ERROR_CODES = {"21211", "21610"}
 
 

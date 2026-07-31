@@ -55,9 +55,9 @@ export function buildSubscriberExportWorkbook(input: {
         subscriber.firstName,
         subscriber.lastName,
         subscriber.email,
-        adminExportStatusLabel(subscriber.emailStatus),
+        adminExportStatusLabel(subscriber.emailStatus, "email"),
         formatPhoneForExport(subscriber.phoneE164 || subscriber.phoneRaw),
-        adminExportStatusLabel(subscriber.smsStatus),
+        adminExportStatusLabel(subscriber.smsStatus, "sms"),
         subscriber.priorityBeta
           ? `Priority - Top ${input.priorityLimit}`
           : "Standard",
@@ -102,11 +102,39 @@ function dateCell(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value : date;
 }
 
-function adminExportStatusLabel(value: string | null | undefined) {
+function adminExportStatusLabel(
+  value: string | null | undefined,
+  channel: "email" | "sms" | "generic" = "generic",
+) {
   const text = (value || "unknown").trim();
 
   if (!text) {
     return "Unknown";
+  }
+
+  const smsLabels: Record<string, string> = {
+    active: "Subscribed",
+    failed: "Delivery Failed",
+    invalid: "Invalid",
+    missing: "Not Linked",
+    none: "Not Linked",
+    opt_out_provider: "Opted Out",
+    pending_verification: "Subscribed",
+    subscribed: "Subscribed",
+    unsubscribed: "Opted Out",
+  };
+  const emailLabels: Record<string, string> = {
+    missing: "Missing",
+    subscribed: "Subscribed",
+    unsubscribed: "Unsubscribed",
+  };
+
+  if (channel === "sms" && smsLabels[text]) {
+    return smsLabels[text];
+  }
+
+  if (channel === "email" && emailLabels[text]) {
+    return emailLabels[text];
   }
 
   return text

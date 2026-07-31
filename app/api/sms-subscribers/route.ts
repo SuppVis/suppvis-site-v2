@@ -1,10 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import { stableId } from "@/app/lib/server/crypto";
-import { maybeRestoreBetaSubscriberPriorityByPhone } from "@/app/lib/server/beta-subscribers";
 import { handleApiError } from "@/app/lib/server/errors";
 import {
-  markSmsResubscribeIfUnsubscribed,
+  markSmsSubscribedIfLegacyPending,
   saveSmsSubscriber,
 } from "@/app/lib/server/persistence";
 import {
@@ -55,27 +54,11 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const subscriberId = stableId("sms", phoneE164);
 
-    const smsResubscribeResult = await markSmsResubscribeIfUnsubscribed({
-      id: subscriberId,
-      now,
-    });
-
-    if (smsResubscribeResult.wrote) {
-      await maybeRestoreBetaSubscriberPriorityByPhone({
-        phoneE164,
-        now,
-      }).catch((error) => {
-        console.error("[beta-priority] sms resubscribe restore failed", {
-          errorName: error instanceof Error ? error.name : "UnknownError",
-        });
-      });
-    }
-
-    await saveSmsSubscriber({
+    const smsSubscriber = await saveSmsSubscriber({
       id: subscriberId,
       phone_number_raw: submission.phone.trim(),
       phone_number_e164: phoneE164,
-      status: "pending_verification",
+      status: "subscribed",
       sms_informational_consent: submission.smsInformationalConsent,
       sms_informational_consent_at: submission.smsInformationalConsent
         ? now
@@ -93,6 +76,13 @@ export async function POST(request: NextRequest) {
       created_at: now,
       updated_at: now,
     });
+
+    if (smsSubscriber.status === "pending_verification") {
+      await markSmsSubscribedIfLegacyPending({
+        now,
+        subscriber: smsSubscriber,
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

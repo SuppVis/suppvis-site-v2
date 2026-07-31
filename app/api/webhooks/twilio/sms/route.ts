@@ -9,6 +9,8 @@ import {
   ServerConfigError,
 } from "@/app/lib/server/errors";
 import {
+  canSendSmsToSubscriber,
+  getSmsSubscriberById,
   optOutSmsSubscriber,
   resubscribeSmsSubscriberFromKeyword,
 } from "@/app/lib/server/persistence";
@@ -47,6 +49,15 @@ function formDataToParams(formData: FormData) {
   }
 
   return params;
+}
+
+function smsAdminAllowlist() {
+  return new Set(
+    (process.env.SMS_ADMIN_ALLOWLIST || "")
+      .split(/[,\n]/)
+      .map((value) => normalizePhoneToE164(value.trim()))
+      .filter((value): value is string => Boolean(value)),
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -135,6 +146,26 @@ export async function POST(request: NextRequest) {
 
       return twimlResponse();
     }
+
+    const subscriber = await getSmsSubscriberById(subscriberId);
+    const isActiveSubscriber = subscriber
+      ? canSendSmsToSubscriber(subscriber, "informational")
+      : false;
+    const isAdminAllowlisted = smsAdminAllowlist().has(phoneE164);
+
+    if (!isActiveSubscriber && !isAdminAllowlisted) {
+      console.info("[twilio] inbound sms ignored", {
+        reason: subscriber ? "inactive_subscriber" : "unknown_sender",
+        subscriberId,
+      });
+
+      return twimlResponse();
+    }
+
+    console.info("[twilio] inbound sms accepted", {
+      reason: isAdminAllowlisted ? "admin_allowlisted" : "active_subscriber",
+      subscriberId,
+    });
 
     return twimlResponse();
   } catch (error) {

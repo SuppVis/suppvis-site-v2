@@ -622,9 +622,37 @@ function phoneDisplay(subscriber: AdminBetaSubscriber) {
   return value;
 }
 
-function adminStatusLabel(value?: string | null) {
+function adminStatusLabel(
+  value?: string | null,
+  channel: "email" | "sms" | "generic" = "generic",
+) {
   if (!value) {
     return "-";
+  }
+
+  const smsLabels: Record<string, string> = {
+    active: "Subscribed",
+    failed: "Delivery Failed",
+    invalid: "Invalid",
+    missing: "Not Linked",
+    none: "Not Linked",
+    opt_out_provider: "Opted Out",
+    pending_verification: "Subscribed",
+    subscribed: "Subscribed",
+    unsubscribed: "Opted Out",
+  };
+  const emailLabels: Record<string, string> = {
+    missing: "Missing",
+    subscribed: "Subscribed",
+    unsubscribed: "Unsubscribed",
+  };
+
+  if (channel === "sms" && smsLabels[value]) {
+    return smsLabels[value];
+  }
+
+  if (channel === "email" && emailLabels[value]) {
+    return emailLabels[value];
   }
 
   return value
@@ -4531,7 +4559,7 @@ export default function AdminCampaignDraft({
                     )
                       .map(
                         ([label, value]) =>
-                          `${adminStatusLabel(label)}: ${value}`,
+                          `${adminStatusLabel(label, "email")}: ${value}`,
                       )
                       .join(", ")
                   : "Not available"}
@@ -4546,7 +4574,7 @@ export default function AdminCampaignDraft({
                   ? Object.entries(currentAudience.diagnostics.smsStatusGroups)
                       .map(
                         ([label, value]) =>
-                          `${adminStatusLabel(label)}: ${value}`,
+                          `${adminStatusLabel(label, "sms")}: ${value}`,
                       )
                       .join(", ")
                   : "Not available"}
@@ -5096,12 +5124,12 @@ export default function AdminCampaignDraft({
                       <span className="font-semibold text-text-primary">
                         Email:
                       </span>{" "}
-                      {adminStatusLabel(subscriber.emailStatus)}
+                      {adminStatusLabel(subscriber.emailStatus, "email")}
                       <br />
                       <span className="font-semibold text-text-primary">
                         Text:
                       </span>{" "}
-                      {adminStatusLabel(subscriber.smsStatus)}
+                      {adminStatusLabel(subscriber.smsStatus, "sms")}
                     </td>
                     <td className="py-3 pr-4">
                       <span
@@ -6230,8 +6258,8 @@ export default function AdminCampaignDraft({
               ["Signup date", formatOptionalDate(selectedSubscriber.createdAt)],
               ["Email", selectedSubscriber.email],
               ["Phone", phoneDisplay(selectedSubscriber)],
-              ["Email status", adminStatusLabel(selectedSubscriber.emailStatus)],
-              ["Text status", adminStatusLabel(selectedSubscriber.smsStatus)],
+              ["Email status", adminStatusLabel(selectedSubscriber.emailStatus, "email")],
+              ["Text status", adminStatusLabel(selectedSubscriber.smsStatus, "sms")],
               ["Priority", selectedSubscriber.priorityBadge],
               ["Source", selectedSubscriber.sourcePage],
             ].map(([label, value]) => (

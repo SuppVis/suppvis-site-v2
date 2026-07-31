@@ -23,13 +23,12 @@ import {
   betaSignupPriorityFieldsForOrder,
   getBetaApplicationById,
   maybeRestoreBetaSubscriberPriorityByEmail,
-  maybeRestoreBetaSubscriberPriorityByPhone,
   reserveNextBetaSignupOrder,
 } from "@/app/lib/server/beta-subscribers";
 import {
   markEmailResubscribeIfUnsubscribed,
+  markSmsSubscribedIfLegacyPending,
   markSmsWelcomeRetryIfFailed,
-  markSmsResubscribeIfUnsubscribed,
   saveBetaApplication,
   saveEmailSubscriber,
   saveSmsSubscriber,
@@ -338,27 +337,11 @@ export async function POST(request: NextRequest) {
     if (hasSmsConsent && phoneRaw && phoneE164) {
       const smsSubscriberId = stableId("sms", phoneE164);
 
-      const smsResubscribeResult = await markSmsResubscribeIfUnsubscribed({
-        id: smsSubscriberId,
-        now,
-      });
-
-      if (smsResubscribeResult.wrote) {
-        await maybeRestoreBetaSubscriberPriorityByPhone({
-          phoneE164,
-          now,
-        }).catch((error) => {
-          console.error("[beta-priority] beta sms resubscribe restore failed", {
-            errorName: error instanceof Error ? error.name : "UnknownError",
-          });
-        });
-      }
-
       smsSubscriber = await saveSmsSubscriber({
         id: smsSubscriberId,
         phone_number_raw: phoneRaw,
         phone_number_e164: phoneE164,
-        status: "pending_verification",
+        status: "subscribed",
         sms_informational_consent: smsInformationalConsent,
         sms_informational_consent_at: smsInformationalConsent ? now : null,
         sms_marketing_consent: smsMarketingConsent,
@@ -381,6 +364,13 @@ export async function POST(request: NextRequest) {
           subscriber: smsSubscriber,
         });
       }
+
+      if (smsSubscriber.status === "pending_verification") {
+        smsSubscriber = await markSmsSubscribedIfLegacyPending({
+          now,
+          subscriber: smsSubscriber,
+        });
+      }
     }
 
     await sendBetaWelcomeEmailIfEnabled({
@@ -396,13 +386,7 @@ export async function POST(request: NextRequest) {
     await sendBetaWelcomeSmsIfEnabled({
       firstName,
       foundingNumber,
-      shouldSendWelcomeSms:
-        betaCreated ||
-        Boolean(
-          betaSmsContactUpdated &&
-            smsSubscriber &&
-            !smsSubscriber.welcome_sms_message_sid,
-        ),
+      shouldSendWelcomeSms: Boolean(hasSmsConsent && phoneRaw && phoneE164),
       subscriber: smsSubscriber,
     });
 
