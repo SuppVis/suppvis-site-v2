@@ -1082,6 +1082,40 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
   return smsSubscriberFromAttributes(result.attributes, record);
 }
 
+export async function markSmsWelcomeRetryIfFailed(input: {
+  now: string;
+  subscriber: SmsSubscriberRecord;
+}) {
+  const result = await updateDynamoItem({
+    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
+    key: { id: input.subscriber.id },
+    operation: "mark_sms_welcome_retry_if_failed",
+    set: {
+      status: "pending_verification",
+      sms_provider_status: "retry_pending",
+      sms_status_updated_at: input.now,
+      updated_at: input.now,
+    },
+    remove: ["welcome_sms_sent_at", "welcome_sms_message_sid"],
+    conditionExpression:
+      "attribute_exists(#id) AND #status = :failed AND (attribute_not_exists(#globalOptOut) OR #globalOptOut = :false)",
+    conditionAttributeNames: {
+      "#globalOptOut": "sms_global_opt_out",
+      "#id": "id",
+      "#status": "status",
+    },
+    conditionAttributeValues: {
+      ":failed": "failed",
+      ":false": false,
+    },
+    returnValues: "ALL_NEW",
+  });
+
+  return result.wrote
+    ? smsSubscriberFromAttributes(result.attributes, input.subscriber)
+    : input.subscriber;
+}
+
 export async function markEmailResubscribeIfUnsubscribed(input: {
   id: string;
   now: string;

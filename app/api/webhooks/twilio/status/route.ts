@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
       }
 
       console.info("[twilio] admin sms test status callback received", {
+        errorCode: parsed.data.ErrorCode,
         messageSid: parsed.data.MessageSid,
         providerStatus,
         status: updateStatus,
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
       }
 
       console.info("[twilio] announcement sms status callback received", {
+        errorCode: parsed.data.ErrorCode,
         messageSid: parsed.data.MessageSid,
         providerStatus,
         status: updateStatus,
@@ -172,6 +174,7 @@ export async function POST(request: NextRequest) {
     });
 
     console.info("[twilio] status callback recorded", {
+      errorCode: parsed.data.ErrorCode,
       messageSid: parsed.data.MessageSid,
       providerStatus,
       status: result.wrote ? "recorded" : "subscriber_missing",

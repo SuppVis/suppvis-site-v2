@@ -28,6 +28,7 @@ import {
 } from "@/app/lib/server/beta-subscribers";
 import {
   markEmailResubscribeIfUnsubscribed,
+  markSmsWelcomeRetryIfFailed,
   markSmsResubscribeIfUnsubscribed,
   saveBetaApplication,
   saveEmailSubscriber,
@@ -373,6 +374,13 @@ export async function POST(request: NextRequest) {
         created_at: now,
         updated_at: now,
       });
+
+      if (smsSubscriber.status === "failed") {
+        smsSubscriber = await markSmsWelcomeRetryIfFailed({
+          now,
+          subscriber: smsSubscriber,
+        });
+      }
     }
 
     await sendBetaWelcomeEmailIfEnabled({

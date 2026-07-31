@@ -18,6 +18,8 @@ type SmsSubscriber = Pick<
   | "sms_global_opt_out"
   | "sms_informational_consent"
   | "sms_marketing_consent"
+  | "last_sms_status"
+  | "sms_provider_status"
   | "status"
   | "welcome_sms_message_sid"
 >;
@@ -178,7 +180,17 @@ export async function sendWelcomeSms(input: {
     };
   }
 
-  if (input.subscriber.welcome_sms_message_sid) {
+  const lastProviderStatus = (
+    input.subscriber.sms_provider_status ||
+    input.subscriber.last_sms_status ||
+    ""
+  ).toLowerCase();
+  const priorWelcomeFailed =
+    input.subscriber.status === "failed" ||
+    lastProviderStatus === "failed" ||
+    lastProviderStatus === "undelivered";
+
+  if (input.subscriber.welcome_sms_message_sid && !priorWelcomeFailed) {
     console.info("[sms] welcome send skipped", {
       ...subscriberLogContext(input.subscriber),
       reason: "already_sent",
