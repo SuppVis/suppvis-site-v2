@@ -197,6 +197,10 @@ function smsStartRequiredMessage(prefix: "created" | "phone_added") {
   return `You're in. Your email signup is confirmed, but this phone number previously opted out of SuppVis texts. Text START to ${sender}, then submit the form again to receive your welcome text.`;
 }
 
+function smsActivatedMessage() {
+  return "You're now signed up for SuppVis texts too. Check your messages for your welcome text.";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const rateLimited = enforceRateLimit(request, {
@@ -479,6 +483,18 @@ export async function POST(request: NextRequest) {
           smsWelcomeSent,
           message:
             "Your phone number has been added. Check your messages for your SuppVis welcome text.",
+        });
+      }
+
+      if (smsWelcomeSent && submittedSmsPhone) {
+        return NextResponse.json({
+          ok: true,
+          duplicate: true,
+          result: "sms_activated",
+          smsUpdated: true,
+          smsWelcomeSent: true,
+          message: "You're already signed up for the SuppVis beta.",
+          supportMessage: smsActivatedMessage(),
         });
       }
 

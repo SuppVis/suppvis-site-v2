@@ -33,6 +33,10 @@ function sanitizePhoneInput(phone: string) {
   return phone.replace(/[^\d()+\-\s.]/g, "").slice(0, 40);
 }
 
+function phoneHasEnoughDigits(phone: string) {
+  return phone.replace(/\D/g, "").length >= 10;
+}
+
 function RequiredMarker() {
   return (
     <span
@@ -57,12 +61,12 @@ export default function WaitlistClose() {
   const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
   const sectionRef = useScrollReveal();
-  const hasPhone = Boolean(formValues.phone.trim());
+  const canOptIntoSms = phoneHasEnoughDigits(formValues.phone);
   const isFormReady =
     Boolean(formValues.firstName.trim()) &&
     Boolean(formValues.lastName.trim()) &&
     isValidEmail(formValues.email) &&
-    (!formValues.smsInformationalConsent || hasPhone);
+    (!formValues.smsInformationalConsent || canOptIntoSms);
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
@@ -73,6 +77,21 @@ export default function WaitlistClose() {
         return {
           ...current,
           phone: nextValue,
+          smsInformationalConsent: false,
+        };
+      }
+
+      if (name === "phone" && !phoneHasEnoughDigits(nextValue)) {
+        return {
+          ...current,
+          phone: nextValue,
+          smsInformationalConsent: false,
+        };
+      }
+
+      if (name === "smsInformationalConsent" && checked && !canOptIntoSms) {
+        return {
+          ...current,
           smsInformationalConsent: false,
         };
       }
@@ -153,8 +172,12 @@ export default function WaitlistClose() {
           : "You’re in. We’ll send beta testing access details soon.",
       );
       setSuccessSupport(
-        result?.smsStartRequired
+        typeof result?.supportMessage === "string"
+          ? result.supportMessage
+          : result?.smsStartRequired
           ? "Texts will stay paused until that phone number opts back in with Twilio. Your email signup still worked."
+          : result?.result === "sms_activated"
+            ? "You're now signed up for SuppVis texts too. Check your messages for your welcome text."
           : result?.resubscribed || result?.result === "resubscribed"
           ? "You’re back on the SuppVis beta email list. You can unsubscribe again anytime."
           : result?.result === "phone_added" || result?.phoneUpdated
@@ -162,9 +185,7 @@ export default function WaitlistClose() {
               ? "We'll only text you about SuppVis beta access and account updates. Reply STOP anytime."
               : "SMS consent stays off unless you check the text-message box."
           : result?.result === "already_registered" || result?.duplicate
-            ? result?.smsWelcomeSent
-              ? "Check your messages for your SuppVis welcome text. You do not need to submit again."
-              : "You do not need to submit again."
+            ? "You do not need to submit again."
             : "If you opted into texts, we'll only message you about your SuppVis beta access and account updates.",
       );
       setDuplicateSubmission(Boolean(result?.duplicate));
@@ -288,16 +309,24 @@ export default function WaitlistClose() {
                 onChange={handleInputChange}
                 placeholder="Phone number (optional)"
                 autoComplete="tel"
+                aria-describedby="phone-help"
+                aria-invalid={Boolean(
+                  formValues.phone.trim() && !canOptIntoSms,
+                )}
                 inputMode="tel"
                 maxLength={40}
                 className="w-full rounded-xl bg-bg-secondary border border-white/10 px-5 py-3.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-colors"
               />
+              <p id="phone-help" className="mt-2 text-xs text-text-muted">
+                Enter a phone number to enable optional beta text updates.
+              </p>
             </div>
             <div className="space-y-3">
               <SmsConsentCheckbox
                 id="smsInformationalConsent"
                 name="smsInformationalConsent"
                 checked={formValues.smsInformationalConsent}
+                disabled={!canOptIntoSms}
                 onChange={handleInputChange}
                 label={SMS_INFORMATIONAL_CONSENT_COPY}
               />
@@ -333,12 +362,14 @@ export default function WaitlistClose() {
 
 function SmsConsentCheckbox({
   checked,
+  disabled = false,
   id,
   label,
   name,
   onChange,
 }: {
   checked: boolean;
+  disabled?: boolean;
   id: string;
   label: string;
   name: string;
@@ -356,17 +387,26 @@ function SmsConsentCheckbox({
   const afterPrivacy = label.slice(privacyIndex + privacyText.length);
 
   return (
-    <div className="flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted">
+    <div
+      className={`flex gap-3 rounded-xl border border-white/10 bg-bg-secondary/60 p-4 text-sm leading-relaxed text-text-muted transition-opacity ${
+        disabled ? "opacity-55" : ""
+      }`}
+    >
       <input
         id={id}
         type="checkbox"
         name={name}
         checked={checked}
+        disabled={disabled}
         onChange={onChange}
         aria-describedby={`${id}-copy`}
-        className="mt-1 h-4 w-4 shrink-0 accent-accent"
+        className="mt-1 h-4 w-4 shrink-0 accent-accent disabled:cursor-not-allowed"
       />
-      <label id={`${id}-copy`} htmlFor={id}>
+      <label
+        id={`${id}-copy`}
+        htmlFor={id}
+        className={disabled ? "cursor-not-allowed" : undefined}
+      >
         {beforeTerms}
         <a
           href="/terms"

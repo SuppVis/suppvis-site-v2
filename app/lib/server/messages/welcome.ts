@@ -15,16 +15,16 @@ export const WELCOME_EMAIL_PREVIEW_TEXT =
   "Install TestFlight, open SuppVis, and set up your beta account.";
 
 export const RESUBSCRIBE_EMAIL_SUBJECT =
-  "You're resubscribed to SuppVis beta updates.";
+  "You're resubscribed to SuppVis";
 
 export const RESUBSCRIBE_EMAIL_PREVIEW_TEXT =
-  "We'll keep sending beta access updates and product updates.";
+  "Your SuppVis email subscription is active again.";
 
 export const UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT =
   "You're unsubscribed from SuppVis beta emails.";
 
 export const UNSUBSCRIBE_CONFIRMATION_EMAIL_PREVIEW_TEXT =
-  "You will no longer receive SuppVis beta email updates.";
+  "Your SuppVis email subscription has been turned off.";
 
 export const FOUNDER_CONTACT_OUTREACH_EMAIL_SUBJECT =
   "You're invited to the SuppVis beta.";
@@ -183,7 +183,7 @@ export function getResubscribeEmailSubject(input?: {
   foundingNumber?: number | null;
 }) {
   return isValidFoundingNumber(input?.foundingNumber)
-    ? getWelcomeEmailSubject(input)
+    ? `You're back: founding member #${input?.foundingNumber}`
     : RESUBSCRIBE_EMAIL_SUBJECT;
 }
 
@@ -251,6 +251,10 @@ function paragraphHtml(copy: string, tone: "primary" | "muted" = "muted") {
   return `<p style="margin:0 0 18px 0;color:${color};font-size:16px;line-height:1.65;">${escapeHtml(copy)}</p>`;
 }
 
+function preheaderFiller() {
+  return "&nbsp;&zwnj;".repeat(80);
+}
+
 function buildBrandedEmailHtml({
   appBaseUrl,
   title,
@@ -273,7 +277,7 @@ function buildBrandedEmailHtml({
   </head>
   <body style="margin:0;background:#0A0F14;color:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
-      ${escapeHtml(previewText)}
+      ${escapeHtml(previewText)}${preheaderFiller()}
     </div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0A0F14;margin:0;padding:32px 16px;">
       <tr>
@@ -442,6 +446,78 @@ function foundingWelcomeEmailHtml({
     previewText:
       "First access August 7. Your first month free. The lowest rate we will ever offer.",
     title: getFoundingWelcomeEmailSubject({ foundingNumber }),
+  });
+}
+
+function foundingResubscribeEmailText({
+  appBaseUrl,
+  firstName,
+  foundingNumber,
+  unsubscribeUrl = "{{unsubscribe_url}}",
+}: WelcomeTemplateInput) {
+  const name = normalizeFirstName(firstName);
+  const credential = isValidFoundingNumber(foundingNumber)
+    ? `founding member #${foundingNumber} of ${FOUNDING_MEMBER_COPY_LIMIT}`
+    : `a founding member of ${FOUNDING_MEMBER_COPY_LIMIT}`;
+  const howItWorksUrl = buildPublicAssetUrl("/how-it-works", appBaseUrl);
+
+  return `Welcome back to SuppVis, ${name}. Your email subscription is active again.
+
+You're still ${credential}, and your original signup position has not changed.
+
+As a founding member, your first month is still free. You still get first access starting Friday, August 7, and you still have the chance to lock in the lowest rate SuppVis will ever offer, for life, by staying active through your first free month.
+
+See how SuppVis works:
+${howItWorksUrl}
+
+Clarity over complexity. Science over hype.
+
+Tanner and Connor Haslinger
+Co-founders, SuppVis
+
+You're receiving this because you resubscribed to SuppVis beta updates.
+Unsubscribe: ${unsubscribeUrl}
+
+2026 SuppVis. Not medical advice. Always consult your healthcare provider.`;
+}
+
+function foundingResubscribeEmailHtml({
+  appBaseUrl,
+  firstName,
+  foundingNumber,
+  unsubscribeUrl = "{{unsubscribe_url}}",
+}: WelcomeTemplateInput) {
+  const name = normalizeFirstName(firstName);
+  const unsubscribeHref = unsubscribeUrl;
+  const credential = isValidFoundingNumber(foundingNumber)
+    ? `founding member #${foundingNumber} of ${FOUNDING_MEMBER_COPY_LIMIT}`
+    : `a founding member of ${FOUNDING_MEMBER_COPY_LIMIT}`;
+  const howItWorksUrl = buildPublicAssetUrl("/how-it-works", appBaseUrl);
+  const bodyHtml = [
+    paragraphHtml(
+      `Welcome back to SuppVis, ${name}. Your email subscription is active again.`,
+      "primary",
+    ),
+    paragraphHtml(
+      `You're still ${credential}, and your original signup position has not changed.`,
+    ),
+    paragraphHtml(
+      "As a founding member, your first month is still free. You still get first access starting Friday, August 7, and you still have the chance to lock in the lowest rate SuppVis will ever offer, for life, by staying active through your first free month.",
+    ),
+    buttonHtml(howItWorksUrl, "See how SuppVis works"),
+    rawLinkHtml(howItWorksUrl),
+    paragraphHtml("Clarity over complexity. Science over hype.", "primary"),
+    `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Tanner and Connor Haslinger<br />Co-founders, SuppVis</p>`,
+  ].join("\n                ");
+
+  return buildBrandedEmailHtml({
+    appBaseUrl,
+    bodyHtml,
+    eyebrow: "Beta updates",
+    footerHtml: unsubscribeFooterHtml(unsubscribeHref),
+    heading: "You're resubscribed.",
+    previewText: RESUBSCRIBE_EMAIL_PREVIEW_TEXT,
+    title: getResubscribeEmailSubject({ foundingNumber }),
   });
 }
 
@@ -753,7 +829,7 @@ export function buildResubscribeEmailText({
   unsubscribeUrl = "{{unsubscribe_url}}",
 }: WelcomeTemplateInput) {
   if (isValidFoundingNumber(foundingNumber)) {
-    return foundingWelcomeEmailText({
+    return foundingResubscribeEmailText({
       appBaseUrl,
       foundingNumber,
       firstName,
@@ -802,7 +878,7 @@ export function buildResubscribeEmailHtml({
   appBaseUrl,
 }: WelcomeTemplateInput) {
   if (isValidFoundingNumber(foundingNumber)) {
-    return foundingWelcomeEmailHtml({
+    return foundingResubscribeEmailHtml({
       appBaseUrl,
       foundingNumber,
       firstName,
