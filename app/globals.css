@@ -122,6 +122,35 @@ input:autofill {
   display: none;
 }
 
+html:has(.admin-page),
+.admin-page {
+  scrollbar-color: rgba(90, 112, 137, 0.72) #0A0F14;
+  scrollbar-width: thin;
+}
+
+html:has(.admin-page)::-webkit-scrollbar,
+.admin-page::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+html:has(.admin-page)::-webkit-scrollbar-track,
+.admin-page::-webkit-scrollbar-track {
+  background: #0A0F14;
+}
+
+html:has(.admin-page)::-webkit-scrollbar-thumb,
+.admin-page::-webkit-scrollbar-thumb {
+  background: rgba(90, 112, 137, 0.7);
+  border: 3px solid #0A0F14;
+  border-radius: 999px;
+}
+
+html:has(.admin-page)::-webkit-scrollbar-thumb:hover,
+.admin-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 184, 166, 0.55);
+}
+
 .subscriber-detail-scroll {
   scrollbar-color: rgba(20, 184, 166, 0.45) #080D12;
   scrollbar-width: thin;

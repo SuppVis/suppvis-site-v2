@@ -378,6 +378,14 @@ export const adminSubscriberIdSchema = z
   .trim()
   .regex(/^beta_[a-f0-9]{32}$/);
 
+const adminSubscriberSortSchema = z.preprocess(
+  (value) => (value === "signup_order_desc" ? "newest" : value),
+  z
+    .enum(["name_asc", "newest", "priority_first", "signup_order_asc"])
+    .optional()
+    .default("signup_order_asc"),
+);
+
 export const adminSubscriberListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(5).max(100).optional().default(20),
@@ -386,16 +394,7 @@ export const adminSubscriberListQuerySchema = z.object({
     .optional()
     .default("all"),
   search: z.string().trim().max(120).optional().default(""),
-  sort: z
-    .enum([
-      "name_asc",
-      "newest",
-      "priority_first",
-      "signup_order_asc",
-      "signup_order_desc",
-    ])
-    .optional()
-    .default("signup_order_asc"),
+  sort: adminSubscriberSortSchema,
 });
 
 export const adminSubscriberExportQuerySchema = z.object({
@@ -404,16 +403,7 @@ export const adminSubscriberExportQuerySchema = z.object({
     .optional()
     .default("all"),
   search: z.string().trim().max(120).optional().default(""),
-  sort: z
-    .enum([
-      "name_asc",
-      "newest",
-      "priority_first",
-      "signup_order_asc",
-      "signup_order_desc",
-    ])
-    .optional()
-    .default("signup_order_asc"),
+  sort: adminSubscriberSortSchema,
 });
 
 export const adminSubscriberNotesSchema = z

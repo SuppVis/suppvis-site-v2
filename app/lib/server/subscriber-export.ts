@@ -147,10 +147,6 @@ function priorityFilterLabel(filter: AdminSubscriberPriorityFilter) {
 }
 
 function sortLabel(sort: AdminSubscriberSort) {
-  if (sort === "signup_order_desc") {
-    return "Signup order descending";
-  }
-
   if (sort === "newest") {
     return "Newest first";
   }

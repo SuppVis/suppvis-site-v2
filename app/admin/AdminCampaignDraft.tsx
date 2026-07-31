@@ -263,8 +263,7 @@ type AdminSubscriberSort =
   | "name_asc"
   | "newest"
   | "priority_first"
-  | "signup_order_asc"
-  | "signup_order_desc";
+  | "signup_order_asc";
 
 type AdminSubscriberPriorityFilter = "all" | "priority" | "standard";
 
@@ -392,7 +391,6 @@ const SUBSCRIBER_PRIORITY_FILTER_OPTIONS: Array<
 ];
 const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
   { label: "Signup order", value: "signup_order_asc" },
-  { label: "Signup order descending", value: "signup_order_desc" },
   { label: "Newest first", value: "newest" },
   { label: "Name A-Z", value: "name_asc" },
   { label: "Priority first", value: "priority_first" },
@@ -1066,6 +1064,24 @@ function HistoryIcon() {
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+    >
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  );
+}
+
 function Modal({
   bodyClassName = "",
   children,
@@ -1205,11 +1221,9 @@ function Modal({
               type="button"
               onClick={onClose}
               aria-label={`Close ${title.toLowerCase()}`}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-text-secondary transition hover:border-accent/50 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]"
+              className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 text-text-secondary transition hover:border-accent/50 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]"
             >
-              <span aria-hidden="true" className="text-xl leading-none">
-                x
-              </span>
+              <CloseIcon />
             </button>
           ) : null}
         </div>
@@ -1368,7 +1382,7 @@ function AdminSelect<T extends string>({
             selectOption(options[highlightedIndex] || selected);
           }
         }}
-        className="flex w-full items-center justify-between gap-3 rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-left text-sm font-semibold text-text-primary outline-none transition hover:border-accent/50 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-12 w-full items-center justify-between gap-3 rounded-[8px] border border-white/10 bg-[#0D1117] px-4 py-0 text-left text-sm font-semibold text-text-primary outline-none transition hover:border-accent/50 focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="truncate">{selected?.label}</span>
         <span aria-hidden="true" className="text-text-muted">
@@ -4867,7 +4881,7 @@ export default function AdminCampaignDraft({
         </div>
 
         <form
-          className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_190px_auto]"
+          className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_190px_auto] lg:items-center"
           onSubmit={(event) => {
             event.preventDefault();
             setSubscriberPage(1);
@@ -4930,7 +4944,7 @@ export default function AdminCampaignDraft({
                 }
               }}
               placeholder="Search by name, email, or phone"
-              className="w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-2 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
+              className="h-12 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-4 py-0 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
             />
             {subscriberSuggestionsOpen ? (
               <div
@@ -5004,7 +5018,7 @@ export default function AdminCampaignDraft({
           <button
             type="submit"
             disabled={isBusy}
-            className={primaryButtonClass("dark")}
+            className={`${primaryButtonClass("dark")} h-12 px-7 py-0`}
           >
             Search
           </button>

@@ -27,8 +27,7 @@ export type AdminSubscriberSort =
   | "name_asc"
   | "newest"
   | "priority_first"
-  | "signup_order_asc"
-  | "signup_order_desc";
+  | "signup_order_asc";
 
 export type AdminSubscriberPriorityFilter =
   | "all"
@@ -651,13 +650,6 @@ function compareSubscribers(
 
   if (sort === "priority_first") {
     return Number(b.priorityBeta) - Number(a.priorityBeta) || byOrderAsc(a, b);
-  }
-
-  if (sort === "signup_order_desc") {
-    return (
-      (b.signupOrderNumber || 0) - (a.signupOrderNumber || 0) ||
-      a.fullName.localeCompare(b.fullName)
-    );
   }
 
   return byOrderAsc(a, b);

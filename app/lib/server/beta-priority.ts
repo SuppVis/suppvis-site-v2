@@ -57,33 +57,6 @@ export function shouldAutoAssignPriority(signupOrderNumber: number) {
   return signupOrderNumber > 0 && signupOrderNumber <= getPriorityBetaLimit();
 }
 
-function preferredExistingSubscriberRank(input: {
-  email?: string;
-  firstName?: string;
-  fullName?: string;
-  lastName?: string;
-}) {
-  const searchable = [
-    input.email,
-    input.firstName,
-    input.lastName,
-    input.fullName,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  if (/\bandrew\b/.test(searchable) || searchable.includes("andrew")) {
-    return 0;
-  }
-
-  if (/\btanner\b/.test(searchable) || searchable.includes("tanner")) {
-    return 1;
-  }
-
-  return 2;
-}
-
 export function compareForSignupOrderBackfill<
   T extends {
     created_at?: string;
@@ -93,23 +66,6 @@ export function compareForSignupOrderBackfill<
     normalized_email?: string;
   },
 >(a: T, b: T) {
-  const aRank = preferredExistingSubscriberRank({
-    email: a.normalized_email || a.email,
-    firstName: a.first_name,
-    fullName: `${a.first_name || ""} ${a.last_name || ""}`.trim(),
-    lastName: a.last_name,
-  });
-  const bRank = preferredExistingSubscriberRank({
-    email: b.normalized_email || b.email,
-    firstName: b.first_name,
-    fullName: `${b.first_name || ""} ${b.last_name || ""}`.trim(),
-    lastName: b.last_name,
-  });
-
-  if (aRank !== bRank) {
-    return aRank - bRank;
-  }
-
   const createdCompare = (a.created_at || "").localeCompare(b.created_at || "");
 
   if (createdCompare !== 0) {
