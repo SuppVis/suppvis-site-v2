@@ -77,14 +77,6 @@ async function sendBetaWelcomeEmailIfEnabled(input: {
     return;
   }
 
-  if (!isWelcomeEmailEnabled()) {
-    console.info("[welcome-email] beta signup skipped", {
-      reason: "welcome_email_disabled",
-      trigger: input.sendReason,
-    });
-    return;
-  }
-
   try {
     const sendEmail =
       input.sendReason === "email_resubscribed"

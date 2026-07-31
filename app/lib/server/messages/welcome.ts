@@ -65,18 +65,36 @@ export const UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED_ENV =
   "UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED";
 export const WELCOME_SMS_ENABLED_ENV = "WELCOME_SMS_ENABLED";
 
-export function envFlagState(name: string) {
+const ENABLED_ENV_VALUES = new Set(["true", "1", "yes", "on"]);
+const DISABLED_ENV_VALUES = new Set(["false", "0", "no", "off"]);
+
+export function envFlagState(
+  name: string,
+  options: { defaultEnabled?: boolean } = {},
+) {
   const raw = process.env[name];
   const normalized = raw?.trim().toLowerCase();
-  const enabled =
-    normalized === "true" ||
-    normalized === "1" ||
-    normalized === "yes" ||
-    normalized === "on";
+  const explicitlyEnabled = normalized
+    ? ENABLED_ENV_VALUES.has(normalized)
+    : false;
+  const explicitlyDisabled = normalized
+    ? DISABLED_ENV_VALUES.has(normalized)
+    : false;
+  const enabled = explicitlyEnabled
+    ? true
+    : explicitlyDisabled
+      ? false
+      : Boolean(options.defaultEnabled);
 
   return {
     enabled,
     present: raw !== undefined,
+    source:
+      explicitlyEnabled || explicitlyDisabled
+        ? "explicit"
+        : options.defaultEnabled
+          ? "default_enabled"
+          : "default_disabled",
     value: raw === undefined ? "missing" : raw.trim() ? raw.trim() : "empty",
   };
 }
@@ -170,7 +188,9 @@ export function getResubscribeEmailSubject(input?: {
 }
 
 export function isWelcomeEmailEnabled() {
-  return envFlagState(WELCOME_EMAIL_ENABLED_ENV).enabled;
+  return envFlagState(WELCOME_EMAIL_ENABLED_ENV, {
+    defaultEnabled: true,
+  }).enabled;
 }
 
 export function isUnsubscribeConfirmationEmailEnabled() {
@@ -178,7 +198,9 @@ export function isUnsubscribeConfirmationEmailEnabled() {
 }
 
 export function isWelcomeSmsEnabled() {
-  return envFlagState(WELCOME_SMS_ENABLED_ENV).enabled;
+  return envFlagState(WELCOME_SMS_ENABLED_ENV, {
+    defaultEnabled: true,
+  }).enabled;
 }
 
 export function buildEmailUnsubscribeUrl({

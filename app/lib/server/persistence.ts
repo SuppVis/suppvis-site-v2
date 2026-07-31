@@ -1048,30 +1048,6 @@ export async function saveEmailSubscriber(record: EmailSubscriberRecord) {
   return emailSubscriberFromAttributes(result.attributes, record);
 }
 
-export async function getEmailSubscriberById(id: string) {
-  const item = await getDynamoItem({
-    tableEnvName: DYNAMO_TABLE_ENVS.emailSubscribers,
-    key: { id },
-    operation: "get_email_subscriber",
-  });
-
-  if (!item) {
-    return null;
-  }
-
-  return emailSubscriberFromAttributes(item, {
-    id,
-    email: "",
-    normalized_email: "",
-    status: "unsubscribed",
-    consent_timestamp: "",
-    consent_source: "",
-    created_at: "",
-    updated_at: "",
-    unsubscribe_token: "",
-  });
-}
-
 export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
   const result = await upsertDynamoItem({
     tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
@@ -1104,37 +1080,6 @@ export async function saveSmsSubscriber(record: SmsSubscriberRecord) {
   });
 
   return smsSubscriberFromAttributes(result.attributes, record);
-}
-
-export async function getSmsSubscriberById(id: string) {
-  const item = await getDynamoItem({
-    tableEnvName: DYNAMO_TABLE_ENVS.smsSubscribers,
-    key: { id },
-    operation: "get_sms_subscriber",
-  });
-
-  if (!item) {
-    return null;
-  }
-
-  return smsSubscriberFromAttributes(item, {
-    id,
-    phone_number_raw: "",
-    phone_number_e164: "",
-    status: "unsubscribed",
-    sms_informational_consent: false,
-    sms_informational_consent_at: null,
-    sms_marketing_consent: false,
-    sms_marketing_consent_at: null,
-    sms_consent_timestamp: "",
-    sms_consent_source: "",
-    sms_consent_version: "",
-    sms_global_opt_out: false,
-    sms_global_opt_out_at: null,
-    opt_out_timestamp: null,
-    created_at: "",
-    updated_at: "",
-  });
 }
 
 export async function markEmailResubscribeIfUnsubscribed(input: {

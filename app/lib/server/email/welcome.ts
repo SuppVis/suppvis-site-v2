@@ -279,7 +279,7 @@ async function sendSubscriberEmail(
   });
 
   if (!input.enabled) {
-    console.info("[email] send disabled", {
+    console.warn("[email] send disabled", {
       ...subscriberLogContext(input),
       reason: input.disabledReason,
     });

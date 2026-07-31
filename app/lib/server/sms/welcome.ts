@@ -109,7 +109,7 @@ export async function sendWelcomeSms(input: {
   }
 
   if (!isWelcomeSmsEnabled()) {
-    console.info("[sms] welcome send disabled", {
+    console.warn("[sms] welcome send disabled", {
       ...subscriberLogContext(input.subscriber),
       reason: "welcome_sms_disabled",
     });

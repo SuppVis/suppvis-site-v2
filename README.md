@@ -539,7 +539,7 @@ Changing the limit changes future assignment and admin enforcement. It does not 
 
 | Key | Sensitive | Purpose |
 | --- | --- | --- |
-| `WELCOME_EMAIL_ENABLED` | No | Enables beta signup welcome email path. |
+| `WELCOME_EMAIL_ENABLED` | No | Controls the beta signup welcome email path. Missing/empty defaults to enabled; set to `false` only as an explicit shutoff. |
 | `UNSUBSCRIBE_CONFIRMATION_EMAIL_ENABLED` | No | Enables unsubscribe confirmation email path. |
 | `SES_FROM_EMAIL` | No | Verified sender email, normally `beta@suppvis.health`. |
 | `SES_FROM_NAME` | No | Sender display name. |
@@ -550,7 +550,7 @@ Changing the limit changes future assignment and admin enforcement. It does not 
 
 | Key | Sensitive | Purpose |
 | --- | --- | --- |
-| `WELCOME_SMS_ENABLED` | No | Enables beta signup welcome SMS path only. Not used for admin announcements. |
+| `WELCOME_SMS_ENABLED` | No | Controls the beta signup welcome SMS path only. Missing/empty defaults to enabled; set to `false` only as an explicit shutoff. Not used for admin announcements. |
 | `TWILIO_ACCOUNT_SID` | Yes | Twilio account SID. |
 | `TWILIO_AUTH_TOKEN` | Yes | Twilio auth token and webhook verification secret. |
 | `TWILIO_MESSAGING_SERVICE_SID` | Yes | Approved Messaging Service SID. |
