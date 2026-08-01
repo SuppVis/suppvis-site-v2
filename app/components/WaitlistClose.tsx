@@ -61,12 +61,14 @@ export default function WaitlistClose() {
   const [duplicateSubmission, setDuplicateSubmission] = useState(false);
   const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
   const sectionRef = useScrollReveal();
+  const hasPhoneInput = Boolean(formValues.phone.trim());
   const canOptIntoSms = phoneHasEnoughDigits(formValues.phone);
   const isFormReady =
     Boolean(formValues.firstName.trim()) &&
     Boolean(formValues.lastName.trim()) &&
     isValidEmail(formValues.email) &&
-    (!formValues.smsInformationalConsent || canOptIntoSms);
+    (!hasPhoneInput ||
+      (canOptIntoSms && formValues.smsInformationalConsent));
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = event.currentTarget;
@@ -123,9 +125,17 @@ export default function WaitlistClose() {
       return;
     }
 
-    if (
-      formValues.smsInformationalConsent && !phone
-    ) {
+    if (phone && !canOptIntoSms) {
+      setError("Enter a valid phone number or remove it.");
+      return;
+    }
+
+    if (phone && !formValues.smsInformationalConsent) {
+      setError("Check the text consent box or remove the phone number.");
+      return;
+    }
+
+    if (formValues.smsInformationalConsent && !phone) {
       setError("Enter a phone number to opt into texts.");
       return;
     }
