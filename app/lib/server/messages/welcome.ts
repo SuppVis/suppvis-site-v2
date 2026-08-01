@@ -24,7 +24,7 @@ export const UNSUBSCRIBE_CONFIRMATION_EMAIL_SUBJECT =
   "You're unsubscribed from SuppVis beta emails.";
 
 export const UNSUBSCRIBE_CONFIRMATION_EMAIL_PREVIEW_TEXT =
-  "Your SuppVis email subscription has been turned off.";
+  "You will no longer receive SuppVis beta email updates.";
 
 export const FOUNDER_CONTACT_OUTREACH_EMAIL_SUBJECT =
   "You're invited to the SuppVis beta.";
@@ -251,10 +251,6 @@ function paragraphHtml(copy: string, tone: "primary" | "muted" = "muted") {
   return `<p style="margin:0 0 18px 0;color:${color};font-size:16px;line-height:1.65;">${escapeHtml(copy)}</p>`;
 }
 
-function preheaderFiller() {
-  return "&nbsp;&zwnj;".repeat(80);
-}
-
 function buildBrandedEmailHtml({
   appBaseUrl,
   title,
@@ -277,7 +273,7 @@ function buildBrandedEmailHtml({
   </head>
   <body style="margin:0;background:#0A0F14;color:#F0F4F8;font-family:Arial,Helvetica,sans-serif;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
-      ${escapeHtml(previewText)}${preheaderFiller()}
+      ${escapeHtml(previewText)}
     </div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0A0F14;margin:0;padding:32px 16px;">
       <tr>

@@ -1,52 +1,4 @@
-"use client";
-
-import { FormEvent, useState } from "react";
-
 export default function Footer() {
-  const [subscribed, setSubscribed] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSubscribe = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
-    const form = e.currentTarget;
-    const data = new FormData(form);
-
-    try {
-      const response = await fetch("/api/email-subscribers", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          email: data.get("email"),
-          consentSource: "footer",
-          botField: "",
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok || !result?.ok) {
-        throw new Error(result?.message || "Please try again in a moment.");
-      }
-
-      setSubscribed(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "We could not save your email right now.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <footer className="border-t border-white/5 bg-bg-secondary">
       <div className="max-w-[1200px] mx-auto px-6 py-16">
@@ -144,48 +96,12 @@ export default function Footer() {
           {/* Subscribe */}
           <div>
             <h4 className="text-sm font-semibold text-text-primary mb-4">
-              Stay Updated
+              Newsletter
             </h4>
-            {subscribed ? (
-              <p className="text-sm text-accent">Thanks for subscribing!</p>
-            ) : (
-              <form onSubmit={handleSubscribe} className="space-y-2">
-                <div
-                  className="absolute left-[-9999px] h-0 w-0 overflow-hidden"
-                  aria-hidden="true"
-                >
-                  <label htmlFor="footer-bot-field">Company website</label>
-                  <input
-                    type="text"
-                    id="footer-bot-field"
-                    name="botField"
-                    tabIndex={-1}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    name="email"
-                    required
-                    placeholder="Email"
-                    className="flex-1 min-w-0 rounded-lg bg-bg-primary border border-white/10 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 transition-colors"
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="rounded-lg bg-accent text-bg-primary px-4 py-2 text-sm font-semibold hover:bg-accent-hover transition-colors shrink-0 disabled:opacity-60"
-                  >
-                    {loading ? "..." : "Join"}
-                  </button>
-                </div>
-                {error && (
-                  <p className="text-xs text-error" role="alert">
-                    {error}
-                  </p>
-                )}
-              </form>
-            )}
+            <p className="text-sm text-text-muted leading-relaxed">
+              Newsletter under construction. Join the beta above for current
+              SuppVis updates.
+            </p>
           </div>
         </div>
       </div>
