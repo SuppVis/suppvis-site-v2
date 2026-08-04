@@ -215,7 +215,8 @@ export default function WaitlistClose() {
     <section id="waitlist" className="py-24 md:py-32 px-6">
       <div ref={sectionRef} className="scroll-reveal max-w-[600px] mx-auto text-center">
         <h2 className="font-headline font-extrabold text-3xl sm:text-4xl md:text-5xl text-text-primary mb-6 leading-tight">
-          Your stack is already costing you. Find out if it&rsquo;s paying off.
+          You&rsquo;re already spending on your protocol. Every month you
+          don&rsquo;t track is money spent on guesses.
         </h2>
         {!duplicateSubmission && (
           <p className="text-text-secondary text-lg mb-10">
