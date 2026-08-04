@@ -17,16 +17,16 @@ export default function Hero() {
         <h1
           className="font-headline font-extrabold text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-tight text-text-primary animate-fade-in-up"
         >
-          Prove your stack.
+          Prove your protocol
         </h1>
 
         <p
           className="mt-6 max-w-[600px] mx-auto text-lg sm:text-xl text-text-secondary animate-fade-in"
           style={{ animationDelay: "0.15s" }}
         >
-          Stop guessing whether your stack is working. SuppVis correlates your
-          supplements against how you feel, every day, and shows you the verdict
-          in weeks.
+          Stop guessing whether your health routine is actually helping. SuppVis
+          correlates what you take or do against how you feel, every day, and
+          shows you the verdict in weeks.
         </p>
 
         <div

@@ -55,7 +55,9 @@ export default function Problem() {
           ref={bridgeRef}
           className="scroll-reveal font-headline text-xl md:text-2xl text-text-primary text-center mt-14"
         >
-          SuppVis fixes this. Track how you feel. See what&rsquo;s working. Pay only for what does.
+          Whether you&rsquo;re managing a supplement stack, a prescription,
+          hormone therapy, or just building better habits, SuppVis works the
+          same way: track it, feel it, prove it.
         </p>
       </div>
     </section>
