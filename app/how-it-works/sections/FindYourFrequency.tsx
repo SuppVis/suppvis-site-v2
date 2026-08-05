@@ -29,7 +29,7 @@ const featureHighlights = [
         <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
       </svg>
     ),
-    text: "Supplement-goal correlations computed automatically",
+    text: "Correlations across supplements, meds, and habits",
   },
   {
     icon: (
@@ -50,10 +50,12 @@ const featureHighlights = [
   {
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        <path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" />
+        <path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+        <path d="M8 7v10" /><path d="M12 7v10" /><path d="M16 7v10" />
       </svg>
     ),
-    text: "Habits tracked alongside supplements",
+    text: "Scan any bottle. See what it means for you.",
   },
 ];
 
@@ -117,7 +119,7 @@ export default function FindYourFrequency() {
           >
             Every day you log builds a clearer picture. SuppVis watches for patterns
             you can&apos;t see: correlations, synergies, tolerances, and anomalies
-            across your entire stack.
+            across everything you track.
           </p>
         </div>
 
