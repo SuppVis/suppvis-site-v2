@@ -9,18 +9,18 @@ import CallToAction from "./sections/CallToAction";
 export const metadata: Metadata = {
   title: "How It Works - SuppVis",
   description:
-    "How SuppVis correlates your supplements against how you feel, surfaces what's working, and grounds every insight in 24,500+ peer-reviewed supplement studies.",
+    "Your habits, stack, and meds, correlated with how you feel each day. SuppVis proves what's working for you.",
   openGraph: {
     title: "How It Works - SuppVis",
     description:
-      "How SuppVis correlates your supplements against how you feel, surfaces what's working, and grounds every insight in 24,500+ peer-reviewed supplement studies.",
+      "Your habits, stack, and meds, correlated with how you feel each day. SuppVis proves what's working for you.",
     url: "https://suppvis.health/how-it-works",
     siteName: "SuppVis",
     type: "website",
   },
   twitter: {
     description:
-      "How SuppVis correlates your supplements against how you feel, surfaces what's working, and grounds every insight in 24,500+ peer-reviewed supplement studies.",
+      "Your habits, stack, and meds, correlated with how you feel each day. SuppVis proves what's working for you.",
   },
   alternates: {
     canonical: "/how-it-works",

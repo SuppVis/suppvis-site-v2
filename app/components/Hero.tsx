@@ -17,7 +17,7 @@ export default function Hero() {
         <h1
           className="font-headline font-extrabold text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-tight text-text-primary animate-fade-in-up"
         >
-          Prove your protocol
+          Prove your stack.
         </h1>
 
         <p
