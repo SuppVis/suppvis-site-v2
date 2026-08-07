@@ -393,6 +393,23 @@ const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
   { label: "Newest first", value: "newest" },
   { label: "Name A-Z", value: "name_asc" },
 ];
+const MESSAGE_TYPE_OPTIONS: Array<
+  AdminSelectOption<FormValues["messageType"]>
+> = [
+  { label: "Beta announcement", value: "beta_update" },
+  { label: "TestFlight update", value: "testflight_update" },
+  { label: "Product update", value: "product_update" },
+  { label: "Feedback request", value: "feedback_request" },
+  { label: "Important notice", value: "important_notice" },
+];
+const AUDIENCE_SEGMENT_OPTIONS: Array<AdminSelectOption<BetaAudienceSegment>> = [
+  { label: "All beta subscribers", value: "all" },
+  { label: "Priority beta subscribers only", value: "priority" },
+  {
+    label: "Standard, non-priority beta subscribers only",
+    value: "standard",
+  },
+];
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -4639,25 +4656,20 @@ export default function AdminCampaignDraft({
       </div>
 
       <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
-        <label className="block max-w-xl">
+        <div className="block max-w-xl">
           <span className="text-sm font-semibold text-text-primary">
             Announcement audience
           </span>
-          <select
-            value={audienceSegment}
-            onChange={(event) =>
-              updateAudienceSegment(event.target.value as BetaAudienceSegment)
-            }
-            disabled={isBusy || isSendStarted}
-            className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-3 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <option value="all">All beta subscribers</option>
-            <option value="priority">Priority beta subscribers only</option>
-            <option value="standard">
-              Standard, non-priority beta subscribers only
-            </option>
-          </select>
-        </label>
+          <div className="mt-2">
+            <AdminSelect
+              label="Announcement audience"
+              value={audienceSegment}
+              options={AUDIENCE_SEGMENT_OPTIONS}
+              onChange={updateAudienceSegment}
+              disabled={isBusy || isSendStarted}
+            />
+          </div>
+        </div>
         <p className="mt-2 text-xs leading-5 text-text-muted">
           Current selection: {audienceSegmentLabel(audienceSegment)}. Counts are
           locked to this choice only after you click Refresh recipient count.
@@ -4675,7 +4687,7 @@ export default function AdminCampaignDraft({
             !selectedChannelsSaved ||
             !adminTestsReady
           }
-          className={`${primaryButtonClass("dark")} ${guidedControlClass("recipientCount")}`}
+          className={`${primaryButtonClass("teal")} min-h-14 px-7 text-base shadow-[0_0_28px_rgba(36,196,182,0.22)] hover:shadow-[0_0_44px_rgba(36,196,182,0.34)] ${guidedControlClass("recipientCount")}`}
         >
           {busyAction === "audience" ? "Counting..." : "Refresh recipient count"}
         </button>
@@ -5469,28 +5481,22 @@ export default function AdminCampaignDraft({
         </div>
 
         <div className="space-y-4">
-          <label className="block">
+          <div className="block">
             <span className="text-sm font-semibold text-text-primary">
               Message type
             </span>
-            <select
-              value={form.messageType}
-              onChange={(event) =>
-                updateField(
-                  "messageType",
-                  event.target.value as FormValues["messageType"],
-                )
-              }
-              disabled={isSendStarted}
-              className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <option value="beta_update">Beta announcement</option>
-              <option value="testflight_update">TestFlight update</option>
-              <option value="product_update">Product update</option>
-              <option value="feedback_request">Feedback request</option>
-              <option value="important_notice">Important notice</option>
-            </select>
-          </label>
+            <div className="mt-2">
+              <AdminSelect
+                label="Message type"
+                value={form.messageType}
+                options={MESSAGE_TYPE_OPTIONS}
+                onChange={(nextMessageType) =>
+                  updateField("messageType", nextMessageType)
+                }
+                disabled={isSendStarted}
+              />
+            </div>
+          </div>
 
           <label className="block">
             <span className="text-sm font-semibold text-text-primary">
