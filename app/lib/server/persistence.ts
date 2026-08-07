@@ -515,6 +515,8 @@ export type EmailCampaignSummary = Pick<
   | "failed_at"
   | "test_recipient"
   | "recipient_count"
+  | "eligible_count"
+  | "excluded_count"
   | "queued_count"
   | "sent_count"
   | "delivered_count"
@@ -893,6 +895,8 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     failed_at: record.failed_at,
     test_recipient: record.test_recipient,
     recipient_count: record.recipient_count,
+    eligible_count: record.eligible_count,
+    excluded_count: record.excluded_count,
     queued_count: record.queued_count,
     sent_count: record.sent_count,
     delivered_count: record.delivered_count,

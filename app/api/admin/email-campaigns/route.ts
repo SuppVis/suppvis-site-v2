@@ -147,7 +147,12 @@ export async function GET(request: NextRequest) {
           canceledAt: draft.canceled_at || null,
           failedAt: draft.failed_at || null,
           recipientCount: draft.recipient_count || 0,
-          queuedCount: draft.queued_count || 0,
+          eligibleCount: draft.eligible_count || 0,
+          excludedCount: draft.excluded_count || 0,
+          queuedCount: Math.max(
+            0,
+            (draft.queued_count || 0) - (draft.sms_queued_count || 0),
+          ),
           sentCount: draft.sent_count || 0,
           deliveredCount: draft.delivered_count || 0,
           failedCount: draft.failed_count || 0,
