@@ -4,6 +4,9 @@ import type { SmsConsentCategory } from "@/app/lib/smsConsent";
 export const TESTFLIGHT_BETA_URL =
   "https://testflight.apple.com/join/nTASgewZ";
 
+export const FOUNDING_WHATSAPP_CHAT_URL =
+  "https://chat.whatsapp.com/HZHph549VRl7GVxUXAFMtf?s=cl&p=i&ilr=0";
+
 export const FOUNDING_MEMBER_COPY_LIMIT = 300;
 
 export const FOUNDING_WELCOME_EMAIL_FALLBACK_SUBJECT =
@@ -41,7 +44,7 @@ export const SMS_INFORMATIONAL_CONFIRMATION_TEMPLATE =
 Reply HELP for help or STOP to opt out. Msg & data rates may apply.`;
 
 export const FOUNDING_MEMBER_SMS_CONFIRMATION_TEMPLATE =
-  "SuppVis: You're in. You've claimed one of 300 founding member spots at SuppVis. Founding members get first access starting Friday, August 7, their first month free, and the chance to lock in the lowest rate we will ever offer, for life. Full details just landed in your email.\n\nReply HELP for help or STOP to opt out. Msg & data rates may apply.";
+  "SuppVis: You're in. You've claimed one of 300 founding member seats. Founding members get SuppVis free for life, earned by staying active through your first month. Access starts this weekend. Full details just landed in your email.\n\nReply HELP for help or STOP to opt out. Msg & data rates may apply.";
 
 export function getSmsConfirmationTemplate(
   category: SmsConsentCategory,
@@ -340,36 +343,32 @@ function foundingWelcomeEmailText({
 
   return `${credential}
 
-Welcome to SuppVis, ${name}. You're one of 300 people who get to be here first.
+Welcome to SuppVis, ${name}. You're one of 300 people who get to be here first, and one of the people who will shape what this becomes.
 
-What you get
+What founding membership means
 
-1. First access starting Friday, August 7, before anyone else.
-2. Your first month, completely free. No conditions.
-3. The founding member rate: the lowest price SuppVis will ever offer, held for life.
+SuppVis is free for founding members. Not a trial. Not a discount. Free for as long as you keep your account.
 
-How you lock in the founding rate
+Here's why, stated plainly. The first 300 people matter more to us than 300 subscriptions. Your check-ins, your stack, your bug reports, and your honest reactions are what turn SuppVis into a launch ready product.
 
-The lifetime rate is earned, not automatic. Stay active through your first free month by logging your daily check-in at least 5 days a week, and the founding rate is yours permanently. If life gets in the way and you fall short, you'll still have full access at standard pricing after your free month ends.
+How to unlock free for life
 
-We built it this way on purpose. SuppVis only works when you log consistently, and the founding rate belongs to the people who put it to work.
+The lifetime membership is earned, not automatic. Log your daily check-in at least 5 days out of every 7 during your first month, and it's yours permanently. If life gets in the way and you fall short, you'll still have full access at standard pricing when it officially launches.
 
-What SuppVis is
-
-Stop guessing whether your stack is working. SuppVis tracks what you take and how you feel, every day. After 14 days of check-ins, it starts showing you what's actually moving the needle for you. Not what a brand claims. Not what an influencer promoted. What your own data shows.
-
-Every insight is grounded in a research base of more than 24,500 peer-reviewed studies, and your stack is screened against more than 2,300 known drug and supplement interactions. Brand-agnostic. Evidence-based. No supplement company funds us or dictates what we recommend.
+We built it this way on purpose. SuppVis gets sharper with every log, and the founding membership belongs to the people who put it to work.
 
 When you get access
 
-Access begins Friday, August 7. Invites go out in the order you signed up, in small groups over launch weekend, so every founding member gets a smooth start. The full founding cohort will be in by Sunday.
+The founding cohort is going live in small waves, in signup order, so every member gets a smooth start. Please watch your inbox: your TestFlight invite arrives with simple setup instructions.
 
 What we ask of you
 
 Log daily, especially your first 14 days. That's when your first personalized insights arrive. And tell us everything: what's confusing, what's broken, what you wish existed. You're not just early. Your feedback shapes what SuppVis becomes.
 
-See how SuppVis works:
-https://www.suppvis.health/how-it-works
+Join the founding chat
+
+We've opened a members chat on WhatsApp. It's where the team posts every day during launch: what shipped, what broke, what's coming next. Join now, even before your access opens:
+${FOUNDING_WHATSAPP_CHAT_URL}
 
 Clarity over complexity. Science over hype.
 
@@ -393,42 +392,39 @@ function foundingWelcomeEmailHtml({
   const foundingLabel = isValidFoundingNumber(foundingNumber)
     ? `Founding Member #${foundingNumber} of ${FOUNDING_MEMBER_COPY_LIMIT}`
     : `Founding Member of ${FOUNDING_MEMBER_COPY_LIMIT}`;
-  const howItWorksUrl = buildPublicAssetUrl("/how-it-works", appBaseUrl);
   const bodyHtml = [
     paragraphHtml(foundingLabel, "primary"),
     paragraphHtml(
-      `Welcome to SuppVis, ${name}. You're one of 300 people who get to be here first.`,
+      `Welcome to SuppVis, ${name}. You're one of 300 people who get to be here first, and one of the people who will shape what this becomes.`,
     ),
-    paragraphHtml("What you get", "primary"),
-    paragraphHtml("1. First access starting Friday, August 7, before anyone else."),
-    paragraphHtml("2. Your first month, completely free. No conditions."),
+    paragraphHtml("What founding membership means", "primary"),
     paragraphHtml(
-      "3. The founding member rate: the lowest price SuppVis will ever offer, held for life.",
-    ),
-    paragraphHtml("How you lock in the founding rate", "primary"),
-    paragraphHtml(
-      "The lifetime rate is earned, not automatic. Stay active through your first free month by logging your daily check-in at least 5 days a week, and the founding rate is yours permanently. If life gets in the way and you fall short, you'll still have full access at standard pricing after your free month ends.",
+      "SuppVis is free for founding members. Not a trial. Not a discount. Free for as long as you keep your account.",
     ),
     paragraphHtml(
-      "We built it this way on purpose. SuppVis only works when you log consistently, and the founding rate belongs to the people who put it to work.",
+      "Here's why, stated plainly. The first 300 people matter more to us than 300 subscriptions. Your check-ins, your stack, your bug reports, and your honest reactions are what turn SuppVis into a launch ready product.",
     ),
-    paragraphHtml("What SuppVis is", "primary"),
+    paragraphHtml("How to unlock free for life", "primary"),
     paragraphHtml(
-      "Stop guessing whether your stack is working. SuppVis tracks what you take and how you feel, every day. After 14 days of check-ins, it starts showing you what's actually moving the needle for you. Not what a brand claims. Not what an influencer promoted. What your own data shows.",
+      "The lifetime membership is earned, not automatic. Log your daily check-in at least 5 days out of every 7 during your first month, and it's yours permanently. If life gets in the way and you fall short, you'll still have full access at standard pricing when it officially launches.",
     ),
     paragraphHtml(
-      "Every insight is grounded in a research base of more than 24,500 peer-reviewed studies, and your stack is screened against more than 2,300 known drug and supplement interactions. Brand-agnostic. Evidence-based. No supplement company funds us or dictates what we recommend.",
+      "We built it this way on purpose. SuppVis gets sharper with every log, and the founding membership belongs to the people who put it to work.",
     ),
     paragraphHtml("When you get access", "primary"),
     paragraphHtml(
-      "Access begins Friday, August 7. Invites go out in the order you signed up, in small groups over launch weekend, so every founding member gets a smooth start. The full founding cohort will be in by Sunday.",
+      "The founding cohort is going live in small waves, in signup order, so every member gets a smooth start. Please watch your inbox: your TestFlight invite arrives with simple setup instructions.",
     ),
     paragraphHtml("What we ask of you", "primary"),
     paragraphHtml(
       "Log daily, especially your first 14 days. That's when your first personalized insights arrive. And tell us everything: what's confusing, what's broken, what you wish existed. You're not just early. Your feedback shapes what SuppVis becomes.",
     ),
-    buttonHtml(howItWorksUrl, "See how SuppVis works"),
-    rawLinkHtml(howItWorksUrl),
+    paragraphHtml("Join the founding chat", "primary"),
+    paragraphHtml(
+      "We've opened a members chat on WhatsApp. It's where the team posts every day during launch: what shipped, what broke, what's coming next. Join now, even before your access opens:",
+    ),
+    buttonHtml(FOUNDING_WHATSAPP_CHAT_URL, "Join the WhatsApp"),
+    rawLinkHtml(FOUNDING_WHATSAPP_CHAT_URL),
     paragraphHtml("Clarity over complexity. Science over hype.", "primary"),
     `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Tanner and Connor Haslinger<br />Co-founders, SuppVis</p>`,
   ].join("\n                ");
@@ -440,7 +436,7 @@ function foundingWelcomeEmailHtml({
     footerHtml: unsubscribeFooterHtml(unsubscribeHref),
     heading: "You're in.",
     previewText:
-      "First access August 7. Your first month free. The lowest rate we will ever offer.",
+      "Founding members get SuppVis free for life by staying active through the first month.",
     title: getFoundingWelcomeEmailSubject({ foundingNumber }),
   });
 }
