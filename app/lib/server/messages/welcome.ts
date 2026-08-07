@@ -372,6 +372,9 @@ ${FOUNDING_WHATSAPP_CHAT_URL}
 
 Clarity over complexity. Science over hype.
 
+We sincerely appreciate your contribution and support!
+
+Warmly, 
 Tanner and Connor Haslinger
 Co-founders, SuppVis
 
