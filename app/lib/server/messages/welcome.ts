@@ -374,7 +374,7 @@ Clarity over complexity. Science over hype.
 
 We sincerely appreciate your contribution and support!
 
-Warmly, 
+Warmly,
 Tanner and Connor Haslinger
 Co-founders, SuppVis
 
@@ -429,7 +429,11 @@ function foundingWelcomeEmailHtml({
     buttonHtml(FOUNDING_WHATSAPP_CHAT_URL, "Join the WhatsApp"),
     rawLinkHtml(FOUNDING_WHATSAPP_CHAT_URL),
     paragraphHtml("Clarity over complexity. Science over hype.", "primary"),
-    `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Tanner and Connor Haslinger<br />Co-founders, SuppVis</p>`,
+    paragraphHtml(
+      "We sincerely appreciate your contribution and support!",
+      "primary",
+    ),
+    `<p style="margin:0;color:#D9E2EA;font-size:16px;line-height:1.65;">Warmly,<br />Tanner and Connor Haslinger<br />Co-founders, SuppVis</p>`,
   ].join("\n                ");
 
   return buildBrandedEmailHtml({
