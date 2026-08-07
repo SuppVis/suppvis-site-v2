@@ -350,6 +350,17 @@ export async function POST(
         status: `audience=${betaAudienceSegmentAuditValue(campaign.audience_segment || "all")} email=${queuedEmailCount} sms=${queuedSmsCount}`,
       });
 
+      console.info("[admin-email] production queue completed", {
+        campaignId: id,
+        audienceSegment: campaign.audience_segment || "all",
+        emailEligible: emailAudience.eligibleCount,
+        emailExcluded: emailAudience.excludedCount,
+        emailQueued: queuedEmailCount,
+        smsEligible: smsAudience.eligibleCount,
+        smsExcluded: smsAudience.excludedCount,
+        smsQueued: queuedSmsCount,
+      });
+
       return NextResponse.json({
         ok: true,
         status: "queued",

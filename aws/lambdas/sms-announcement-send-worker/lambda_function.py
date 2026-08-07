@@ -15,6 +15,7 @@ dynamodb = boto3.resource("dynamodb")
 
 
 MAX_RETRIES = int(os.environ.get("MAX_SEND_RETRIES", "3"))
+USE_PARTIAL_BATCH_RESPONSE = os.environ.get("SQS_PARTIAL_BATCH_RESPONSE_ENABLED") == "true"
 PHONE_RE = re.compile(r"^\+\d{8,15}$")
 ELIGIBLE_SMS_STATUSES = {"subscribed", "active"}
 PERMANENT_ERROR_CODES = {"21211", "21610"}
@@ -400,6 +401,8 @@ def lambda_handler(event, context):
     failures = []
     for record in event.get("Records", []):
         message_id = record.get("messageId")
+        campaign_id = None
+        subscriber_id = None
         try:
             body = json.loads(record.get("body") or "{}")
             campaign_id = body.get("campaignId")
@@ -414,6 +417,8 @@ def lambda_handler(event, context):
                     {
                         "level": "error",
                         "event": "campaign_sms_job_failed",
+                        "campaign_id": campaign_id,
+                        "subscriber": safe_id(subscriber_id),
                         "message_id": message_id,
                         "error": safe_error_code(error),
                     }
@@ -421,5 +426,8 @@ def lambda_handler(event, context):
             )
             if message_id:
                 failures.append({"itemIdentifier": message_id})
+
+    if failures and not USE_PARTIAL_BATCH_RESPONSE:
+        raise RuntimeError("sms_campaign_batch_had_failures")
 
     return {"batchItemFailures": failures}

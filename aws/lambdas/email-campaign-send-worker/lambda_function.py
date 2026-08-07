@@ -17,6 +17,7 @@ ses = boto3.client(
 
 
 MAX_RETRIES = int(os.environ.get("MAX_SEND_RETRIES", "3"))
+USE_PARTIAL_BATCH_RESPONSE = os.environ.get("SQS_PARTIAL_BATCH_RESPONSE_ENABLED") == "true"
 EMAIL_RE = re.compile(
     r"^[^\s@]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$"
 )
@@ -450,6 +451,8 @@ def lambda_handler(event, context):
     failures = []
     for record in event.get("Records", []):
         message_id = record.get("messageId")
+        campaign_id = None
+        subscriber_id = None
         try:
             body = json.loads(record.get("body") or "{}")
             campaign_id = body.get("campaignId")
@@ -464,6 +467,8 @@ def lambda_handler(event, context):
                     {
                         "level": "error",
                         "event": "campaign_job_failed",
+                        "campaign_id": campaign_id,
+                        "subscriber_id": subscriber_id,
                         "message_id": message_id,
                         "error": safe_error_code(error),
                     }
@@ -471,5 +476,8 @@ def lambda_handler(event, context):
             )
             if message_id:
                 failures.append({"itemIdentifier": message_id})
+
+    if failures and not USE_PARTIAL_BATCH_RESPONSE:
+        raise RuntimeError("campaign_batch_had_failures")
 
     return {"batchItemFailures": failures}

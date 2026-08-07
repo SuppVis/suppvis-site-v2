@@ -201,6 +201,24 @@ cat >"${APP_POLICY_DOC}" <<JSON
         "sqs:SendMessage"
       ],
       "Resource": "${QUEUE_ARN}"
+    },
+    {
+      "Sid": "ManageSmsAnnouncementCampaignQueueState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${EMAIL_CAMPAIGNS_TABLE}"
+    },
+    {
+      "Sid": "ManageSmsAnnouncementRecipients",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${RECIPIENTS_TABLE}"
     }
   ]
 }
@@ -265,7 +283,8 @@ cat >"${ENV_FILE}" <<JSON
     "TWILIO_MESSAGING_SERVICE_SID": "${MESSAGING_SERVICE_SID}",
     "TWILIO_SMS_FROM_NUMBER": "${SMS_FROM_NUMBER}",
     "TWILIO_STATUS_CALLBACK_URL": "${STATUS_CALLBACK_URL}",
-    "MAX_SEND_RETRIES": "3"
+    "MAX_SEND_RETRIES": "3",
+    "SQS_PARTIAL_BATCH_RESPONSE_ENABLED": "true"
   }
 }
 JSON

@@ -197,6 +197,24 @@ cat >"${APP_POLICY_DOC}" <<JSON
         "sqs:SendMessage"
       ],
       "Resource": "${QUEUE_ARN}"
+    },
+    {
+      "Sid": "ManageEmailCampaignQueueState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${EMAIL_CAMPAIGNS_TABLE}"
+    },
+    {
+      "Sid": "ManageEmailCampaignRecipients",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "arn:aws:dynamodb:${REGION}:${ACCOUNT_ID}:table/${RECIPIENTS_TABLE}"
     }
   ]
 }
@@ -261,7 +279,8 @@ cat >"${ENV_FILE}" <<JSON
     "SES_FROM_NAME": "${SES_FROM_NAME}",
     "SES_REGION": "${SES_REGION}",
     "SES_CONFIGURATION_SET": "${SES_CONFIGURATION_SET}",
-    "MAX_SEND_RETRIES": "3"
+    "MAX_SEND_RETRIES": "3",
+    "SQS_PARTIAL_BATCH_RESPONSE_ENABLED": "true"
   }
 }
 JSON
