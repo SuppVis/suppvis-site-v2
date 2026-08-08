@@ -249,6 +249,8 @@ export async function POST(
 
     let queuedEmailCount = 0;
     let queuedSmsCount = 0;
+    const emailSubscribersToQueue: string[] = [];
+    const smsSubscribersToQueue: string[] = [];
 
     try {
       for (const candidate of emailAudience.candidates) {
@@ -260,22 +262,11 @@ export async function POST(
             channel: "email",
             subscriberId: candidate.subscriber.id,
             now: queuedAt,
-            status: "queueing",
+            status: "queued",
             eligibilityDecision: "eligible",
           });
 
-          const sqsMessage = await enqueueEmailCampaignRecipient({
-            campaignId: id,
-            subscriberId: candidate.subscriber.id,
-          });
-
-          await markEmailCampaignRecipientQueued({
-            campaignId: id,
-            subscriberId: candidate.subscriber.id,
-            now: new Date().toISOString(),
-            sqsMessageId: sqsMessage.MessageId,
-          });
-
+          emailSubscribersToQueue.push(candidate.subscriber.id);
           queuedEmailCount += 1;
         } else {
           await createEmailCampaignRecipient({
@@ -299,22 +290,11 @@ export async function POST(
             channel: "sms",
             subscriberId: candidate.subscriber.id,
             now: queuedAt,
-            status: "queueing",
+            status: "queued",
             eligibilityDecision: "eligible",
           });
 
-          const sqsMessage = await enqueueSmsCampaignRecipient({
-            campaignId: id,
-            subscriberId: candidate.subscriber.id,
-          });
-
-          await markEmailCampaignRecipientQueued({
-            campaignId: id,
-            subscriberId: candidate.subscriber.id,
-            now: new Date().toISOString(),
-            sqsMessageId: sqsMessage.MessageId,
-          });
-
+          smsSubscribersToQueue.push(candidate.subscriber.id);
           queuedSmsCount += 1;
         } else {
           await createEmailCampaignRecipient({
@@ -342,6 +322,42 @@ export async function POST(
         smsDuplicateCount: smsAudience?.duplicateCount || 0,
         smsQueuedCount: queuedSmsCount,
       });
+
+      if (!queuedCampaign) {
+        throw new PublicApiError(
+          409,
+          "campaign_queue_state_conflict",
+          "This announcement changed before queueing could finish. Reload it and try again.",
+        );
+      }
+
+      for (const subscriberId of emailSubscribersToQueue) {
+        const sqsMessage = await enqueueEmailCampaignRecipient({
+          campaignId: id,
+          subscriberId,
+        });
+
+        await markEmailCampaignRecipientQueued({
+          campaignId: id,
+          subscriberId,
+          now: new Date().toISOString(),
+          sqsMessageId: sqsMessage.MessageId,
+        });
+      }
+
+      for (const subscriberId of smsSubscribersToQueue) {
+        const sqsMessage = await enqueueSmsCampaignRecipient({
+          campaignId: id,
+          subscriberId,
+        });
+
+        await markEmailCampaignRecipientQueued({
+          campaignId: id,
+          subscriberId,
+          now: new Date().toISOString(),
+          sqsMessageId: sqsMessage.MessageId,
+        });
+      }
 
       await recordAdminCampaignAudit({
         action: "campaign_queued",

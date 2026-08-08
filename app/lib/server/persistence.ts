@@ -3120,7 +3120,7 @@ export async function markEmailCampaignRecipientQueued(input: {
       updated_at: input.now,
     },
     conditionExpression:
-      "attribute_exists(#campaignId) AND attribute_exists(#subscriberId) AND #status = :queueing",
+      "attribute_exists(#campaignId) AND attribute_exists(#subscriberId) AND (#status = :queueing OR #status = :queued)",
     conditionAttributeNames: {
       "#campaignId": "campaign_id",
       "#subscriberId": "subscriber_id",
@@ -3128,6 +3128,7 @@ export async function markEmailCampaignRecipientQueued(input: {
     },
     conditionAttributeValues: {
       ":queueing": "queueing",
+      ":queued": "queued",
     },
   });
 
