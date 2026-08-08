@@ -105,12 +105,14 @@ def reserve_recipient(campaign_id, subscriber_id):
                 "retry_count = if_not_exists(retry_count, :zero) + :one"
             ),
             ConditionExpression=(
-                "#status = :queued AND #channel = :sms AND attribute_not_exists(twilio_message_sid)"
+                "(#status = :queued OR #status = :queueing) "
+                "AND #channel = :sms AND attribute_not_exists(twilio_message_sid)"
             ),
             ExpressionAttributeNames={"#status": "status", "#channel": "channel"},
             ExpressionAttributeValues={
                 ":sending": "sending",
                 ":queued": "queued",
+                ":queueing": "queueing",
                 ":sms": "sms",
                 ":now": now,
                 ":zero": 0,
@@ -308,7 +310,7 @@ def process_job(campaign_id, subscriber_id):
     recipients = table("DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE")
 
     campaign = campaigns.get_item(Key={"id": campaign_id}).get("Item")
-    if not campaign or campaign.get("status") not in {"queued", "sending"}:
+    if not campaign or campaign.get("status") not in {"queueing", "queued", "sending"}:
         print(
             json.dumps(
                 {

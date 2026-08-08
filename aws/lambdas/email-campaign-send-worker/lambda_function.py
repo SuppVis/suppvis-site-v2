@@ -266,11 +266,15 @@ def reserve_recipient(campaign_id, subscriber_id):
                 "SET #status = :sending, send_attempted_at = :now, updated_at = :now, "
                 "retry_count = if_not_exists(retry_count, :zero) + :one"
             ),
-            ConditionExpression="#status = :queued AND attribute_not_exists(ses_message_id)",
+            ConditionExpression=(
+                "(#status = :queued OR #status = :queueing) "
+                "AND attribute_not_exists(ses_message_id)"
+            ),
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={
                 ":sending": "sending",
                 ":queued": "queued",
+                ":queueing": "queueing",
                 ":now": now,
                 ":zero": 0,
                 ":one": 1,
@@ -318,7 +322,7 @@ def process_job(campaign_id, subscriber_id):
     recipients = table("DYNAMODB_EMAIL_CAMPAIGN_RECIPIENTS_TABLE")
 
     campaign = campaigns.get_item(Key={"id": campaign_id}).get("Item")
-    if not campaign or campaign.get("status") not in {"queued", "sending"}:
+    if not campaign or campaign.get("status") not in {"queueing", "queued", "sending"}:
         print(
             json.dumps(
                 {
