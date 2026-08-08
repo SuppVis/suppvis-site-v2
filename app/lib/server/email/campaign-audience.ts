@@ -28,6 +28,7 @@ export type CampaignAudience = CampaignAudienceCount & {
 
 export async function buildCampaignAudience(input?: {
   audienceSegment?: BetaAudienceSegment;
+  customSubscriberIds?: string[];
 }): Promise<CampaignAudience> {
   const subscribers = await listEmailSubscribersByStatus([
     "subscribed",
@@ -37,6 +38,7 @@ export async function buildCampaignAudience(input?: {
   ]);
   const membership = await getBetaAudienceMembership(
     input?.audienceSegment || "all",
+    { customSubscriberIds: input?.customSubscriberIds },
   );
   const seenEmails = new Set<string>();
   const candidates = subscribers.map((subscriber) => ({

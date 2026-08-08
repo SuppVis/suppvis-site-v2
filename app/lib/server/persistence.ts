@@ -431,7 +431,8 @@ export type EmailCampaignRecord = {
   audience_both_eligible?: number | null;
   audience_last_error_code?: string | null;
   audience_last_error_at?: string | null;
-  audience_segment?: "all" | "priority" | "standard";
+  audience_segment?: "all" | "priority" | "standard" | "custom";
+  custom_audience_subscriber_ids?: string[];
   is_pinned?: boolean;
   pinned_at?: string | null;
   pinned_by?: string | null;
@@ -566,6 +567,7 @@ export type EmailCampaignSummary = Pick<
   | "audience_last_error_code"
   | "audience_last_error_at"
   | "audience_segment"
+  | "custom_audience_subscriber_ids"
   | "is_pinned"
   | "pinned_at"
   | "pinned_by"
@@ -628,9 +630,18 @@ function emailCampaignMessageTypeAttribute(value: unknown) {
 }
 
 function betaAudienceSegmentAttribute(value: unknown) {
-  return value === "priority" || value === "standard" || value === "all"
+  return value === "priority" ||
+    value === "standard" ||
+    value === "custom" ||
+    value === "all"
     ? value
     : "all";
+}
+
+function stringArrayAttribute(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function nullableStringAttribute(value: unknown) {
@@ -803,6 +814,9 @@ function emailCampaignFromAttributes(
     audience_last_error_at:
       nullableStringAttribute(attributes?.audience_last_error_at) || null,
     audience_segment: betaAudienceSegmentAttribute(attributes?.audience_segment),
+    custom_audience_subscriber_ids: stringArrayAttribute(
+      attributes?.custom_audience_subscriber_ids,
+    ),
     is_pinned: booleanAttribute(attributes?.is_pinned) || false,
     pinned_at: nullableStringAttribute(attributes?.pinned_at) || null,
     pinned_by: nullableStringAttribute(attributes?.pinned_by) || null,
@@ -946,6 +960,7 @@ function emailCampaignSummary(record: EmailCampaignRecord): EmailCampaignSummary
     audience_last_error_code: record.audience_last_error_code,
     audience_last_error_at: record.audience_last_error_at,
     audience_segment: record.audience_segment || "all",
+    custom_audience_subscriber_ids: record.custom_audience_subscriber_ids || [],
     is_pinned: record.is_pinned,
     pinned_at: record.pinned_at,
     pinned_by: record.pinned_by,
@@ -1791,6 +1806,8 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       audience_last_error_code: record.audience_last_error_code || null,
       audience_last_error_at: record.audience_last_error_at || null,
       audience_segment: record.audience_segment || "all",
+      custom_audience_subscriber_ids:
+        record.custom_audience_subscriber_ids || [],
       is_pinned: record.is_pinned || false,
       pinned_at: record.pinned_at || null,
       pinned_by: record.pinned_by || null,
@@ -2242,7 +2259,8 @@ export async function updateEmailCampaignDraft(input: {
 }
 
 export async function updateEmailCampaignAudienceSegment(input: {
-  audience_segment: "all" | "priority" | "standard";
+  audience_segment: "all" | "priority" | "standard" | "custom";
+  custom_audience_subscriber_ids?: string[];
   expectedVersion: number;
   id: string;
   now: string;
@@ -2256,6 +2274,10 @@ export async function updateEmailCampaignAudienceSegment(input: {
     returnValues: "ALL_NEW",
     set: {
       audience_segment: input.audience_segment,
+      custom_audience_subscriber_ids:
+        input.audience_segment === "custom"
+          ? input.custom_audience_subscriber_ids || []
+          : [],
       audience_counted_at: null,
       audience_version: 0,
       audience_email_total: 0,
@@ -2762,8 +2784,9 @@ export async function archiveEmailCampaignDraft(input: {
 }
 
 export async function markEmailCampaignAudienceCounted(input: {
-  audienceSegment?: "all" | "priority" | "standard";
+  audienceSegment?: "all" | "priority" | "standard" | "custom";
   bothEligibleCount?: number | null;
+  customAudienceSubscriberIds?: string[];
   emailDuplicateCount: number;
   emailEligibleCount: number;
   emailErrorCode?: string | null;
@@ -2807,6 +2830,10 @@ export async function markEmailCampaignAudienceCounted(input: {
       audience_last_error_at:
         input.emailErrorCode || input.smsErrorCode ? input.now : null,
       audience_segment: input.audienceSegment || "all",
+      custom_audience_subscriber_ids:
+        input.audienceSegment === "custom"
+          ? input.customAudienceSubscriberIds || []
+          : [],
       updated_by: input.updated_by,
       updated_at: input.now,
     },

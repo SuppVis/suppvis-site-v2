@@ -5,9 +5,12 @@ import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { handleApiError } from "@/app/lib/server/errors";
 import {
   createEmailCampaignDraft,
+  listEmailCampaignRecipients,
   listRecentEmailCampaignDrafts,
   listSentEmailCampaignSummaries,
+  type EmailCampaignRecipientRecord,
   type EmailCampaignRecord,
+  type EmailCampaignSummary,
 } from "@/app/lib/server/persistence";
 import { campaignReadinessResponse } from "@/app/lib/server/email/campaign-readiness";
 import {
@@ -97,9 +100,174 @@ function campaignResponse(record: EmailCampaignRecord) {
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
     audienceSegment: record.audience_segment || "all",
+    customAudienceSubscriberIds: record.custom_audience_subscriber_ids || [],
     readiness: campaignReadinessResponse(record),
     isPinned: record.is_pinned || false,
     pinnedAt: record.pinned_at || null,
+  };
+}
+
+function isProviderAccepted(
+  recipient: EmailCampaignRecipientRecord,
+  channel: "email" | "sms",
+) {
+  if (channel === "email") {
+    return Boolean(recipient.ses_message_id) ||
+      recipient.status === "sent" ||
+      recipient.status === "delivered" ||
+      recipient.status === "delivery_delayed" ||
+      recipient.status === "bounced" ||
+      recipient.status === "complained" ||
+      recipient.status === "rejected" ||
+      recipient.status === "failed";
+  }
+
+  return Boolean(recipient.twilio_message_sid) ||
+    recipient.status === "sent" ||
+    recipient.status === "delivered" ||
+    recipient.status === "failed";
+}
+
+function isFailedRecipient(recipient: EmailCampaignRecipientRecord) {
+  return (
+    recipient.status === "failed" ||
+    recipient.status === "bounced" ||
+    recipient.status === "complained" ||
+    recipient.status === "rejected"
+  );
+}
+
+function deriveChannelSummary(
+  recipients: EmailCampaignRecipientRecord[],
+  channel: "email" | "sms",
+) {
+  const channelRecipients = recipients.filter(
+    (recipient) => (recipient.channel || "email") === channel,
+  );
+  const eligible = channelRecipients.filter(
+    (recipient) => recipient.eligibility_decision === "eligible",
+  );
+  const excluded = channelRecipients.filter(
+    (recipient) => recipient.eligibility_decision === "excluded",
+  );
+
+  return {
+    delivered: channelRecipients.filter(
+      (recipient) => recipient.status === "delivered",
+    ).length,
+    eligible: eligible.length,
+    excluded: excluded.length,
+    failed: channelRecipients.filter(isFailedRecipient).length,
+    providerAccepted: eligible.filter((recipient) =>
+      isProviderAccepted(recipient, channel),
+    ).length,
+    queued: eligible.length,
+    skipped: excluded.length,
+    total: channelRecipients.length,
+  };
+}
+
+function fallbackQueuedAt(record: EmailCampaignSummary) {
+  return (
+    record.queued_at ||
+    record.queueing_started_at ||
+    record.sent_at ||
+    record.completed_at ||
+    null
+  );
+}
+
+async function sentCampaignResponse(record: EmailCampaignSummary) {
+  const recipients = await listEmailCampaignRecipients(record.id).catch(
+    (error) => {
+      console.error("[admin-email] sent summary recipient read failed", {
+        campaignId: record.id,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+
+      return [] as EmailCampaignRecipientRecord[];
+    },
+  );
+  const emailSummary = recipients.length
+    ? deriveChannelSummary(recipients, "email")
+    : null;
+  const smsSummary = recipients.length
+    ? deriveChannelSummary(recipients, "sms")
+    : null;
+
+  return {
+    id: record.id,
+    messageType: record.message_type,
+    subject: record.subject,
+    heading: record.heading,
+    status: record.status,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    version: record.version,
+    emailDraftVersion: record.email_draft_version || record.version,
+    emailPreviewGeneratedAt: record.email_preview_generated_at || null,
+    emailPreviewVersion: record.email_preview_version || 0,
+    testedAt: record.tested_at,
+    emailTestVersion: record.email_test_version || 0,
+    testMessageId: record.test_message_id || null,
+    approvedAt: record.approved_at,
+    queueingStartedAt: record.queueing_started_at || null,
+    queuedAt: fallbackQueuedAt(record),
+    sentAt: record.sent_at || null,
+    completedAt: record.completed_at || null,
+    canceledAt: record.canceled_at || null,
+    failedAt: record.failed_at || null,
+    recipientCount: recipients.length || record.recipient_count || 0,
+    eligibleCount: emailSummary?.eligible ?? record.eligible_count ?? 0,
+    excludedCount: emailSummary?.excluded ?? record.excluded_count ?? 0,
+    queuedCount:
+      emailSummary?.queued ??
+      Math.max(0, (record.queued_count || 0) - (record.sms_queued_count || 0)),
+    sentCount: emailSummary?.providerAccepted ?? record.sent_count ?? 0,
+    deliveredCount: emailSummary?.delivered ?? record.delivered_count ?? 0,
+    failedCount: emailSummary?.failed ?? record.failed_count ?? 0,
+    skippedCount: emailSummary?.skipped ?? record.skipped_count ?? 0,
+    smsEnabled: record.sms_enabled || false,
+    smsSavedAt: record.sms_saved_at || null,
+    smsDraftVersion: record.sms_draft_version || 0,
+    smsPreviewGeneratedAt: record.sms_preview_generated_at || null,
+    smsPreviewVersion: record.sms_preview_version || 0,
+    smsTestedAt: record.sms_tested_at || null,
+    smsTestVersion: record.sms_test_version || 0,
+    smsTestStatus: record.sms_test_status || null,
+    smsTestTransport: record.sms_test_transport || null,
+    smsEligibleCount: smsSummary?.eligible ?? record.sms_eligible_count ?? 0,
+    smsExcludedCount: smsSummary?.excluded ?? record.sms_excluded_count ?? 0,
+    smsDuplicateCount: record.sms_duplicate_count || 0,
+    smsQueuedCount: smsSummary?.queued ?? record.sms_queued_count ?? 0,
+    smsSentCount: smsSummary?.providerAccepted ?? record.sms_sent_count ?? 0,
+    smsDeliveredCount:
+      smsSummary?.delivered ?? record.sms_delivered_count ?? 0,
+    smsFailedCount: smsSummary?.failed ?? record.sms_failed_count ?? 0,
+    smsSkippedCount: smsSummary?.skipped ?? record.sms_skipped_count ?? 0,
+    audienceCountedAt: record.audience_counted_at || null,
+    audienceVersion: record.audience_version || 0,
+    audienceEmailTotal: record.audience_email_total || 0,
+    audienceEmailEligible: record.audience_email_eligible || 0,
+    audienceEmailExcluded: record.audience_email_excluded || 0,
+    audienceEmailDuplicateCount:
+      record.audience_email_duplicate_count || 0,
+    audienceEmailStatus: record.audience_email_status || "not_counted",
+    audienceEmailErrorCode: record.audience_email_error_code || null,
+    audienceSmsTotal: record.audience_sms_total || 0,
+    audienceSmsEligible: record.audience_sms_eligible || 0,
+    audienceSmsExcluded: record.audience_sms_excluded || 0,
+    audienceSmsDuplicateCount:
+      record.audience_sms_duplicate_count || 0,
+    audienceSmsStatus: record.audience_sms_status || "not_counted",
+    audienceSmsErrorCode: record.audience_sms_error_code || null,
+    audienceBothEligible: record.audience_both_eligible ?? null,
+    audienceLastErrorCode: record.audience_last_error_code || null,
+    audienceLastErrorAt: record.audience_last_error_at || null,
+    audienceSegment: record.audience_segment || "all",
+    customAudienceSubscriberIds:
+      record.custom_audience_subscriber_ids || [],
+    readiness: campaignReadinessResponse(record),
   };
 }
 
@@ -124,78 +292,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         ok: true,
-        sent: sent.map((draft) => ({
-          id: draft.id,
-          messageType: draft.message_type,
-          subject: draft.subject,
-          heading: draft.heading,
-          status: draft.status,
-          createdAt: draft.created_at,
-          updatedAt: draft.updated_at,
-          version: draft.version,
-          emailDraftVersion: draft.email_draft_version || draft.version,
-          emailPreviewGeneratedAt: draft.email_preview_generated_at || null,
-          emailPreviewVersion: draft.email_preview_version || 0,
-          testedAt: draft.tested_at,
-          emailTestVersion: draft.email_test_version || 0,
-          testMessageId: draft.test_message_id || null,
-          approvedAt: draft.approved_at,
-          queueingStartedAt: draft.queueing_started_at || null,
-          queuedAt: draft.queued_at || null,
-          sentAt: draft.sent_at || null,
-          completedAt: draft.completed_at || null,
-          canceledAt: draft.canceled_at || null,
-          failedAt: draft.failed_at || null,
-          recipientCount: draft.recipient_count || 0,
-          eligibleCount: draft.eligible_count || 0,
-          excludedCount: draft.excluded_count || 0,
-          queuedCount: Math.max(
-            0,
-            (draft.queued_count || 0) - (draft.sms_queued_count || 0),
-          ),
-          sentCount: draft.sent_count || 0,
-          deliveredCount: draft.delivered_count || 0,
-          failedCount: draft.failed_count || 0,
-          skippedCount: draft.skipped_count || 0,
-          smsEnabled: draft.sms_enabled || false,
-          smsSavedAt: draft.sms_saved_at || null,
-          smsDraftVersion: draft.sms_draft_version || 0,
-          smsPreviewGeneratedAt: draft.sms_preview_generated_at || null,
-          smsPreviewVersion: draft.sms_preview_version || 0,
-          smsTestedAt: draft.sms_tested_at || null,
-          smsTestVersion: draft.sms_test_version || 0,
-          smsTestStatus: draft.sms_test_status || null,
-          smsTestTransport: draft.sms_test_transport || null,
-          smsEligibleCount: draft.sms_eligible_count || 0,
-          smsExcludedCount: draft.sms_excluded_count || 0,
-          smsDuplicateCount: draft.sms_duplicate_count || 0,
-          smsQueuedCount: draft.sms_queued_count || 0,
-          smsSentCount: draft.sms_sent_count || 0,
-          smsDeliveredCount: draft.sms_delivered_count || 0,
-          smsFailedCount: draft.sms_failed_count || 0,
-          smsSkippedCount: draft.sms_skipped_count || 0,
-          audienceCountedAt: draft.audience_counted_at || null,
-          audienceVersion: draft.audience_version || 0,
-          audienceEmailTotal: draft.audience_email_total || 0,
-          audienceEmailEligible: draft.audience_email_eligible || 0,
-          audienceEmailExcluded: draft.audience_email_excluded || 0,
-          audienceEmailDuplicateCount:
-            draft.audience_email_duplicate_count || 0,
-          audienceEmailStatus: draft.audience_email_status || "not_counted",
-          audienceEmailErrorCode: draft.audience_email_error_code || null,
-          audienceSmsTotal: draft.audience_sms_total || 0,
-          audienceSmsEligible: draft.audience_sms_eligible || 0,
-          audienceSmsExcluded: draft.audience_sms_excluded || 0,
-          audienceSmsDuplicateCount:
-            draft.audience_sms_duplicate_count || 0,
-          audienceSmsStatus: draft.audience_sms_status || "not_counted",
-          audienceSmsErrorCode: draft.audience_sms_error_code || null,
-          audienceBothEligible: draft.audience_both_eligible ?? null,
-          audienceLastErrorCode: draft.audience_last_error_code || null,
-          audienceLastErrorAt: draft.audience_last_error_at || null,
-          audienceSegment: draft.audience_segment || "all",
-          readiness: campaignReadinessResponse(draft),
-        })),
+        sent: await Promise.all(sent.map((draft) => sentCampaignResponse(draft))),
       });
     }
 
@@ -275,6 +372,7 @@ export async function GET(request: NextRequest) {
         audienceLastErrorCode: draft.audience_last_error_code || null,
         audienceLastErrorAt: draft.audience_last_error_at || null,
         audienceSegment: draft.audience_segment || "all",
+        customAudienceSubscriberIds: draft.custom_audience_subscriber_ids || [],
         readiness: campaignReadinessResponse(draft),
         isPinned: draft.is_pinned || false,
         pinnedAt: draft.pinned_at || null,
@@ -364,6 +462,7 @@ export async function POST(request: NextRequest) {
       audience_last_error_code: null,
       audience_last_error_at: null,
       audience_segment: "all",
+      custom_audience_subscriber_ids: [],
       is_pinned: false,
       pinned_at: null,
       pinned_by: null,

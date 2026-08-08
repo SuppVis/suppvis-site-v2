@@ -103,12 +103,13 @@ type CampaignDraft = {
   audienceLastErrorCode?: string | null;
   audienceLastErrorAt?: string | null;
   audienceSegment?: BetaAudienceSegment;
+  customAudienceSubscriberIds?: string[];
   readiness?: CampaignReadiness;
   isPinned?: boolean;
   pinnedAt?: string | null;
 };
 
-type BetaAudienceSegment = "all" | "priority" | "standard";
+type BetaAudienceSegment = "all" | "priority" | "standard" | "custom";
 
 type CampaignReadiness = {
   audienceCurrent: boolean;
@@ -161,6 +162,7 @@ type ProgressSummary = {
 type AudienceSummary = {
   audienceSegment?: BetaAudienceSegment;
   confirmationPhrase: string;
+  customAudienceSubscriberIds?: string[];
   countedAt?: string;
   diagnostics?: {
     emailEligible?: number;
@@ -316,6 +318,8 @@ type FormValues = {
   subject: string;
 };
 
+type AdminFieldErrorKey = keyof FormValues | "audienceSegment";
+
 type BusyAction =
   | "approve"
   | "audience"
@@ -409,7 +413,42 @@ const AUDIENCE_SEGMENT_OPTIONS: Array<AdminSelectOption<BetaAudienceSegment>> = 
     label: "Standard, non-priority beta subscribers only",
     value: "standard",
   },
+  { label: "Custom recipients", value: "custom" },
 ];
+
+class AdminResponseError extends Error {
+  constructor(
+    message: string,
+    public readonly fieldErrors?: Record<string, string[] | undefined>,
+  ) {
+    super(message);
+    this.name = "AdminResponseError";
+  }
+}
+
+function normalizeCustomAudienceIds(ids?: string[]) {
+  const seen = new Set<string>();
+
+  return (ids || []).filter((id) => {
+    if (!/^beta_[a-f0-9]{32}$/.test(id) || seen.has(id)) {
+      return false;
+    }
+
+    seen.add(id);
+    return true;
+  });
+}
+
+function sameStringList(left: string[], right: string[]) {
+  const normalizedLeft = [...left].sort();
+  const normalizedRight = [...right].sort();
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
 
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
@@ -437,7 +476,7 @@ async function parseJsonResponse(response: Response) {
       payload?.message ||
       payload?.code ||
       "The admin action could not be completed.";
-    throw new Error(message);
+    throw new AdminResponseError(message, payload?.fieldErrors);
   }
 
   return payload;
@@ -500,6 +539,10 @@ function audienceFromCampaign(
       emailStatus === "success" ? emailEligible : 0,
       smsStatus === "success" ? smsEligible : 0,
     ),
+    customAudienceSubscriberIds:
+      campaign.audienceSegment === "custom"
+        ? normalizeCustomAudienceIds(campaign.customAudienceSubscriberIds)
+        : [],
     countedAt: campaign.audienceCountedAt,
     duplicateCount: campaign.audienceEmailDuplicateCount || 0,
     emailErrorCode: campaign.audienceEmailErrorCode || null,
@@ -606,6 +649,10 @@ function audienceRefreshWarning(audience: AudienceSummary | null) {
 }
 
 function audienceSegmentLabel(segment: BetaAudienceSegment) {
+  if (segment === "custom") {
+    return "Custom recipients";
+  }
+
   if (segment === "priority") {
     return "Priority beta subscribers only";
   }
@@ -1528,6 +1575,18 @@ export default function AdminCampaignDraft({
   const [audienceRefreshError, setAudienceRefreshError] = useState<string | null>(null);
   const [audienceSegment, setAudienceSegment] =
     useState<BetaAudienceSegment>("all");
+  const [customAudienceSearch, setCustomAudienceSearch] = useState("");
+  const [customAudienceOptions, setCustomAudienceOptions] = useState<
+    AdminBetaSubscriber[]
+  >([]);
+  const [customAudienceSelectedSubscribers, setCustomAudienceSelectedSubscribers] =
+    useState<AdminBetaSubscriber[]>([]);
+  const [customAudienceLoading, setCustomAudienceLoading] = useState(false);
+  const [customAudienceSubscriberIds, setCustomAudienceSubscriberIds] =
+    useState<string[]>([]);
+  const [customAudienceTotalCount, setCustomAudienceTotalCount] = useState(0);
+  const [customAudiencePickerOpen, setCustomAudiencePickerOpen] =
+    useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [campaign, setCampaign] = useState<CampaignDraft | null>(null);
   const [focusGuideVisible, setFocusGuideVisible] = useState(false);
@@ -1543,7 +1602,7 @@ export default function AdminCampaignDraft({
   const [emailTestModalConfirmed, setEmailTestModalConfirmed] = useState(false);
   const [emailPreviewOutdated, setEmailPreviewOutdated] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<
-    Partial<Record<keyof FormValues, string>>
+    Partial<Record<AdminFieldErrorKey, string>>
   >({});
   const [form, setForm] = useState<FormValues>(initialForm);
   const [emailPreviewSnapshot, setEmailPreviewSnapshot] =
@@ -1625,6 +1684,37 @@ export default function AdminCampaignDraft({
   } | null>(null);
 
   const isBusy = Boolean(busyAction);
+  const customAudienceSelectedSet = useMemo(
+    () => new Set(customAudienceSubscriberIds),
+    [customAudienceSubscriberIds],
+  );
+  const customAudienceSelectedDetails = useMemo(
+    () => {
+      const byId = new Map<string, AdminBetaSubscriber>();
+
+      for (const subscriber of customAudienceSelectedSubscribers) {
+        byId.set(subscriber.id, subscriber);
+      }
+
+      for (const subscriber of customAudienceOptions) {
+        if (customAudienceSelectedSet.has(subscriber.id)) {
+          byId.set(subscriber.id, subscriber);
+        }
+      }
+
+      return customAudienceSubscriberIds
+        .map((id) => byId.get(id))
+        .filter((subscriber): subscriber is AdminBetaSubscriber =>
+          Boolean(subscriber),
+        );
+    },
+    [
+      customAudienceOptions,
+      customAudienceSelectedSet,
+      customAudienceSelectedSubscribers,
+      customAudienceSubscriberIds,
+    ],
+  );
   const subscriberRangeStart = subscriberTotalCount
     ? (subscriberPage - 1) * subscriberPageSize + 1
     : 0;
@@ -1805,6 +1895,81 @@ export default function AdminCampaignDraft({
   useEffect(() => {
     currentCampaignIdRef.current = campaign?.id || null;
   }, [campaign?.id]);
+
+  useEffect(() => {
+    if (audienceSegment !== "custom") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      loadCustomAudienceOptions(customAudienceSearch).catch(() => undefined);
+    }, customAudienceSearch.trim() ? SUBSCRIBER_SEARCH_DEBOUNCE_MS : 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [audienceSegment, customAudienceSearch]);
+
+  useEffect(() => {
+    if (audienceSegment !== "custom" || !customAudienceSubscriberIds.length) {
+      return;
+    }
+
+    const knownIds = new Set([
+      ...customAudienceSelectedSubscribers.map((subscriber) => subscriber.id),
+      ...customAudienceOptions.map((subscriber) => subscriber.id),
+    ]);
+    const missingIds = customAudienceSubscriberIds.filter(
+      (id) => !knownIds.has(id),
+    );
+
+    if (!missingIds.length) {
+      return;
+    }
+
+    let canceled = false;
+
+    Promise.all(
+      missingIds.map(async (subscriberId) => {
+        const response = await adminFetch(
+          `/api/admin/subscribers/${subscriberId}`,
+          { cache: "no-store" },
+        );
+        const payload = await parseJsonResponse(response);
+        return payload.subscriber as AdminBetaSubscriber;
+      }),
+    )
+      .then((subscribers) => {
+        if (canceled) {
+          return;
+        }
+
+        setCustomAudienceSelectedSubscribers((current) => {
+          const byId = new Map<string, AdminBetaSubscriber>();
+
+          for (const subscriber of current) {
+            byId.set(subscriber.id, subscriber);
+          }
+
+          for (const subscriber of subscribers) {
+            byId.set(subscriber.id, subscriber);
+          }
+
+          return Array.from(byId.values()).filter((subscriber) =>
+            customAudienceSelectedSet.has(subscriber.id),
+          );
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      canceled = true;
+    };
+  }, [
+    audienceSegment,
+    customAudienceOptions,
+    customAudienceSelectedSet,
+    customAudienceSelectedSubscribers,
+    customAudienceSubscriberIds,
+  ]);
 
   const usesReducedMotion = useCallback(
     () =>
@@ -2311,6 +2476,90 @@ export default function AdminCampaignDraft({
     ]);
     setPriorityOptions(priorityPayload.items || []);
     setStandardOptions(standardPayload.items || []);
+  }
+
+  async function loadCustomAudienceOptions(search = customAudienceSearch) {
+    setCustomAudienceLoading(true);
+
+    const params = new URLSearchParams({
+      page: "1",
+      pageSize: "100",
+      priority: "all",
+      sort: "signup_order_asc",
+    });
+
+    if (search.trim()) {
+      params.set("search", search.trim());
+    }
+
+    try {
+      const response = await adminFetch(`/api/admin/subscribers?${params}`, {
+        cache: "no-store",
+      });
+      const payload = await parseJsonResponse(response);
+      const items = (payload.items || []) as AdminBetaSubscriber[];
+      setCustomAudienceOptions(items);
+      setCustomAudienceSelectedSubscribers((current) => {
+        const byId = new Map<string, AdminBetaSubscriber>();
+
+        for (const subscriber of current) {
+          byId.set(subscriber.id, subscriber);
+        }
+
+        for (const subscriber of items) {
+          if (customAudienceSelectedSet.has(subscriber.id)) {
+            byId.set(subscriber.id, subscriber);
+          }
+        }
+
+        return Array.from(byId.values()).filter((subscriber) =>
+          customAudienceSelectedSet.has(subscriber.id),
+        );
+      });
+      setCustomAudienceTotalCount(payload.totalCount || 0);
+    } catch (error) {
+      applyApiFieldErrors(error);
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not load custom recipient options.",
+      });
+    } finally {
+      setCustomAudienceLoading(false);
+    }
+  }
+
+  function toggleCustomAudienceSubscriber(subscriberId: string) {
+    const selectedSubscriber = customAudienceOptions.find(
+      (subscriber) => subscriber.id === subscriberId,
+    );
+
+    setAudience(null);
+    setAudienceRefreshError(null);
+    setStartPhrase("");
+    setFieldErrors((current) => ({ ...current, audienceSegment: undefined }));
+    setCustomAudienceSubscriberIds((current) => {
+      if (current.includes(subscriberId)) {
+        setCustomAudienceSelectedSubscribers((subscribers) =>
+          subscribers.filter((subscriber) => subscriber.id !== subscriberId),
+        );
+        return current.filter((id) => id !== subscriberId);
+      }
+
+      if (selectedSubscriber) {
+        setCustomAudienceSelectedSubscribers((subscribers) => {
+          if (subscribers.some((subscriber) => subscriber.id === subscriberId)) {
+            return subscribers;
+          }
+
+          return [...subscribers, selectedSubscriber];
+        });
+      }
+
+      return [...current, subscriberId];
+    });
   }
 
   async function openSubscriber(subscriber: AdminBetaSubscriber) {
@@ -2865,10 +3114,58 @@ export default function AdminCampaignDraft({
     }
   }
 
+  function applyApiFieldErrors(error: unknown) {
+    if (!(error instanceof AdminResponseError) || !error.fieldErrors) {
+      return;
+    }
+
+    const nextErrors: Partial<Record<AdminFieldErrorKey, string>> = {};
+
+    for (const [key, messages] of Object.entries(error.fieldErrors)) {
+      const firstMessage = messages?.find(Boolean);
+
+      if (!firstMessage) {
+        continue;
+      }
+
+      if (
+        key === "subject" ||
+        key === "heading" ||
+        key === "body" ||
+        key === "ctaLabel" ||
+        key === "ctaUrl" ||
+        key === "smsBody" ||
+        key === "messageType" ||
+        key === "audienceSegment"
+      ) {
+        nextErrors[key] = firstMessage;
+      } else if (key === "customAudienceSubscriberIds") {
+        nextErrors.audienceSegment = firstMessage;
+      }
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors((current) => ({ ...current, ...nextErrors }));
+    }
+  }
+
+  function setCustomAudienceSelection(ids?: string[]) {
+    const normalizedIds = normalizeCustomAudienceIds(ids);
+
+    setCustomAudienceSubscriberIds(normalizedIds);
+    setCustomAudienceSelectedSubscribers((current) =>
+      current.filter((subscriber) => normalizedIds.includes(subscriber.id)),
+    );
+  }
+
   function updateAudienceSegment(nextSegment: BetaAudienceSegment) {
     setAudienceSegment(nextSegment);
+    if (nextSegment === "custom") {
+      setCustomAudiencePickerOpen(true);
+    }
     setAudience(null);
     setAudienceRefreshError(null);
+    setFieldErrors((current) => ({ ...current, audienceSegment: undefined }));
     setStartPhrase("");
     setMessage({
       tone: "info",
@@ -2939,6 +3236,10 @@ export default function AdminCampaignDraft({
     setAudience(null);
     setAudienceRefreshError(null);
     setAudienceSegment("all");
+    setCustomAudienceSearch("");
+    setCustomAudienceOptions([]);
+    setCustomAudienceSelection([]);
+    setCustomAudiencePickerOpen(true);
     setCampaign(null);
     setDeleteTarget(null);
     setEmailTestModalOpen(false);
@@ -3000,6 +3301,7 @@ export default function AdminCampaignDraft({
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
       setAudienceSegment(payload.campaign?.audienceSegment || "all");
+      setCustomAudienceSelection(payload.campaign?.customAudienceSubscriberIds);
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -3012,6 +3314,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("emailPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text: error instanceof Error ? error.message : "Could not save email.",
@@ -3052,7 +3355,6 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
-      setAudienceSegment(payload.campaign?.audienceSegment || audienceSegment);
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -3065,6 +3367,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("emailPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text: error instanceof Error ? error.message : "Could not save email.",
@@ -3105,7 +3408,6 @@ export default function AdminCampaignDraft({
       });
       const payload = await parseJsonResponse(response);
       setCampaign(payload.campaign);
-      setAudienceSegment(payload.campaign?.audienceSegment || audienceSegment);
       setAudience(audienceFromCampaign(payload.campaign));
       setAudienceRefreshError(null);
       setMessage({
@@ -3119,6 +3421,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("smsPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text:
@@ -3142,6 +3445,7 @@ export default function AdminCampaignDraft({
       const loadedAudience = audienceFromCampaign(payload.campaign);
       setCampaign(payload.campaign);
       setAudienceSegment(payload.campaign?.audienceSegment || "all");
+      setCustomAudienceSelection(payload.campaign?.customAudienceSubscriberIds);
       setAudience(loadedAudience);
       setAudienceRefreshError(audienceRefreshWarning(loadedAudience));
       setForm(loadedForm);
@@ -3204,7 +3508,12 @@ export default function AdminCampaignDraft({
       if (deletingOpenAnnouncement) {
         setAudience(null);
         setAudienceRefreshError(null);
+        setAudienceSegment("all");
         setCampaign(null);
+        setCustomAudienceSearch("");
+        setCustomAudienceOptions([]);
+        setCustomAudienceSelection([]);
+        setCustomAudiencePickerOpen(true);
         setEmailPreviewOutdated(false);
         setEmailTestModalConfirmed(false);
         setEmailTestModalOpen(false);
@@ -3280,6 +3589,7 @@ export default function AdminCampaignDraft({
       });
       await refreshDrafts();
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text:
@@ -3349,6 +3659,7 @@ export default function AdminCampaignDraft({
         delayedScrollToElement(previewRef, { block: "center" });
       }
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text:
@@ -3469,6 +3780,7 @@ export default function AdminCampaignDraft({
       }
       await refreshDrafts();
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text: error instanceof Error ? error.message : "Could not send test.",
@@ -3576,6 +3888,7 @@ export default function AdminCampaignDraft({
         );
       }
     } catch (error) {
+      applyApiFieldErrors(error);
       const errorText =
         error instanceof Error ? error.message : "Could not send test text.";
       setMessage({
@@ -3592,6 +3905,11 @@ export default function AdminCampaignDraft({
   }
 
   async function calculateAudienceForCampaign(campaignId: string) {
+    const requestedAudienceSegment = audienceSegment;
+    const requestedCustomAudienceIds =
+      requestedAudienceSegment === "custom"
+        ? normalizeCustomAudienceIds(customAudienceSubscriberIds)
+        : [];
     const response = await adminFetch(
       `/api/admin/email-campaigns/${campaignId}/audience`,
       {
@@ -3599,7 +3917,10 @@ export default function AdminCampaignDraft({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ audienceSegment }),
+        body: JSON.stringify({
+          audienceSegment: requestedAudienceSegment,
+          customAudienceSubscriberIds: requestedCustomAudienceIds,
+        }),
       },
     );
     const payload = await parseJsonResponse(response);
@@ -3610,7 +3931,10 @@ export default function AdminCampaignDraft({
     const nextAudience = payload.audience as AudienceSummary;
     if (payload.campaign) {
       updateCampaignFromPartial(payload.campaign);
-      setAudienceSegment(payload.campaign.audienceSegment || audienceSegment);
+      setAudienceSegment(payload.campaign.audienceSegment || requestedAudienceSegment);
+      setCustomAudienceSelection(
+        payload.campaign.customAudienceSubscriberIds || requestedCustomAudienceIds,
+      );
     }
     setAudience(nextAudience);
     setAudienceRefreshError(audienceRefreshWarning(nextAudience));
@@ -3620,6 +3944,18 @@ export default function AdminCampaignDraft({
 
   async function calculateAudience() {
     if (!campaign || isBusy || !selectedChannelsSaved || !adminTestsReady) {
+      return;
+    }
+
+    if (audienceSegment === "custom" && !customAudienceSubscriberIds.length) {
+      const errorText =
+        "Select at least one custom recipient before refreshing counts.";
+      setFieldErrors((current) => ({
+        ...current,
+        audienceSegment: errorText,
+      }));
+      setAudienceRefreshError(errorText);
+      setMessage({ tone: "error", text: errorText });
       return;
     }
 
@@ -3635,6 +3971,7 @@ export default function AdminCampaignDraft({
         text: warning || "Recipient counts refreshed.",
       });
     } catch (error) {
+      applyApiFieldErrors(error);
       const errorText =
         error instanceof Error ? error.message : "Could not count recipients.";
       setAudienceRefreshError(errorText);
@@ -3729,6 +4066,7 @@ export default function AdminCampaignDraft({
       }
       await refreshDrafts();
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text:
@@ -3750,14 +4088,31 @@ export default function AdminCampaignDraft({
   const emailTestReady = emailTestCurrent;
   const smsTestReady = smsTestAcceptedForCurrentDraft;
   const adminTestsReady = Boolean(emailTestReady && smsTestReady);
+  const localCustomAudienceIds = normalizeCustomAudienceIds(
+    customAudienceSubscriberIds,
+  );
+  const campaignCustomAudienceMatches =
+    audienceSegment !== "custom" ||
+    sameStringList(
+      normalizeCustomAudienceIds(campaign?.customAudienceSubscriberIds),
+      localCustomAudienceIds,
+    );
+  const activeAudienceCustomMatches =
+    audienceSegment !== "custom" ||
+    sameStringList(
+      normalizeCustomAudienceIds(audience?.customAudienceSubscriberIds),
+      localCustomAudienceIds,
+    );
   const persistedAudience =
     !emailChangedSinceSave &&
     !smsChangedSinceSave &&
-    (campaign?.audienceSegment || "all") === audienceSegment
+    (campaign?.audienceSegment || "all") === audienceSegment &&
+    campaignCustomAudienceMatches
       ? audienceFromCampaign(campaign)
       : null;
   const currentAudience =
-    (audience?.audienceSegment || "all") === audienceSegment
+    (audience?.audienceSegment || "all") === audienceSegment &&
+    activeAudienceCustomMatches
       ? audience
       : persistedAudience;
   const canStart = Boolean(
@@ -3831,7 +4186,9 @@ export default function AdminCampaignDraft({
       startPhrase === currentAudience.confirmationPhrase,
   );
   const deliveryBlockedReason = !currentAudience
-    ? "Refresh recipient counts first."
+    ? audienceSegment === "custom" && !customAudienceSubscriberIds.length
+      ? "Select at least one custom recipient before refreshing counts."
+      : "Refresh recipient counts first."
     : hasUnavailableAudience
       ? "Resolve the unavailable subscriber source before approving or sending."
     : !hasAnyAvailableAudience
@@ -4674,6 +5031,159 @@ export default function AdminCampaignDraft({
           Current selection: {audienceSegmentLabel(audienceSegment)}. Counts are
           locked to this choice only after you click Refresh recipient count.
         </p>
+        {fieldErrors.audienceSegment ? (
+          <p className="mt-2 text-xs text-red-200">
+            {fieldErrors.audienceSegment}
+          </p>
+        ) : null}
+        {audienceSegment === "custom" ? (
+          <div className="mt-4 rounded-[8px] border border-accent/20 bg-accent/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-text-primary">
+                  Custom recipients
+                </p>
+                <p className="mt-1 text-xs leading-5 text-text-muted">
+                  Choose the beta users to include. Email and text eligibility
+                  are still checked again when counts refresh and when sending.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
+                  {customAudienceSubscriberIds.length} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCustomAudiencePickerOpen((current) => !current)
+                  }
+                  disabled={isBusy || isSendStarted}
+                  className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {customAudiencePickerOpen ? "Done" : "Edit"}
+                </button>
+                {customAudienceSubscriberIds.length ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAudience(null);
+                      setAudienceRefreshError(null);
+                      setStartPhrase("");
+                      setCustomAudienceSelection([]);
+                    }}
+                    disabled={isBusy || isSendStarted}
+                    className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-red-300/60 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {customAudiencePickerOpen ? (
+              <div className="mt-4">
+                <label className="block">
+                  <span className="sr-only">Search custom recipients</span>
+                  <input
+                    value={customAudienceSearch}
+                    onChange={(event) => setCustomAudienceSearch(event.target.value)}
+                    disabled={isBusy || isSendStarted}
+                    placeholder="Search by name, email, or phone"
+                    className="h-11 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-3 py-0 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                </label>
+                <div className="mt-3 max-h-80 overflow-y-auto rounded-[8px] border border-white/10 bg-[#05090D] p-1">
+                  {customAudienceLoading ? (
+                    <div className="px-3 py-3 text-sm text-text-secondary">
+                      Loading recipients...
+                    </div>
+                  ) : customAudienceOptions.length ? (
+                    customAudienceOptions.map((subscriber) => {
+                      const selected = customAudienceSelectedSet.has(subscriber.id);
+
+                      return (
+                        <button
+                          key={subscriber.id}
+                          type="button"
+                          onClick={() => toggleCustomAudienceSubscriber(subscriber.id)}
+                          disabled={isBusy || isSendStarted}
+                          aria-pressed={selected}
+                          className={`mb-1 grid w-full gap-2 rounded-[6px] px-3 py-3 text-left text-sm transition sm:grid-cols-[76px_minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.9fr)] ${
+                            selected
+                              ? "border border-accent/35 bg-accent/15 text-text-primary"
+                              : "border border-transparent text-text-secondary hover:bg-white/[0.05] hover:text-text-primary"
+                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                          <span className="font-mono text-xs text-accent">
+                            {subscriber.signupOrderNumber
+                              ? `#${subscriber.signupOrderNumber}`
+                              : "No #"}
+                          </span>
+                          <span className="min-w-0 font-semibold text-text-primary">
+                            {subscriber.fullName || "Unnamed subscriber"}
+                          </span>
+                          <span
+                            className="min-w-0 truncate text-xs"
+                            title={subscriber.email}
+                          >
+                            {subscriber.email}
+                          </span>
+                          <span
+                            className="min-w-0 truncate text-xs"
+                            title={phoneDisplay(subscriber)}
+                          >
+                            {phoneDisplay(subscriber)}
+                          </span>
+                          <span className="min-w-0 truncate text-xs">
+                            Text: {adminStatusLabel(subscriber.smsStatus, "sms")}
+                          </span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3 py-3 text-sm text-text-secondary">
+                      No beta subscribers match this search.
+                    </div>
+                  )}
+                </div>
+                <p className="mt-2 text-xs leading-5 text-text-muted">
+                  Showing {customAudienceOptions.length} of{" "}
+                  {customAudienceTotalCount} beta users. Use search to find
+                  someone outside this list.
+                </p>
+              </div>
+            ) : null}
+
+            {customAudienceSelectedDetails.length ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
+                  Selected
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {customAudienceSelectedDetails.map((subscriber) => (
+                    <button
+                      key={subscriber.id}
+                      type="button"
+                      onClick={() => toggleCustomAudienceSubscriber(subscriber.id)}
+                      disabled={isBusy || isSendStarted}
+                      className="rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-semibold text-teal-50 transition hover:border-red-300/60 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {subscriber.signupOrderNumber
+                        ? `#${subscriber.signupOrderNumber} `
+                        : ""}
+                      {subscriber.fullName || subscriber.email}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : customAudienceSubscriberIds.length ? (
+              <p className="mt-4 rounded-[8px] border border-yellow-400/20 bg-yellow-400/10 p-3 text-xs leading-5 text-yellow-50">
+                {customAudienceSubscriberIds.length} saved recipient IDs are
+                selected. Search or wait for details to load to review names.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap gap-3">
@@ -4685,7 +5195,8 @@ export default function AdminCampaignDraft({
             !campaign ||
             isBusy ||
             !selectedChannelsSaved ||
-            !adminTestsReady
+            !adminTestsReady ||
+            (audienceSegment === "custom" && !customAudienceSubscriberIds.length)
           }
           className={`${primaryButtonClass("teal")} min-h-14 px-7 text-base shadow-[0_0_28px_rgba(36,196,182,0.22)] hover:shadow-[0_0_44px_rgba(36,196,182,0.34)] ${guidedControlClass("recipientCount")}`}
         >
@@ -6581,6 +7092,7 @@ export default function AdminCampaignDraft({
                         </dt>
                         <dd>
                           {item.eligibleCount || 0} eligible -{" "}
+                          {item.excludedCount || 0} excluded -{" "}
                           {item.queuedCount || 0} queued -{" "}
                           {item.sentCount || 0} accepted -{" "}
                           {item.deliveredCount || 0} delivered -{" "}
@@ -6593,6 +7105,7 @@ export default function AdminCampaignDraft({
                         </dt>
                         <dd>
                           {item.smsEligibleCount || 0} eligible -{" "}
+                          {item.smsExcludedCount || 0} excluded -{" "}
                           {item.smsQueuedCount || 0} queued -{" "}
                           {item.smsSentCount || 0} accepted -{" "}
                           {item.smsDeliveredCount || 0} delivered -{" "}

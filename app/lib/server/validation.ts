@@ -174,7 +174,15 @@ const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
   "Enter an https:// link.",
 );
 
-const adminCampaignSmsBodySchema = z.string().trim().max(260).optional().default("");
+const adminCampaignSmsBodySchema = z
+  .string()
+  .trim()
+  .max(
+    260,
+    "Text message must be 260 characters or fewer before the automatic SuppVis/footer text is added.",
+  )
+  .optional()
+  .default("");
 function validateAdminSmsBody(
   smsEnabled: boolean,
   smsBody: string,
@@ -351,19 +359,32 @@ export const adminCampaignPinSchema = adminCampaignVersionSchema.extend({
   pinned: z.boolean(),
 });
 
+const betaApplicationIdSchema = z
+  .string()
+  .trim()
+  .regex(/^beta_[a-f0-9]{32}$/);
+
+const customAudienceSubscriberIdsSchema = z
+  .array(betaApplicationIdSchema)
+  .max(1000, "Select 1,000 custom recipients or fewer.")
+  .optional()
+  .default([]);
+
 export const betaAudienceSegmentSchema = z
-  .enum(["all", "priority", "standard"])
+  .enum(["all", "priority", "standard", "custom"])
   .default("all");
 
 export const adminCampaignAudienceRefreshSchema = z
   .object({
     audienceSegment: betaAudienceSegmentSchema,
+    customAudienceSubscriberIds: customAudienceSubscriberIdsSchema,
   })
   .strict();
 
 export const adminCampaignAudienceSegmentUpdateSchema = z
   .object({
     audienceSegment: betaAudienceSegmentSchema,
+    customAudienceSubscriberIds: customAudienceSubscriberIdsSchema,
     expectedVersion: z.number().int().min(1).max(1_000_000),
     saveChannel: z.literal("audience"),
   })
@@ -373,10 +394,7 @@ export const adminCampaignStartSchema = adminCampaignVersionSchema.extend({
   confirmationPhrase: z.string().trim().min(1).max(80),
 });
 
-export const adminSubscriberIdSchema = z
-  .string()
-  .trim()
-  .regex(/^beta_[a-f0-9]{32}$/);
+export const adminSubscriberIdSchema = betaApplicationIdSchema;
 
 const adminSubscriberSortSchema = z.preprocess(
   (value) => {

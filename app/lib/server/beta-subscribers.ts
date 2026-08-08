@@ -1207,14 +1207,20 @@ export async function maybeRestoreBetaSubscriberPriorityByPhone(input: {
   });
 }
 
-export async function getBetaAudienceMembership(segment: BetaAudienceSegment) {
+export async function getBetaAudienceMembership(
+  segment: BetaAudienceSegment,
+  input?: { customSubscriberIds?: string[] },
+) {
   if (segment === "all") {
     return null;
   }
 
   const applications = await scanEffectiveBetaApplications();
+  const customIds = new Set(input?.customSubscriberIds || []);
   const filtered = applications.filter((application) =>
-    segment === "priority"
+    segment === "custom"
+      ? customIds.has(application.id)
+      : segment === "priority"
       ? application.priority_beta
       : !application.priority_beta,
   );

@@ -105,6 +105,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
     audienceSegment: record.audience_segment || "all",
+    customAudienceSubscriberIds: record.custom_audience_subscriber_ids || [],
     readiness: campaignReadinessResponse(record),
     isPinned: record.is_pinned || false,
     pinnedAt: record.pinned_at || null,
@@ -176,6 +177,10 @@ export async function PATCH(
       updated = await updateEmailCampaignAudienceSegment({
         id,
         audience_segment: submission.audienceSegment,
+        custom_audience_subscriber_ids:
+          submission.audienceSegment === "custom"
+            ? submission.customAudienceSubscriberIds
+            : [],
         expectedVersion: submission.expectedVersion,
         now,
         updated_by: admin.identifier,

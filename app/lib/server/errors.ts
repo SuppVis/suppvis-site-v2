@@ -48,12 +48,21 @@ export function publicErrorResponse(
 
 export function handleApiError(error: unknown) {
   if (error instanceof ZodError) {
+    const flattened = error.flatten();
+    const firstFieldMessage = Object.values(flattened.fieldErrors)
+      .flat()
+      .find((message): message is string => Boolean(message));
+    const firstFormMessage = flattened.formErrors.find(Boolean);
+
     return NextResponse.json(
       {
         ok: false,
         code: "invalid_submission",
-        message: "Please check the form and try again.",
-        fieldErrors: error.flatten().fieldErrors,
+        message:
+          firstFieldMessage ||
+          firstFormMessage ||
+          "Please check the form and try again.",
+        fieldErrors: flattened.fieldErrors,
       },
       { status: 400 },
     );

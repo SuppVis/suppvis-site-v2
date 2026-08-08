@@ -117,9 +117,29 @@ export async function POST(
       );
     }
 
+    const audienceSegment = campaign.audience_segment || "all";
+    const customAudienceSubscriberIds =
+      audienceSegment === "custom"
+        ? campaign.custom_audience_subscriber_ids || []
+        : [];
+
+    if (audienceSegment === "custom" && !customAudienceSubscriberIds.length) {
+      throw new PublicApiError(
+        400,
+        "custom_audience_empty",
+        "Select at least one custom recipient before sending.",
+      );
+    }
+
     const [emailAudienceResult, smsAudienceResult] = await Promise.allSettled([
-      buildCampaignAudience({ audienceSegment: campaign.audience_segment || "all" }),
-      buildSmsCampaignAudience({ audienceSegment: campaign.audience_segment || "all" }),
+      buildCampaignAudience({
+        audienceSegment,
+        customSubscriberIds: customAudienceSubscriberIds,
+      }),
+      buildSmsCampaignAudience({
+        audienceSegment,
+        customSubscriberIds: customAudienceSubscriberIds,
+      }),
     ]);
     const emailAudience =
       emailAudienceResult.status === "fulfilled"
@@ -363,12 +383,13 @@ export async function POST(
         action: "campaign_queued",
         adminIdentifier: admin.identifier,
         campaignId: id,
-        status: `audience=${betaAudienceSegmentAuditValue(campaign.audience_segment || "all")} email=${queuedEmailCount} sms=${queuedSmsCount}`,
+        status: `audience=${betaAudienceSegmentAuditValue(audienceSegment)} email=${queuedEmailCount} sms=${queuedSmsCount}`,
       });
 
       console.info("[admin-email] production queue completed", {
         campaignId: id,
-        audienceSegment: campaign.audience_segment || "all",
+        audienceSegment,
+        customAudienceCount: customAudienceSubscriberIds.length,
         emailEligible: emailAudience.eligibleCount,
         emailExcluded: emailAudience.excludedCount,
         emailQueued: queuedEmailCount,

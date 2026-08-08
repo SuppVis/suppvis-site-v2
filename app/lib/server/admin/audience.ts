@@ -179,12 +179,19 @@ function smsChannel(audience: SmsCampaignAudience): AudienceChannelSnapshot {
 
 export async function buildAudienceSnapshot(input?: {
   audienceSegment?: BetaAudienceSegment;
+  customSubscriberIds?: string[];
 }) {
   const audienceSegment = input?.audienceSegment || "all";
   const countedAt = new Date().toISOString();
   const [emailResult, smsResult] = await Promise.allSettled([
-    buildCampaignAudience({ audienceSegment }),
-    buildSmsCampaignAudience({ audienceSegment }),
+    buildCampaignAudience({
+      audienceSegment,
+      customSubscriberIds: input?.customSubscriberIds,
+    }),
+    buildSmsCampaignAudience({
+      audienceSegment,
+      customSubscriberIds: input?.customSubscriberIds,
+    }),
   ]);
 
   const email =

@@ -1,9 +1,10 @@
-export type BetaAudienceSegment = "all" | "priority" | "standard";
+export type BetaAudienceSegment = "all" | "priority" | "standard" | "custom";
 
 export const BETA_AUDIENCE_SEGMENTS: BetaAudienceSegment[] = [
   "all",
   "priority",
   "standard",
+  "custom",
 ];
 
 export const DEFAULT_PRIORITY_BETA_LIMIT = 300;
@@ -25,7 +26,9 @@ export function getPriorityBetaLimit() {
 export function normalizeBetaAudienceSegment(
   value: unknown,
 ): BetaAudienceSegment {
-  return value === "priority" || value === "standard" ? value : "all";
+  return value === "priority" || value === "standard" || value === "custom"
+    ? value
+    : "all";
 }
 
 export function betaAudienceSegmentLabel(segment: BetaAudienceSegment) {
@@ -37,10 +40,18 @@ export function betaAudienceSegmentLabel(segment: BetaAudienceSegment) {
     return "Standard beta subscribers";
   }
 
+  if (segment === "custom") {
+    return "Custom recipients";
+  }
+
   return "All beta subscribers";
 }
 
 export function betaAudienceSegmentAuditValue(segment: BetaAudienceSegment) {
+  if (segment === "custom") {
+    return "custom_beta";
+  }
+
   return segment === "all" ? "all_beta" : `${segment}_beta`;
 }
 

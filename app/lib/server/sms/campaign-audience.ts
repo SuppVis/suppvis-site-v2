@@ -67,10 +67,12 @@ function decideSmsAnnouncementEligibility(
 
 export async function buildSmsCampaignAudience(input?: {
   audienceSegment?: BetaAudienceSegment;
+  customSubscriberIds?: string[];
 }): Promise<SmsCampaignAudience> {
   const subscribers = await listSmsSubscribersForAnnouncement();
   const membership = await getBetaAudienceMembership(
     input?.audienceSegment || "all",
+    { customSubscriberIds: input?.customSubscriberIds },
   );
   const seenPhones = new Set<string>();
   const candidates = subscribers.map((subscriber) => ({

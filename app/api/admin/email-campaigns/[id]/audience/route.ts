@@ -57,6 +57,7 @@ function audienceCampaignResponse(record: EmailCampaignRecord) {
     audienceLastErrorCode: record.audience_last_error_code || null,
     audienceLastErrorAt: record.audience_last_error_at || null,
     audienceSegment: record.audience_segment || "all",
+    customAudienceSubscriberIds: record.custom_audience_subscriber_ids || [],
     readiness: campaignReadinessResponse(record),
   };
 }
@@ -85,6 +86,8 @@ export async function POST(
     const audienceSegment = normalizeBetaAudienceSegment(
       submission.audienceSegment,
     );
+    const customAudienceSubscriberIds =
+      audienceSegment === "custom" ? submission.customAudienceSubscriberIds : [];
     const campaign = await getEmailCampaign(id);
     campaignForFailure = campaign;
 
@@ -132,14 +135,26 @@ export async function POST(
       );
     }
 
+    if (audienceSegment === "custom" && !customAudienceSubscriberIds.length) {
+      throw new PublicApiError(
+        400,
+        "custom_audience_empty",
+        "Select at least one custom recipient before refreshing counts.",
+      );
+    }
+
     console.info("[admin-email] audience refresh started", {
       campaignId: id,
       campaignVersion: campaign.version,
       audienceSegment,
+      customAudienceCount: customAudienceSubscriberIds.length,
     });
 
     const [snapshot, health] = await Promise.all([
-      buildAudienceSnapshot({ audienceSegment }),
+      buildAudienceSnapshot({
+        audienceSegment,
+        customSubscriberIds: customAudienceSubscriberIds,
+      }),
       buildAudienceHealth(),
     ]);
     console.info("[admin-email] audience channels completed", {
@@ -158,6 +173,7 @@ export async function POST(
       id,
       expectedVersion: campaign.version,
       audienceSegment,
+      customAudienceSubscriberIds,
       now: snapshot.countedAt,
       updated_by: admin.identifier,
       emailTotalCount: snapshot.email.totalCount,
