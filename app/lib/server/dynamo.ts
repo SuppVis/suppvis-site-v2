@@ -123,6 +123,32 @@ export function assertDynamoTablesConfigured(...envNames: string[]) {
   }
 }
 
+function dynamoKeyFingerprint(key: DynamoRecord) {
+  return JSON.stringify(
+    Object.keys(key)
+      .sort()
+      .map((name) => [name, key[name]]),
+  );
+}
+
+export function dedupeDynamoBatchGetKeys(keys: DynamoRecord[]) {
+  const seen = new Set<string>();
+  const uniqueKeys: DynamoRecord[] = [];
+
+  for (const key of keys) {
+    const fingerprint = dynamoKeyFingerprint(key);
+
+    if (seen.has(fingerprint)) {
+      continue;
+    }
+
+    seen.add(fingerprint);
+    uniqueKeys.push(key);
+  }
+
+  return uniqueKeys;
+}
+
 function definedEntries(record: DynamoRecord) {
   return Object.entries(record).filter(([, value]) => value !== undefined);
 }
@@ -485,9 +511,10 @@ export async function batchGetDynamoItems(input: {
 }) {
   const tableName = getRequiredTableName(input.tableEnvName);
   const items: DynamoRecord[] = [];
+  const keys = dedupeDynamoBatchGetKeys(input.keys);
 
-  for (let index = 0; index < input.keys.length; index += 100) {
-    let requestKeys = input.keys.slice(index, index + 100);
+  for (let index = 0; index < keys.length; index += 100) {
+    let requestKeys = keys.slice(index, index + 100);
 
     do {
       try {
