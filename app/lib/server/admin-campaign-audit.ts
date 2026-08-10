@@ -3,6 +3,7 @@ import { saveBroadcastAudit } from "./persistence";
 
 export type AdminCampaignAuditAction =
   | "draft_created"
+  | "draft_reused"
   | "draft_updated"
   | "draft_deleted"
   | "preview_generated"

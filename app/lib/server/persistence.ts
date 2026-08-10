@@ -478,8 +478,11 @@ export type EmailCampaignRecipientRecord = {
   delivered_at?: string;
   delivery_delay_at?: string;
   bounced_at?: string;
+  bounce_type?: string;
   complained_at?: string;
+  complaint_feedback_type?: string;
   rejected_at?: string;
+  reject_reason?: string;
   failed_at?: string;
   retry_count: number;
   safe_failure_code?: string;
@@ -965,8 +968,13 @@ function emailCampaignRecipientFromAttributes(
     delivered_at: stringAttribute(attributes?.delivered_at),
     delivery_delay_at: stringAttribute(attributes?.delivery_delay_at),
     bounced_at: stringAttribute(attributes?.bounced_at),
+    bounce_type: stringAttribute(attributes?.bounce_type),
     complained_at: stringAttribute(attributes?.complained_at),
+    complaint_feedback_type: stringAttribute(
+      attributes?.complaint_feedback_type,
+    ),
     rejected_at: stringAttribute(attributes?.rejected_at),
+    reject_reason: stringAttribute(attributes?.reject_reason),
     failed_at: stringAttribute(attributes?.failed_at),
     retry_count: numberAttribute(attributes?.retry_count) || 0,
     safe_failure_code: stringAttribute(attributes?.safe_failure_code),

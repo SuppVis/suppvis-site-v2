@@ -392,6 +392,7 @@ type BusyAction =
   | "pin"
   | "preview"
   | "refresh"
+  | "reuse"
   | "saveEmail"
   | "saveSms"
   | "sentHistory"
@@ -4048,6 +4049,66 @@ export default function AdminCampaignDraft({
     }
   }
 
+  async function reuseSentAnnouncement(id: string) {
+    if (isBusy) {
+      return;
+    }
+
+    setBusyAction("reuse");
+    setMessage(null);
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/email-campaigns/${id}/reuse`,
+        {
+          method: "POST",
+        },
+      );
+      const payload = await parseJsonResponse(response);
+      const loadedForm = campaignToForm(payload.campaign);
+      const loadedAudience = audienceFromCampaign(payload.campaign);
+
+      setCampaign(payload.campaign);
+      setAudienceSegment(payload.campaign?.audienceSegment || "all");
+      setCustomAudienceSelection(payload.campaign?.customAudienceSubscriberIds);
+      setAudience(loadedAudience);
+      setAudienceRefreshError(audienceRefreshWarning(loadedAudience));
+      setForm(loadedForm);
+      setEmailPreviewSnapshot(loadedForm);
+      setFieldErrors({});
+      setPreview(null);
+      setProgress(null);
+      setSmsPreview(null);
+      setSmsPreviewSnapshot(loadedForm.smsBody);
+      setEmailPreviewOutdated(false);
+      setSmsPreviewOutdated(false);
+      setSmsTestReadiness(null);
+      setSentHistoryOpen(false);
+      setStartPhrase("");
+      setWorkflowStarted(true);
+      setMessage({
+        tone: "success",
+        text:
+          "Reusable draft created from the sent announcement. Refresh recipient counts before sending.",
+      });
+      await Promise.all([
+        refreshDrafts(),
+        refreshSmsTestReadiness(payload.campaign),
+      ]);
+      delayedScrollToElement(emailWorkspaceRef, { block: "center" });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Could not reuse announcement.",
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function deleteDraft(target: CampaignDraft) {
     if (!canDeleteDraft(target)) {
       setMessage({
@@ -6001,7 +6062,7 @@ export default function AdminCampaignDraft({
         </div>
 
         <form
-          className="mt-4 space-y-3"
+          className="mx-auto mt-4 flex w-full max-w-3xl flex-col gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             setSubscriberPage(1);
@@ -6009,7 +6070,7 @@ export default function AdminCampaignDraft({
             setSubscriberSuggestionsOpen(false);
           }}
         >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[180px_190px_180px]">
+          <div className="grid w-full gap-3 sm:grid-cols-3">
             <AdminSelect
               label="Priority filter"
               value={subscriberPriorityFilter}
@@ -6045,7 +6106,7 @@ export default function AdminCampaignDraft({
             />
           </div>
 
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
             <label className="relative block flex-1">
               <span className="sr-only">Search beta subscribers</span>
               <input
@@ -6161,7 +6222,7 @@ export default function AdminCampaignDraft({
           </div>
         </form>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted">
+        <div className="mx-auto mt-3 flex w-full max-w-3xl flex-col items-center justify-between gap-3 text-center text-xs text-text-muted sm:flex-row sm:text-left">
           <span>
             {subscriberTotalCount
               ? `Showing ${subscriberRangeStart}-${subscriberRangeEnd} of ${subscriberTotalCount} subscribers`
@@ -8058,12 +8119,11 @@ export default function AdminCampaignDraft({
                     <div className="mt-3 flex flex-wrap gap-2">
                       <SecondaryButton
                         disabled={isBusy}
-                        onClick={() => {
-                          setSentHistoryOpen(false);
-                          loadDraft(item.id);
-                        }}
+                        onClick={() => reuseSentAnnouncement(item.id)}
                       >
-                        Open details
+                        {busyAction === "reuse"
+                          ? "Creating draft..."
+                          : "Reuse announcement"}
                       </SecondaryButton>
                     </div>
                   </article>

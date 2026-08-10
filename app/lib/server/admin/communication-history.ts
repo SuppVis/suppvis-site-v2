@@ -305,6 +305,24 @@ function safeFailureReason(row: EmailCampaignRecipientRecord) {
     return row.safe_failure_code;
   }
 
+  if (row.status === "bounced") {
+    return row.bounce_type
+      ? `Email bounced: ${row.bounce_type}`
+      : "Email bounced";
+  }
+
+  if (row.status === "complained") {
+    return row.complaint_feedback_type
+      ? `Email complaint: ${row.complaint_feedback_type}`
+      : "Email complaint";
+  }
+
+  if (row.status === "rejected") {
+    return row.reject_reason
+      ? `Email rejected: ${row.reject_reason}`
+      : "Email rejected by provider";
+  }
+
   if (row.twilio_error_code) {
     return `Twilio error ${row.twilio_error_code}`;
   }
@@ -326,8 +344,13 @@ function channelFromRecipient(
   const providerStatus =
     channel === "sms"
       ? row.twilio_provider_status || null
-      : row.ses_message_id
-        ? "accepted"
+      : row.status === "bounced" ||
+        row.status === "complained" ||
+        row.status === "rejected" ||
+        row.status === "delivery_delayed"
+        ? row.status
+        : row.ses_message_id
+          ? "accepted"
         : null;
   const failureReason = safeFailureReason(row);
 
