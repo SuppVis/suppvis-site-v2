@@ -70,7 +70,7 @@ function buildPublicAssetUrl(path: string, appBaseUrl?: string) {
 function bodyParagraphs(body: string) {
   return body
     .trim()
-    .split(/\n{2,}/)
+    .split(/\n+/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 }

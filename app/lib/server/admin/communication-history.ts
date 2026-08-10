@@ -20,15 +20,22 @@ export type SubscriberCommunicationStatus =
   | "sent"
   | "skipped";
 
-export type SubscriberCommunicationHistoryItem = {
-  campaignId?: string;
+export type SubscriberCommunicationHistoryChannel = {
   channel: SubscriberCommunicationChannel;
   deliveredAt: string | null;
   failureCode: string | null;
   failureReason: string | null;
-  id: string;
   providerMessageId: string | null;
   providerStatus: string | null;
+  sortTimestamp: string;
+  status: SubscriberCommunicationStatus;
+  statusLabel: string;
+};
+
+export type SubscriberCommunicationHistoryItem = {
+  campaignId?: string;
+  channels: SubscriberCommunicationHistoryChannel[];
+  id: string;
   sortTimestamp: string;
   status: SubscriberCommunicationStatus;
   statusLabel: string;
@@ -81,12 +88,8 @@ type CampaignRecipientIndex = {
   smsBySubscriberId: Map<string, EmailCampaignRecipientRecord[]>;
 };
 
-const FAILURE_STATUSES = new Set([
-  "bounced",
-  "complained",
-  "failed",
-  "rejected",
-]);
+const WELCOME_CHANNEL_GROUP_WINDOW_MS = 30 * 60 * 1000;
+const UNKNOWN_TIMESTAMP = new Date(0).toISOString();
 
 function emailSubscriberId(profile: SubscriberCommunicationProfile) {
   return stableId("email", profile.email.trim().toLowerCase());
@@ -141,22 +144,160 @@ function recipientStatus(row: EmailCampaignRecipientRecord): SubscriberCommunica
   return row.status;
 }
 
-function communicationAttempted(status: SubscriberCommunicationStatus) {
-  return status !== "skipped";
+function channelAttempted(channel: SubscriberCommunicationHistoryChannel) {
+  return channel.status !== "skipped";
 }
 
-function communicationSuccessful(status: SubscriberCommunicationStatus) {
-  return status === "accepted" || status === "sent" || status === "delivered";
+function channelSuccessful(channel: SubscriberCommunicationHistoryChannel) {
+  return (
+    channel.status === "accepted" ||
+    channel.status === "sent" ||
+    channel.status === "delivered"
+  );
+}
+
+function channelIssue(channel: SubscriberCommunicationHistoryChannel) {
+  return (
+    channel.status === "bounced" ||
+    channel.status === "complained" ||
+    channel.status === "failed" ||
+    channel.status === "rejected" ||
+    Boolean(channel.failureCode)
+  );
+}
+
+function communicationAttempted(item: SubscriberCommunicationHistoryItem) {
+  return item.channels.some(channelAttempted);
+}
+
+function communicationSuccessful(item: SubscriberCommunicationHistoryItem) {
+  return item.channels.some(channelSuccessful);
 }
 
 function communicationIssue(item: SubscriberCommunicationHistoryItem) {
+  return item.channels.some(channelIssue);
+}
+
+function itemIssueSummary(item: SubscriberCommunicationHistoryItem) {
+  const issue = item.channels.find(channelIssue);
+
+  return issue?.failureReason || issue?.failureCode || issue?.statusLabel || null;
+}
+
+function aggregateStatus(
+  channels: SubscriberCommunicationHistoryChannel[],
+): SubscriberCommunicationStatus {
+  const attempted = channels.filter(channelAttempted);
+
+  if (!attempted.length) {
+    return "skipped";
+  }
+
+  if (attempted.some(channelIssue)) {
+    const issue = attempted.find(channelIssue);
+    return issue?.status === "sent" || issue?.status === "accepted"
+      ? "failed"
+      : issue?.status || "failed";
+  }
+
+  if (attempted.every((channel) => channel.status === "delivered")) {
+    return "delivered";
+  }
+
+  if (attempted.some((channel) => channel.status === "delivered")) {
+    return "delivered";
+  }
+
+  if (attempted.some((channel) => channel.status === "sent")) {
+    return "sent";
+  }
+
+  if (attempted.some((channel) => channel.status === "accepted")) {
+    return "accepted";
+  }
+
+  return attempted[0]?.status || "queued";
+}
+
+function aggregateStatusLabel(
+  channels: SubscriberCommunicationHistoryChannel[],
+) {
+  if (channels.some(channelIssue)) {
+    return "Delivery issue";
+  }
+
+  const attempted = channels.filter(channelAttempted);
+
+  if (!attempted.length) {
+    return "Skipped";
+  }
+
+  if (attempted.every((channel) => channel.status === "delivered")) {
+    return "Delivered";
+  }
+
+  if (attempted.some((channel) => channel.status === "delivered")) {
+    return "Partially delivered";
+  }
+
+  return statusLabel(aggregateStatus(channels), attempted[0]?.channel || "email");
+}
+
+function newestTimestamp(channels: SubscriberCommunicationHistoryChannel[]) {
   return (
-    item.status === "bounced" ||
-    item.status === "complained" ||
-    item.status === "failed" ||
-    item.status === "rejected" ||
-    Boolean(item.failureCode)
+    channels
+      .map((channel) => channel.sortTimestamp)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || UNKNOWN_TIMESTAMP
   );
+}
+
+function timestampMs(timestamp: string | null | undefined) {
+  const value = Date.parse(timestamp || "");
+
+  return Number.isFinite(value) ? value : null;
+}
+
+function sameWelcomeEvent(
+  email: SubscriberCommunicationHistoryChannel,
+  sms: SubscriberCommunicationHistoryChannel,
+) {
+  const emailMs = timestampMs(email.sortTimestamp);
+  const smsMs = timestampMs(sms.sortTimestamp);
+
+  if (emailMs === null || smsMs === null) {
+    return true;
+  }
+
+  if (email.sortTimestamp === UNKNOWN_TIMESTAMP || sms.sortTimestamp === UNKNOWN_TIMESTAMP) {
+    return true;
+  }
+
+  return Math.abs(emailMs - smsMs) <= WELCOME_CHANNEL_GROUP_WINDOW_MS;
+}
+
+function communicationItem(input: {
+  campaignId?: string;
+  channels: SubscriberCommunicationHistoryChannel[];
+  id: string;
+  title: string;
+  type: SubscriberCommunicationHistoryItem["type"];
+}): SubscriberCommunicationHistoryItem {
+  const channels = input.channels.sort((left, right) =>
+    left.channel.localeCompare(right.channel),
+  );
+
+  return {
+    campaignId: input.campaignId,
+    channels,
+    id: input.id,
+    sortTimestamp: newestTimestamp(channels),
+    status: aggregateStatus(channels),
+    statusLabel: aggregateStatusLabel(channels),
+    title: input.title,
+    type: input.type,
+  };
 }
 
 function safeFailureReason(row: EmailCampaignRecipientRecord) {
@@ -175,10 +316,9 @@ function safeFailureReason(row: EmailCampaignRecipientRecord) {
   return null;
 }
 
-function itemFromRecipient(
-  campaign: EmailCampaignSummary | undefined,
+function channelFromRecipient(
   row: EmailCampaignRecipientRecord,
-): SubscriberCommunicationHistoryItem {
+): SubscriberCommunicationHistoryChannel {
   const channel = row.channel === "sms" ? "sms" : "email";
   const status = recipientStatus(row);
   const providerMessageId =
@@ -192,29 +332,22 @@ function itemFromRecipient(
   const failureReason = safeFailureReason(row);
 
   return {
-    campaignId: row.campaign_id,
     channel,
     deliveredAt: row.delivered_at || null,
     failureCode: row.twilio_error_code || row.safe_failure_code || null,
     failureReason,
-    id: `${row.campaign_id}:${channel}:${row.subscriber_id}`,
     providerMessageId,
     providerStatus,
     sortTimestamp: recipientTimestamp(row),
     status,
     statusLabel: statusLabel(status, channel),
-    title: campaign?.subject || "Admin announcement",
-    type: "announcement",
   };
 }
 
-function trackedEmailItem(input: {
-  id: string;
+function trackedEmailChannel(input: {
   messageId: string | null | undefined;
   sentAt: string | null | undefined;
-  title: string;
-  type: "welcome" | "resubscribe" | "unsubscribe_confirmation";
-}): SubscriberCommunicationHistoryItem | null {
+}): SubscriberCommunicationHistoryChannel | null {
   if (!input.sentAt && !input.messageId) {
     return null;
   }
@@ -226,20 +359,17 @@ function trackedEmailItem(input: {
     deliveredAt: null,
     failureCode: null,
     failureReason: null,
-    id: input.id,
     providerMessageId: input.messageId || null,
     providerStatus: input.messageId ? "accepted" : null,
     sortTimestamp: timestamp,
     status: "accepted" as const,
     statusLabel: "Accepted by SES",
-    title: input.title,
-    type: input.type,
   };
 }
 
-function trackedSmsItem(
+function trackedSmsChannel(
   profile: SubscriberCommunicationProfile,
-): SubscriberCommunicationHistoryItem | null {
+): SubscriberCommunicationHistoryChannel | null {
   const sentAt = profile.smsDelivery.welcomeSmsSentAt;
   const messageSid = profile.smsDelivery.welcomeSmsMessageSid || profile.smsDelivery.lastSmsMessageSid;
 
@@ -265,15 +395,12 @@ function trackedSmsItem(
     deliveredAt: status === "delivered" ? sentAt || null : null,
     failureCode: profile.smsDelivery.lastSmsErrorCode || null,
     failureReason: profile.smsDelivery.lastSmsErrorMessageSafe || null,
-    id: `${profile.id}:welcome-sms`,
     providerMessageId: messageSid || null,
     providerStatus: providerStatus || null,
-    sortTimestamp: sentAt || new Date(0).toISOString(),
+    sortTimestamp: sentAt || UNKNOWN_TIMESTAMP,
     status,
     statusLabel: statusLabel(status, "sms"),
-    title: "Beta welcome text",
-    type: "welcome" as const,
-  } satisfies SubscriberCommunicationHistoryItem;
+  };
 }
 
 async function getCampaignRecipientIndex(): Promise<CampaignRecipientIndex> {
@@ -307,34 +434,126 @@ async function getCampaignRecipientIndex(): Promise<CampaignRecipientIndex> {
 
 function baseHistoryItems(profile: SubscriberCommunicationProfile) {
   const email = profile.emailDelivery;
-  const items = [
-    trackedEmailItem({
-      id: `${profile.id}:welcome-email`,
-      messageId: email.welcomeEmailMessageId || email.lastEmailMessageId,
-      sentAt: email.welcomeEmailSentAt,
-      title: "Beta welcome email",
-      type: "welcome",
-    }),
-    trackedEmailItem({
-      id: `${profile.id}:resubscribe-email`,
-      messageId: email.resubscribeEmailMessageId,
-      sentAt: email.resubscribeEmailSentAt,
-      title: "Email resubscribe confirmation",
-      type: "resubscribe",
-    }),
-    trackedEmailItem({
-      id: `${profile.id}:unsubscribe-confirmation-email`,
-      messageId: email.unsubscribeConfirmationEmailMessageId,
-      sentAt: email.unsubscribeConfirmationEmailSentAt,
-      title: "Email unsubscribe confirmation",
-      type: "unsubscribe_confirmation",
-    }),
-    trackedSmsItem(profile),
-  ];
+  const items: SubscriberCommunicationHistoryItem[] = [];
+  const welcomeEmailChannel = trackedEmailChannel({
+    messageId: email.welcomeEmailMessageId,
+    sentAt: email.welcomeEmailSentAt,
+  });
+  const welcomeSmsChannel = trackedSmsChannel(profile);
 
-  return items.filter(
-    (item): item is SubscriberCommunicationHistoryItem => Boolean(item),
-  );
+  if (
+    welcomeEmailChannel &&
+    welcomeSmsChannel &&
+    sameWelcomeEvent(welcomeEmailChannel, welcomeSmsChannel)
+  ) {
+    items.push(
+      communicationItem({
+        channels: [welcomeEmailChannel, welcomeSmsChannel],
+        id: `${profile.id}:welcome`,
+        title: "Beta welcome",
+        type: "welcome",
+      }),
+    );
+  } else {
+    if (welcomeEmailChannel) {
+      items.push(
+        communicationItem({
+          channels: [welcomeEmailChannel],
+          id: `${profile.id}:welcome-email`,
+          title: "Beta welcome email",
+          type: "welcome",
+        }),
+      );
+    }
+
+    if (welcomeSmsChannel) {
+      items.push(
+        communicationItem({
+          channels: [welcomeSmsChannel],
+          id: `${profile.id}:welcome-sms`,
+          title: "Beta welcome text",
+          type: "welcome",
+        }),
+      );
+    }
+  }
+
+  const resubscribeChannel = trackedEmailChannel({
+    messageId: email.resubscribeEmailMessageId,
+    sentAt: email.resubscribeEmailSentAt,
+  });
+
+  if (resubscribeChannel) {
+    items.push(
+      communicationItem({
+        channels: [resubscribeChannel],
+        id: `${profile.id}:resubscribe-email`,
+        title: "Email resubscribe confirmation",
+        type: "resubscribe",
+      }),
+    );
+  }
+
+  const unsubscribeChannel = trackedEmailChannel({
+    messageId: email.unsubscribeConfirmationEmailMessageId,
+    sentAt: email.unsubscribeConfirmationEmailSentAt,
+  });
+
+  if (unsubscribeChannel) {
+    items.push(
+      communicationItem({
+        channels: [unsubscribeChannel],
+        id: `${profile.id}:unsubscribe-confirmation-email`,
+        title: "Email unsubscribe confirmation",
+        type: "unsubscribe_confirmation",
+      }),
+    );
+  }
+
+  return items;
+}
+
+function announcementItemsFromRows(
+  profile: SubscriberCommunicationProfile,
+  index: CampaignRecipientIndex,
+  rows: EmailCampaignRecipientRecord[],
+) {
+  const byCampaign = new Map<
+    string,
+    Map<SubscriberCommunicationChannel, SubscriberCommunicationHistoryChannel>
+  >();
+
+  for (const row of rows) {
+    const campaignChannels =
+      byCampaign.get(row.campaign_id) ||
+      new Map<
+        SubscriberCommunicationChannel,
+        SubscriberCommunicationHistoryChannel
+      >();
+    const channel = channelFromRecipient(row);
+    const existing = campaignChannels.get(channel.channel);
+
+    if (
+      !existing ||
+      channel.sortTimestamp.localeCompare(existing.sortTimestamp) >= 0
+    ) {
+      campaignChannels.set(channel.channel, channel);
+    }
+
+    byCampaign.set(row.campaign_id, campaignChannels);
+  }
+
+  return [...byCampaign.entries()].map(([campaignId, channelMap]) => {
+    const campaign = index.campaignById.get(campaignId);
+
+    return communicationItem({
+      campaignId,
+      channels: [...channelMap.values()],
+      id: `${profile.id}:announcement:${campaignId}`,
+      title: campaign?.subject || "Admin announcement",
+      type: "announcement",
+    });
+  });
 }
 
 function buildHistoryFromIndex(
@@ -343,15 +562,14 @@ function buildHistoryFromIndex(
 ) {
   const emailId = emailSubscriberId(profile);
   const smsId = smsSubscriberId(profile);
-  const items = baseHistoryItems(profile);
   const campaignRows = [
     ...(index.emailBySubscriberId.get(emailId) || []),
     ...(smsId ? index.smsBySubscriberId.get(smsId) || [] : []),
   ];
-
-  for (const row of campaignRows) {
-    items.push(itemFromRecipient(index.campaignById.get(row.campaign_id), row));
-  }
+  const items = [
+    ...baseHistoryItems(profile),
+    ...announcementItemsFromRows(profile, index, campaignRows),
+  ];
 
   const unique = new Map<string, SubscriberCommunicationHistoryItem>();
   for (const item of items) {
@@ -366,16 +584,14 @@ function buildHistoryFromIndex(
 export function summarizeCommunicationHistory(
   items: SubscriberCommunicationHistoryItem[],
 ): SubscriberCommunicationStats {
-  const attempted = items.filter((item) => communicationAttempted(item.status));
-  const successfulCount = attempted.filter((item) =>
-    communicationSuccessful(item.status),
-  ).length;
+  const attempted = items.filter(communicationAttempted);
+  const successfulCount = attempted.filter(communicationSuccessful).length;
   const issues = items.filter(communicationIssue);
 
   return {
     deliveryIssueCount: issues.length,
     hasDeliveryIssue: issues.length > 0,
-    issueSummary: issues[0]?.failureReason || issues[0]?.statusLabel || null,
+    issueSummary: issues[0] ? itemIssueSummary(issues[0]) : null,
     lastCommunicationAt: attempted[0]?.sortTimestamp || null,
     successfulCount,
     totalAttempts: attempted.length,

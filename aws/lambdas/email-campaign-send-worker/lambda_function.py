@@ -77,7 +77,7 @@ def unsubscribe_url(subscriber):
 
 
 def paragraphs(body):
-    return [part.strip() for part in re.split(r"\n{2,}", str(body or "").strip()) if part.strip()]
+    return [part.strip() for part in re.split(r"\n+", str(body or "").strip()) if part.strip()]
 
 
 def paragraph_html(copy):

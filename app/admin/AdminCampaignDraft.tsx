@@ -298,15 +298,22 @@ type SubscriberCommunicationStats = {
   totalAttempts: number;
 };
 
-type SubscriberCommunicationHistoryItem = {
-  campaignId?: string;
+type SubscriberCommunicationHistoryChannel = {
   channel: "email" | "sms";
   deliveredAt: string | null;
   failureCode: string | null;
   failureReason: string | null;
-  id: string;
   providerMessageId: string | null;
   providerStatus: string | null;
+  sortTimestamp: string;
+  status: string;
+  statusLabel: string;
+};
+
+type SubscriberCommunicationHistoryItem = {
+  campaignId?: string;
+  channels: SubscriberCommunicationHistoryChannel[];
+  id: string;
   sortTimestamp: string;
   status: string;
   statusLabel: string;
@@ -460,8 +467,8 @@ const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
   { label: "Signup order", value: "signup_order_asc" },
   { label: "Newest first", value: "newest" },
   { label: "Name A-Z", value: "name_asc" },
-  { label: "Most communications", value: "communications_desc" },
-  { label: "Least communications", value: "communications_asc" },
+  { label: "Most communication events", value: "communications_desc" },
+  { label: "Least communication events", value: "communications_asc" },
 ];
 const MESSAGE_TYPE_OPTIONS: Array<
   AdminSelectOption<FormValues["messageType"]>
@@ -896,6 +903,10 @@ function communicationTypeLabel(type: SubscriberCommunicationHistoryItem["type"]
   return "Announcement";
 }
 
+function communicationChannelLabel(channel: SubscriberCommunicationHistoryChannel["channel"]) {
+  return channel === "sms" ? "Text" : "Email";
+}
+
 function phoneDisplay(subscriber: AdminBetaSubscriber) {
   const value = subscriber.phoneE164 || subscriber.phoneRaw;
 
@@ -1127,7 +1138,7 @@ function escapeHtml(value: string) {
 function localParagraphs(body: string) {
   return body
     .trim()
-    .split(/\n{2,}/)
+    .split(/\n+/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
 }
@@ -1263,29 +1274,38 @@ function placementFromValue(value: string): CampaignLinkPlacement {
   return { type: "after_body" };
 }
 
-function placementOptions(body: string, currentPlacement?: CampaignLinkPlacement) {
+function effectivePlacementValue(
+  placement: CampaignLinkPlacement,
+  paragraphCount: number,
+) {
+  if (
+    placement.type === "after_paragraph" &&
+    placement.paragraphIndex > paragraphCount
+  ) {
+    return "after_body";
+  }
+
+  return placementValue(placement);
+}
+
+function paragraphOptionLabel(paragraph: string, index: number) {
+  const snippet =
+    paragraph.length > 54 ? `${paragraph.slice(0, 54).trimEnd()}...` : paragraph;
+
+  return `After paragraph ${index + 1} - ${snippet}`;
+}
+
+function placementOptions(body: string) {
   const paragraphs = localParagraphs(body);
-  const options = [
+  return [
     { label: "Before message body", value: "before_body" },
-    ...paragraphs.map((_, index) => ({
-      label: `After paragraph ${index + 1}`,
+    ...paragraphs.map((paragraph, index) => ({
+      label: paragraphOptionLabel(paragraph, index),
       value: `after_paragraph:${index + 1}`,
     })),
     { label: "After message body", value: "after_body" },
     { label: "Footer / bottom", value: "footer" },
   ];
-
-  if (
-    currentPlacement?.type === "after_paragraph" &&
-    currentPlacement.paragraphIndex > paragraphs.length
-  ) {
-    options.splice(-2, 0, {
-      label: `After deleted paragraph ${currentPlacement.paragraphIndex}`,
-      value: placementValue(currentPlacement),
-    });
-  }
-
-  return options;
 }
 
 function placementWarning(
@@ -1296,7 +1316,7 @@ function placementWarning(
     placement.type === "after_paragraph" &&
     placement.paragraphIndex > paragraphCount
   ) {
-    return `Paragraph ${placement.paragraphIndex} no longer exists. This link will send after the message body unless you choose a new placement.`;
+    return `Paragraph ${placement.paragraphIndex} no longer exists. This link now falls back to after the message body unless you choose a new placement.`;
   }
 
   return null;
@@ -5981,7 +6001,7 @@ export default function AdminCampaignDraft({
         </div>
 
         <form
-          className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_190px_auto] lg:items-center"
+          className="mt-4 space-y-3"
           onSubmit={(event) => {
             event.preventDefault();
             setSubscriberPage(1);
@@ -5989,150 +6009,156 @@ export default function AdminCampaignDraft({
             setSubscriberSuggestionsOpen(false);
           }}
         >
-          <label className="relative block">
-            <span className="sr-only">Search beta subscribers</span>
-            <input
-              aria-autocomplete="list"
-              aria-expanded={subscriberSuggestionsOpen}
-              aria-controls="subscriber-search-suggestions"
-              autoComplete="off"
-              value={subscriberSearchInput}
-              onBlur={() => {
-                window.setTimeout(() => setSubscriberSuggestionsOpen(false), 150);
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[180px_190px_180px]">
+            <AdminSelect
+              label="Priority filter"
+              value={subscriberPriorityFilter}
+              options={SUBSCRIBER_PRIORITY_FILTER_OPTIONS}
+              disabled={isBusy}
+              onChange={(next) => {
+                setSubscriberPriorityFilter(next);
+                setSubscriberPage(1);
+                setSubscriberSuggestionsOpen(false);
               }}
-              onChange={(event) => {
-                setSubscriberSearchInput(event.target.value);
-                setSubscriberSuggestionsOpen(Boolean(event.target.value.trim()));
-              }}
-              onFocus={() => {
-                if (subscriberSearchInput.trim()) {
-                  setSubscriberSuggestionsOpen(true);
-                }
-              }}
-              onKeyDown={(event) => {
-                if (!subscriberSuggestionsOpen) {
-                  return;
-                }
-
-                if (event.key === "Escape") {
-                  setSubscriberSuggestionsOpen(false);
-                  return;
-                }
-
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setSubscriberSuggestionIndex((index) =>
-                    Math.min(subscriberSuggestions.length - 1, index + 1),
-                  );
-                  return;
-                }
-
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setSubscriberSuggestionIndex((index) => Math.max(0, index - 1));
-                  return;
-                }
-
-                if (event.key === "Enter" && subscriberSuggestionIndex >= 0) {
-                  const suggestion = subscriberSuggestions[subscriberSuggestionIndex];
-
-                  if (suggestion) {
-                    event.preventDefault();
-                    setSubscriberSuggestionsOpen(false);
-                    openSubscriber(suggestion).catch(() => undefined);
-                  }
-                }
-              }}
-              placeholder="Search by name, email, or phone"
-              className="h-12 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-4 py-0 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
             />
-            {subscriberSuggestionsOpen ? (
-              <div
-                id="subscriber-search-suggestions"
-                role="listbox"
-                className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-[8px] border border-white/10 bg-[#080D12] p-1 shadow-2xl shadow-black/40"
-              >
-                {subscriberSuggestionsLoading ? (
-                  <div className="px-3 py-2 text-sm text-text-secondary">
-                    Searching...
-                  </div>
-                ) : subscriberSuggestions.length ? (
-                  subscriberSuggestions.map((suggestion, index) => (
-                    <button
-                      key={suggestion.id}
-                      type="button"
-                      role="option"
-                      aria-selected={index === subscriberSuggestionIndex}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setSubscriberSuggestionsOpen(false);
-                        openSubscriber(suggestion).catch(() => undefined);
-                      }}
-                      className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm transition ${
-                        index === subscriberSuggestionIndex
-                          ? "bg-accent/15 text-text-primary"
-                          : "text-text-secondary hover:bg-white/[0.05] hover:text-text-primary"
-                      }`}
-                    >
-                      <span className="block font-semibold text-text-primary">
-                        {suggestion.fullName}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-text-muted">
-                        {suggestion.email}
-                        {phoneDisplay(suggestion) !== "-"
-                          ? ` - ${phoneDisplay(suggestion)}`
-                          : ""}
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-3 py-2 text-sm text-text-secondary">
-                    No subscribers match.
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </label>
-          <AdminSelect
-            label="Priority filter"
-            value={subscriberPriorityFilter}
-            options={SUBSCRIBER_PRIORITY_FILTER_OPTIONS}
-            disabled={isBusy}
-            onChange={(next) => {
-              setSubscriberPriorityFilter(next);
-              setSubscriberPage(1);
-              setSubscriberSuggestionsOpen(false);
-            }}
-          />
-          <AdminSelect
-            label="Delivery filter"
-            value={subscriberDeliveryFilter}
-            options={SUBSCRIBER_DELIVERY_FILTER_OPTIONS}
-            disabled={isBusy}
-            onChange={(next) => {
-              setSubscriberDeliveryFilter(next);
-              setSubscriberPage(1);
-              setSubscriberSuggestionsOpen(false);
-            }}
-          />
-          <AdminSelect
-            label="Subscriber sort"
-            value={subscriberSort}
-            options={SUBSCRIBER_SORT_OPTIONS}
-            disabled={isBusy}
-            onChange={(next) => {
-              setSubscriberSort(next);
-              setSubscriberPage(1);
-              setSubscriberSuggestionsOpen(false);
-            }}
-          />
-          <button
-            type="submit"
-            disabled={isBusy}
-            className={`${primaryButtonClass("dark")} h-12 px-7 py-0`}
-          >
-            Search
-          </button>
+            <AdminSelect
+              label="Delivery filter"
+              value={subscriberDeliveryFilter}
+              options={SUBSCRIBER_DELIVERY_FILTER_OPTIONS}
+              disabled={isBusy}
+              onChange={(next) => {
+                setSubscriberDeliveryFilter(next);
+                setSubscriberPage(1);
+                setSubscriberSuggestionsOpen(false);
+              }}
+            />
+            <AdminSelect
+              label="Subscriber sort"
+              value={subscriberSort}
+              options={SUBSCRIBER_SORT_OPTIONS}
+              disabled={isBusy}
+              onChange={(next) => {
+                setSubscriberSort(next);
+                setSubscriberPage(1);
+                setSubscriberSuggestionsOpen(false);
+              }}
+            />
+          </div>
+
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-center">
+            <label className="relative block flex-1">
+              <span className="sr-only">Search beta subscribers</span>
+              <input
+                aria-autocomplete="list"
+                aria-expanded={subscriberSuggestionsOpen}
+                aria-controls="subscriber-search-suggestions"
+                autoComplete="off"
+                value={subscriberSearchInput}
+                onBlur={() => {
+                  window.setTimeout(() => setSubscriberSuggestionsOpen(false), 150);
+                }}
+                onChange={(event) => {
+                  setSubscriberSearchInput(event.target.value);
+                  setSubscriberSuggestionsOpen(Boolean(event.target.value.trim()));
+                }}
+                onFocus={() => {
+                  if (subscriberSearchInput.trim()) {
+                    setSubscriberSuggestionsOpen(true);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (!subscriberSuggestionsOpen) {
+                    return;
+                  }
+
+                  if (event.key === "Escape") {
+                    setSubscriberSuggestionsOpen(false);
+                    return;
+                  }
+
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setSubscriberSuggestionIndex((index) =>
+                      Math.min(subscriberSuggestions.length - 1, index + 1),
+                    );
+                    return;
+                  }
+
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setSubscriberSuggestionIndex((index) => Math.max(0, index - 1));
+                    return;
+                  }
+
+                  if (event.key === "Enter" && subscriberSuggestionIndex >= 0) {
+                    const suggestion =
+                      subscriberSuggestions[subscriberSuggestionIndex];
+
+                    if (suggestion) {
+                      event.preventDefault();
+                      setSubscriberSuggestionsOpen(false);
+                      openSubscriber(suggestion).catch(() => undefined);
+                    }
+                  }
+                }}
+                placeholder="Search by name, email, or phone"
+                className="h-12 w-full rounded-[8px] border border-white/10 bg-[#0D1117] px-4 py-0 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent"
+              />
+              {subscriberSuggestionsOpen ? (
+                <div
+                  id="subscriber-search-suggestions"
+                  role="listbox"
+                  className="absolute z-40 mt-2 max-h-72 w-full overflow-y-auto rounded-[8px] border border-white/10 bg-[#080D12] p-1 shadow-2xl shadow-black/40"
+                >
+                  {subscriberSuggestionsLoading ? (
+                    <div className="px-3 py-2 text-sm text-text-secondary">
+                      Searching...
+                    </div>
+                  ) : subscriberSuggestions.length ? (
+                    subscriberSuggestions.map((suggestion, index) => (
+                      <button
+                        key={suggestion.id}
+                        type="button"
+                        role="option"
+                        aria-selected={index === subscriberSuggestionIndex}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setSubscriberSuggestionsOpen(false);
+                          openSubscriber(suggestion).catch(() => undefined);
+                        }}
+                        className={`block w-full rounded-[6px] px-3 py-2 text-left text-sm transition ${
+                          index === subscriberSuggestionIndex
+                            ? "bg-accent/15 text-text-primary"
+                            : "text-text-secondary hover:bg-white/[0.05] hover:text-text-primary"
+                        }`}
+                      >
+                        <span className="block font-semibold text-text-primary">
+                          {suggestion.fullName}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-text-muted">
+                          {suggestion.email}
+                          {phoneDisplay(suggestion) !== "-"
+                            ? ` - ${phoneDisplay(suggestion)}`
+                            : ""}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-text-secondary">
+                      No subscribers match.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </label>
+            <button
+              type="submit"
+              disabled={isBusy}
+              className={`${primaryButtonClass("dark")} h-12 px-8 py-0 sm:min-w-36`}
+            >
+              Search
+            </button>
+          </div>
         </form>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-text-muted">
@@ -6199,7 +6225,7 @@ export default function AdminCampaignDraft({
                       <div className="font-semibold">{subscriber.fullName}</div>
                       <div className="mt-1 text-xs text-text-muted">
                         {stats.successfulCount} / {stats.totalAttempts}{" "}
-                        communications
+                        communication events
                       </div>
                       {stats.hasDeliveryIssue ? (
                         <span
@@ -6798,7 +6824,10 @@ export default function AdminCampaignDraft({
                             Placement
                           </span>
                           <select
-                            value={placementValue(link.placement)}
+                            value={effectivePlacementValue(
+                              link.placement,
+                              emailParagraphCount,
+                            )}
                             onChange={(event) =>
                               updateEmailLink(link.id, {
                                 placement: placementFromValue(event.target.value),
@@ -6807,13 +6836,11 @@ export default function AdminCampaignDraft({
                             disabled={isSendStarted}
                             className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm font-semibold text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {placementOptions(form.body, link.placement).map(
-                              (option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ),
-                            )}
+                            {placementOptions(form.body).map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
                           </select>
                           {warning ? (
                             <span className="mt-2 block text-xs leading-5 text-yellow-100">
@@ -7721,9 +7748,12 @@ export default function AdminCampaignDraft({
                   <article
                     key={item.id}
                     className={`rounded-[8px] border p-3 ${
-                      item.failureCode ||
-                      ["bounced", "complained", "failed", "rejected"].includes(
-                        item.status,
+                      item.channels.some(
+                        (channel) =>
+                          channel.failureCode ||
+                          ["bounced", "complained", "failed", "rejected"].includes(
+                            channel.status,
+                          ),
                       )
                         ? "border-red-400/25 bg-red-400/10"
                         : "border-white/10 bg-[#05090D]"
@@ -7739,15 +7769,12 @@ export default function AdminCampaignDraft({
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-xs font-semibold text-text-secondary">
-                          {item.channel === "sms" ? "Text" : "Email"}
-                        </span>
                         <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
                           {item.statusLabel}
                         </span>
                       </div>
                     </div>
-                    <dl className="mt-3 grid gap-2 text-xs text-text-muted sm:grid-cols-3">
+                    <dl className="mt-3 grid gap-2 text-xs text-text-muted sm:grid-cols-2">
                       <div>
                         <dt className="uppercase tracking-[0.12em]">When</dt>
                         <dd className="mt-1 text-text-secondary">
@@ -7755,27 +7782,70 @@ export default function AdminCampaignDraft({
                         </dd>
                       </div>
                       <div>
-                        <dt className="uppercase tracking-[0.12em]">
-                          Delivered
-                        </dt>
+                        <dt className="uppercase tracking-[0.12em]">Channels</dt>
                         <dd className="mt-1 text-text-secondary">
-                          {formatOptionalDate(item.deliveredAt)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="uppercase tracking-[0.12em]">Provider</dt>
-                        <dd className="mt-1 text-text-secondary">
-                          {item.providerStatus
-                            ? adminStatusLabel(item.providerStatus)
-                            : "-"}
+                          {item.channels
+                            .map((channel) =>
+                              communicationChannelLabel(channel.channel),
+                            )
+                            .join(" + ")}
                         </dd>
                       </div>
                     </dl>
-                    {item.failureReason || item.failureCode ? (
-                      <p className="mt-2 text-xs leading-5 text-red-100">
-                        {item.failureReason || item.failureCode}
-                      </p>
-                    ) : null}
+                    <div className="mt-3 space-y-2">
+                      {item.channels.map((channel) => {
+                        const hasIssue =
+                          channel.failureCode ||
+                          ["bounced", "complained", "failed", "rejected"].includes(
+                            channel.status,
+                          );
+
+                        return (
+                          <div
+                            key={`${item.id}:${channel.channel}`}
+                            className={`rounded-[6px] border px-3 py-2 text-xs ${
+                              hasIssue
+                                ? "border-red-400/25 bg-red-400/10 text-red-50"
+                                : "border-white/10 bg-[#080D12] text-text-secondary"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-semibold text-text-primary">
+                                {communicationChannelLabel(channel.channel)}
+                              </span>
+                              <span className="rounded-full border border-white/10 px-2 py-0.5 font-semibold">
+                                {channel.statusLabel}
+                              </span>
+                            </div>
+                            <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <dt className="uppercase tracking-[0.12em]">
+                                  Delivered
+                                </dt>
+                                <dd className="mt-1">
+                                  {formatOptionalDate(channel.deliveredAt)}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="uppercase tracking-[0.12em]">
+                                  Provider
+                                </dt>
+                                <dd className="mt-1">
+                                  {channel.providerStatus
+                                    ? adminStatusLabel(channel.providerStatus)
+                                    : "-"}
+                                </dd>
+                              </div>
+                            </dl>
+                            {channel.failureReason || channel.failureCode ? (
+                              <p className="mt-2 leading-5 text-red-100">
+                                {channel.failureReason || channel.failureCode}
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </article>
                 ))}
               </div>

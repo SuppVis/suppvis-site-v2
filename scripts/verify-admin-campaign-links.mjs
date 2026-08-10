@@ -128,6 +128,29 @@ function assertOrder(haystack, needles) {
 
 {
   const email = render({
+    body: "First paragraph.\nSecond paragraph.\n\n\nThird paragraph.",
+    links: [
+      {
+        id: "link_after_second_single_newline",
+        label: "After Single Newline Paragraph",
+        order: 1,
+        placement: { paragraphIndex: 2, type: "after_paragraph" },
+        style: "button",
+        url: "https://example.com/single-newline",
+      },
+    ],
+  });
+
+  assertOrder(email.text, [
+    "First paragraph.",
+    "Second paragraph.",
+    "After Single Newline Paragraph: https://example.com/single-newline",
+    "Third paragraph.",
+  ]);
+}
+
+{
+  const email = render({
     body: "Only paragraph.",
     links: [
       {
