@@ -119,6 +119,7 @@ export async function POST(
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
       heading: campaign.heading,
+      links: campaign.links,
       messageType: campaign.message_type,
       subject: campaign.subject,
     });

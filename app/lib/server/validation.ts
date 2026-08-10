@@ -174,6 +174,51 @@ const adminCampaignCtaUrlSchema = optionalTrimmedString(300).refine(
   "Enter an https:// link.",
 );
 
+const adminCampaignLinkUrlSchema = z
+  .string()
+  .trim()
+  .min(1, "Add a link URL or remove this link.")
+  .max(300, "Link URL is too long.")
+  .refine(isAllowedAdminCampaignUrl, "Enter an https:// link.");
+
+const adminCampaignLinkPlacementSchema = z.union([
+  z.object({ type: z.literal("before_body") }).strict(),
+  z
+    .object({
+      paragraphIndex: z.number().int().min(1).max(200),
+      type: z.literal("after_paragraph"),
+    })
+    .strict(),
+  z.object({ type: z.literal("after_body") }).strict(),
+  z.object({ type: z.literal("footer") }).strict(),
+]);
+
+const adminCampaignLinksSchema = z
+  .array(
+    z
+      .object({
+        id: z
+          .string()
+          .trim()
+          .min(1, "Link ID is required.")
+          .max(80, "Link ID is too long.")
+          .regex(/^[A-Za-z0-9_-]+$/, "Link ID has invalid characters."),
+        label: z
+          .string()
+          .trim()
+          .min(1, "Add link text or remove this link.")
+          .max(64, "Link text is too long."),
+        order: z.number().int().min(1).max(1000),
+        placement: adminCampaignLinkPlacementSchema,
+        style: z.enum(["button", "text"]).default("button"),
+        url: adminCampaignLinkUrlSchema,
+      })
+      .strict(),
+  )
+  .max(12, "Use 12 links or fewer.")
+  .optional()
+  .default([]);
+
 const adminCampaignSmsBodySchema = z
   .string()
   .trim()
@@ -230,6 +275,7 @@ export const adminCampaignEmailContentSchema = z
     body: z.string().trim().min(1).max(5000),
     ctaLabel: optionalTrimmedString(64),
     ctaUrl: adminCampaignCtaUrlSchema,
+    links: adminCampaignLinksSchema,
     defaultContentConfirmed: z.boolean().optional().default(false),
   })
   .strict()
@@ -250,6 +296,19 @@ export const adminCampaignEmailContentSchema = z
       });
     }
 
+    const linkIds = new Set<string>();
+    for (const link of data.links) {
+      if (linkIds.has(link.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["links"],
+          message: "Each link needs a unique ID.",
+        });
+        break;
+      }
+
+      linkIds.add(link.id);
+    }
   });
 
 function validateAdminCampaignNotPlaceholder(
@@ -409,12 +468,24 @@ const adminSubscriberSortSchema = z.preprocess(
     return value;
   },
   z
-    .enum(["name_asc", "newest", "signup_order_asc"])
+    .enum([
+      "communications_asc",
+      "communications_desc",
+      "name_asc",
+      "newest",
+      "signup_order_asc",
+    ])
     .optional()
     .default("signup_order_asc"),
 );
 
+const adminSubscriberDeliveryFilterSchema = z
+  .enum(["all", "issues"])
+  .optional()
+  .default("all");
+
 export const adminSubscriberListQuerySchema = z.object({
+  delivery: adminSubscriberDeliveryFilterSchema,
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(5).max(100).optional().default(20),
   priority: z
@@ -426,6 +497,7 @@ export const adminSubscriberListQuerySchema = z.object({
 });
 
 export const adminSubscriberExportQuerySchema = z.object({
+  delivery: adminSubscriberDeliveryFilterSchema,
   priority: z
     .enum(["all", "priority", "standard"])
     .optional()

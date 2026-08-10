@@ -14,6 +14,10 @@ import {
 } from "@/app/lib/server/persistence";
 import { campaignReadinessResponse } from "@/app/lib/server/email/campaign-readiness";
 import {
+  firstAdminCampaignLinkFields,
+  normalizeAdminCampaignLinks,
+} from "@/app/lib/server/messages/admin-campaign";
+import {
   enforceRateLimit,
   readJsonBody,
 } from "@/app/lib/server/request";
@@ -23,6 +27,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function campaignResponse(record: EmailCampaignRecord) {
+  const links = normalizeAdminCampaignLinks({
+    ctaLabel: record.cta_label,
+    ctaUrl: record.cta_url,
+    links: record.links,
+  });
+
   return {
     id: record.id,
     messageType: record.message_type,
@@ -31,6 +41,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     body: record.body,
     ctaLabel: record.cta_label,
     ctaUrl: record.cta_url,
+    links,
     status: record.status,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
@@ -399,6 +410,12 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody(request);
     const submission = createAdminCampaignSchema.parse(body);
     const now = new Date().toISOString();
+    const links = normalizeAdminCampaignLinks({
+      ctaLabel: submission.ctaLabel,
+      ctaUrl: submission.ctaUrl,
+      links: submission.links,
+    });
+    const firstLink = firstAdminCampaignLinkFields(links);
     const record: EmailCampaignRecord = {
       id: `email_campaign_${randomUUID()}`,
       record_type: "email_campaign",
@@ -406,8 +423,9 @@ export async function POST(request: NextRequest) {
       subject: submission.subject,
       heading: submission.heading,
       body: submission.body,
-      cta_label: submission.ctaLabel,
-      cta_url: submission.ctaUrl,
+      cta_label: firstLink.ctaLabel,
+      cta_url: firstLink.ctaUrl,
+      links,
       status: "draft",
       created_by: admin.identifier,
       updated_by: admin.identifier,

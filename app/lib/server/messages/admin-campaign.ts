@@ -4,6 +4,7 @@ export type AdminCampaignRenderInput = {
   ctaLabel?: string;
   ctaUrl?: string;
   heading: string;
+  links?: AdminCampaignLink[];
   messageType?: string;
   subject: string;
   unsubscribeUrl?: string;
@@ -13,6 +14,23 @@ export type AdminCampaignRenderedEmail = {
   html: string;
   subject: string;
   text: string;
+};
+
+export type AdminCampaignLinkStyle = "button" | "text";
+
+export type AdminCampaignLinkPlacement =
+  | { type: "before_body" }
+  | { paragraphIndex: number; type: "after_paragraph" }
+  | { type: "after_body" }
+  | { type: "footer" };
+
+export type AdminCampaignLink = {
+  id: string;
+  label: string;
+  order: number;
+  placement: AdminCampaignLinkPlacement;
+  style: AdminCampaignLinkStyle;
+  url: string;
 };
 
 const UNSUBSCRIBE_PLACEHOLDER =
@@ -76,6 +94,12 @@ function rawLinkHtml(href: string) {
   return `<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(href)}</p>`;
 }
 
+function textLinkHtml(href: string, label: string) {
+  return `<p style="margin:0 0 18px 0;text-align:center;color:#9BAFBF;font-size:16px;line-height:1.65;">
+                  <a href="${escapeHtml(href)}" style="color:#14B8A6;text-decoration:underline;font-weight:800;">${escapeHtml(label)}</a>
+                </p>`;
+}
+
 function adminFooterHtml(unsubscribeUrl?: string) {
   const unsubscribeMarkup = unsubscribeUrl
     ? `<a href="${escapeHtml(unsubscribeUrl)}" style="color:#14B8A6;text-decoration:underline;">Unsubscribe</a>`
@@ -92,12 +116,214 @@ function adminFooterHtml(unsubscribeUrl?: string) {
             </tr>`;
 }
 
+function normalizePlacement(value: unknown): AdminCampaignLinkPlacement {
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    (value as { type?: unknown }).type === "after_paragraph"
+  ) {
+    const paragraphIndex = Number(
+      (value as { paragraphIndex?: unknown }).paragraphIndex,
+    );
+
+    if (Number.isInteger(paragraphIndex) && paragraphIndex > 0) {
+      return { paragraphIndex, type: "after_paragraph" };
+    }
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    ((value as { type?: unknown }).type === "before_body" ||
+      (value as { type?: unknown }).type === "after_body" ||
+      (value as { type?: unknown }).type === "footer")
+  ) {
+    return {
+      type: (value as { type: "before_body" | "after_body" | "footer" }).type,
+    };
+  }
+
+  return { type: "after_body" };
+}
+
+export function normalizeAdminCampaignLinks(input: {
+  ctaLabel?: string;
+  ctaUrl?: string;
+  links?: unknown;
+}): AdminCampaignLink[] {
+  const rawLinks = Array.isArray(input.links) ? input.links : [];
+  const normalized = rawLinks
+    .map((rawLink, index): AdminCampaignLink | null => {
+      if (!rawLink || typeof rawLink !== "object") {
+        return null;
+      }
+
+      const link = rawLink as Record<string, unknown>;
+      const label = String(link.label || "").trim();
+      const url = String(link.url || "").trim();
+
+      if (!label || !url) {
+        return null;
+      }
+
+      const id = String(link.id || "").trim() || `link_${index + 1}`;
+      const style = link.style === "text" ? "text" : "button";
+      const order = Number(link.order);
+
+      return {
+        id,
+        label,
+        order: Number.isFinite(order) ? order : index + 1,
+        placement: normalizePlacement(link.placement),
+        style,
+        url,
+      };
+    })
+    .filter((link): link is AdminCampaignLink => Boolean(link))
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+
+  if (normalized.length) {
+    return normalized.map((link, index) => ({
+      ...link,
+      order: index + 1,
+    }));
+  }
+
+  const ctaLabel = input.ctaLabel?.trim();
+  const ctaUrl = input.ctaUrl?.trim();
+
+  if (!ctaLabel || !ctaUrl) {
+    return [];
+  }
+
+  return [
+    {
+      id: "link_legacy_cta",
+      label: ctaLabel,
+      order: 1,
+      placement: { type: "after_body" },
+      style: "button",
+      url: ctaUrl,
+    },
+  ];
+}
+
+export function firstAdminCampaignLinkFields(links: AdminCampaignLink[]) {
+  const firstLink = links[0];
+
+  return {
+    ctaLabel: firstLink?.label || "",
+    ctaUrl: firstLink?.url || "",
+  };
+}
+
+export function adminCampaignLinksEqual(
+  left: AdminCampaignLink[],
+  right: AdminCampaignLink[],
+) {
+  return JSON.stringify(normalizeAdminCampaignLinks({ links: left })) ===
+    JSON.stringify(normalizeAdminCampaignLinks({ links: right }));
+}
+
+function placementKey(
+  placement: AdminCampaignLinkPlacement,
+  paragraphCount: number,
+) {
+  if (
+    placement.type === "after_paragraph" &&
+    placement.paragraphIndex > 0 &&
+    placement.paragraphIndex <= paragraphCount
+  ) {
+    return `after_paragraph:${placement.paragraphIndex}`;
+  }
+
+  if (placement.type === "before_body" || placement.type === "footer") {
+    return placement.type;
+  }
+
+  return "after_body";
+}
+
+function groupedLinks(
+  links: AdminCampaignLink[],
+  paragraphCount: number,
+): Record<string, AdminCampaignLink[]> {
+  return links.reduce<Record<string, AdminCampaignLink[]>>((groups, link) => {
+    const key = placementKey(link.placement, paragraphCount);
+    groups[key] = groups[key] || [];
+    groups[key].push(link);
+    return groups;
+  }, {});
+}
+
+function linkHtml(link: AdminCampaignLink) {
+  if (link.style === "text") {
+    return textLinkHtml(link.url, link.label);
+  }
+
+  return `${buttonHtml(link.url, link.label)}
+                ${rawLinkHtml(link.url)}`;
+}
+
+function linkText(link: AdminCampaignLink) {
+  return `${link.label}: ${link.url}`;
+}
+
+function renderLinksHtml(links?: AdminCampaignLink[]) {
+  return (links || []).map(linkHtml).join("\n                ");
+}
+
+function renderLinksText(links?: AdminCampaignLink[]) {
+  return (links || []).map(linkText);
+}
+
+function bodyHtmlWithLinks(body: string, links: AdminCampaignLink[]) {
+  const paragraphs = bodyParagraphs(body);
+  const groups = groupedLinks(links, paragraphs.length);
+  const chunks = [
+    renderLinksHtml(groups.before_body),
+  ];
+
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    chunks.push(paragraphHtml(paragraph));
+    chunks.push(renderLinksHtml(groups[`after_paragraph:${paragraphNumber}`]));
+  });
+
+  chunks.push(renderLinksHtml(groups.after_body));
+  chunks.push(renderLinksHtml(groups.footer));
+
+  return chunks.filter(Boolean).join("\n                ");
+}
+
+function bodyTextWithLinks(body: string, links: AdminCampaignLink[]) {
+  const paragraphs = bodyParagraphs(body);
+  const groups = groupedLinks(links, paragraphs.length);
+  const chunks = [
+    ...renderLinksText(groups.before_body),
+  ];
+
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    chunks.push(paragraph);
+    chunks.push(...renderLinksText(groups[`after_paragraph:${paragraphNumber}`]));
+  });
+
+  chunks.push(...renderLinksText(groups.after_body));
+  chunks.push(...renderLinksText(groups.footer));
+
+  return chunks.filter(Boolean).join("\n\n");
+}
+
 export function renderAdminCampaignEmail({
   appBaseUrl,
   body,
   ctaLabel,
   ctaUrl,
   heading,
+  links,
   messageType,
   subject,
   unsubscribeUrl,
@@ -107,19 +333,12 @@ export function renderAdminCampaignEmail({
   );
   const displayLabel = adminCampaignMessageTypeDisplayLabel(messageType);
   const previewText = bodyParagraphs(body)[0]?.slice(0, 180) || heading;
-  const bodyHtml = [
-    ...bodyParagraphs(body).map(paragraphHtml),
-    ctaLabel && ctaUrl ? buttonHtml(ctaUrl, ctaLabel) : "",
-    ctaUrl ? rawLinkHtml(ctaUrl) : "",
-  ]
-    .filter(Boolean)
-    .join("\n                ");
+  const resolvedLinks = normalizeAdminCampaignLinks({ ctaLabel, ctaUrl, links });
+  const bodyHtml = bodyHtmlWithLinks(body, resolvedLinks);
   const textParts = [
     heading,
     "",
-    body.trim(),
-    "",
-    ctaLabel && ctaUrl ? `${ctaLabel}: ${ctaUrl}` : "",
+    bodyTextWithLinks(body, resolvedLinks),
     "",
     "You are receiving this because you joined the SuppVis beta.",
     unsubscribeUrl ? `Unsubscribe: ${unsubscribeUrl}` : UNSUBSCRIBE_PLACEHOLDER,
