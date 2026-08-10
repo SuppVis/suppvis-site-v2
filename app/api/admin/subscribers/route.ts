@@ -42,11 +42,13 @@ export async function GET(request: NextRequest) {
     const query = adminSubscriberListQuerySchema.parse({
       page: request.nextUrl.searchParams.get("page") || undefined,
       pageSize: request.nextUrl.searchParams.get("pageSize") || undefined,
+      delivery: request.nextUrl.searchParams.get("delivery") || undefined,
       priority: request.nextUrl.searchParams.get("priority") || undefined,
       search: request.nextUrl.searchParams.get("search") || undefined,
       sort: request.nextUrl.searchParams.get("sort") || undefined,
     });
     const result = await listAdminBetaSubscribers({
+      deliveryFilter: query.delivery,
       page: query.page,
       pageSize: query.pageSize,
       priorityFilter: query.priority,

@@ -458,12 +458,24 @@ const adminSubscriberSortSchema = z.preprocess(
     return value;
   },
   z
-    .enum(["name_asc", "newest", "signup_order_asc"])
+    .enum([
+      "communications_asc",
+      "communications_desc",
+      "name_asc",
+      "newest",
+      "signup_order_asc",
+    ])
     .optional()
     .default("signup_order_asc"),
 );
 
+const adminSubscriberDeliveryFilterSchema = z
+  .enum(["all", "issues"])
+  .optional()
+  .default("all");
+
 export const adminSubscriberListQuerySchema = z.object({
+  delivery: adminSubscriberDeliveryFilterSchema,
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   pageSize: z.coerce.number().int().min(5).max(100).optional().default(20),
   priority: z
@@ -475,6 +487,7 @@ export const adminSubscriberListQuerySchema = z.object({
 });
 
 export const adminSubscriberExportQuerySchema = z.object({
+  delivery: adminSubscriberDeliveryFilterSchema,
   priority: z
     .enum(["all", "priority", "standard"])
     .optional()

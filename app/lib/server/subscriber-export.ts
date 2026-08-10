@@ -175,6 +175,14 @@ function priorityFilterLabel(filter: AdminSubscriberPriorityFilter) {
 }
 
 function sortLabel(sort: AdminSubscriberSort) {
+  if (sort === "communications_desc") {
+    return "Most communications first";
+  }
+
+  if (sort === "communications_asc") {
+    return "Least communications first";
+  }
+
   if (sort === "newest") {
     return "Newest first";
   }

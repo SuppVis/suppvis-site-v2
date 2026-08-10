@@ -44,11 +44,13 @@ export async function GET(request: NextRequest) {
     await requireAdminSession();
 
     const query = adminSubscriberExportQuerySchema.parse({
+      delivery: request.nextUrl.searchParams.get("delivery") || undefined,
       priority: request.nextUrl.searchParams.get("priority") || undefined,
       search: request.nextUrl.searchParams.get("search") || undefined,
       sort: request.nextUrl.searchParams.get("sort") || undefined,
     });
     const result = await listAdminBetaSubscribersForExport({
+      deliveryFilter: query.delivery,
       priorityFilter: query.priority,
       search: query.search,
       sort: query.sort,

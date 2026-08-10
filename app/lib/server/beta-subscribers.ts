@@ -14,6 +14,11 @@ import {
   shouldAutoAssignPriority,
   type BetaAudienceSegment,
 } from "./beta-priority";
+import {
+  emptyCommunicationStats,
+  getCommunicationStatsForSubscribers,
+  type SubscriberCommunicationStats,
+} from "./admin/communication-history";
 import type {
   BetaApplicationRecord,
   EmailSubscriberRecord,
@@ -24,6 +29,8 @@ const BETA_SUBSCRIBER_METADATA_ID = "__beta_subscriber_metadata__";
 const DEFAULT_ADMIN_SUBSCRIBER_PAGE_SIZE = 20;
 
 export type AdminSubscriberSort =
+  | "communications_asc"
+  | "communications_desc"
   | "name_asc"
   | "newest"
   | "signup_order_asc";
@@ -33,16 +40,25 @@ export type AdminSubscriberPriorityFilter =
   | "priority"
   | "standard";
 
+export type AdminSubscriberDeliveryFilter = "all" | "issues";
+
 export type AdminBetaSubscriber = {
   adminNotes: string;
   adminNotesUpdatedAt: string | null;
   createdAt: string;
+  communicationStats: SubscriberCommunicationStats;
   email: string;
   emailDelivery: {
     lastEmailMessageId: string | null;
     lastEmailSentAt: string | null;
     lastEmailType: string | null;
+    resubscribeEmailMessageId: string | null;
+    resubscribeEmailSentAt: string | null;
+    unsubscribeConfirmationEmailMessageId: string | null;
+    unsubscribeConfirmationEmailSentAt: string | null;
+    welcomeEmailMessageId: string | null;
     welcomeEmailSentAt: string | null;
+    welcomeEmailType: string | null;
   };
   emailStatus: string;
   firstName: string;
@@ -66,7 +82,10 @@ export type AdminBetaSubscriber = {
     lastSmsMessageSid: string | null;
     lastSmsSentAt: string | null;
     lastSmsStatus: string | null;
+    lastSmsErrorCode: string | null;
+    lastSmsErrorMessageSafe: string | null;
     providerStatus: string | null;
+    welcomeSmsMessageSid: string | null;
     welcomeSmsSentAt: string | null;
   };
   smsStatus: string;
@@ -567,6 +586,7 @@ async function joinSubscriberRecords(applications: BetaApplicationRecord[]) {
 
 function subscriberProfileFromRecords(input: {
   application: BetaApplicationRecord;
+  communicationStats?: SubscriberCommunicationStats;
   emailSubscriber?: Partial<EmailSubscriberRecord>;
   priorityLimit: number;
   smsSubscriber?: Partial<SmsSubscriberRecord>;
@@ -579,13 +599,23 @@ function subscriberProfileFromRecords(input: {
   return {
     adminNotes: application.admin_notes || "",
     adminNotesUpdatedAt: application.admin_notes_updated_at || null,
+    communicationStats: input.communicationStats || emptyCommunicationStats(),
     createdAt: application.created_at,
     email: application.email,
     emailDelivery: {
       lastEmailMessageId: emailSubscriber?.last_email_message_id || null,
       lastEmailSentAt: emailSubscriber?.last_email_sent_at || null,
       lastEmailType: emailSubscriber?.last_email_type || null,
+      resubscribeEmailMessageId:
+        emailSubscriber?.resubscribe_email_message_id || null,
+      resubscribeEmailSentAt: emailSubscriber?.resubscribe_email_sent_at || null,
+      unsubscribeConfirmationEmailMessageId:
+        emailSubscriber?.unsubscribe_confirmation_email_message_id || null,
+      unsubscribeConfirmationEmailSentAt:
+        emailSubscriber?.unsubscribe_confirmation_email_sent_at || null,
+      welcomeEmailMessageId: emailSubscriber?.welcome_email_message_id || null,
       welcomeEmailSentAt: emailSubscriber?.welcome_email_sent_at || null,
+      welcomeEmailType: emailSubscriber?.welcome_email_type || null,
     },
     emailStatus: emailSubscriber?.status || "missing",
     firstName: application.first_name,
@@ -612,7 +642,11 @@ function subscriberProfileFromRecords(input: {
       lastSmsMessageSid: smsSubscriber?.last_sms_message_sid || null,
       lastSmsSentAt: smsSubscriber?.last_sms_sent_at || null,
       lastSmsStatus: smsSubscriber?.last_sms_status || null,
+      lastSmsErrorCode: smsSubscriber?.last_sms_error_code || null,
+      lastSmsErrorMessageSafe:
+        smsSubscriber?.last_sms_error_message_safe || null,
       providerStatus: smsSubscriber?.sms_provider_status || null,
+      welcomeSmsMessageSid: smsSubscriber?.welcome_sms_message_sid || null,
       welcomeSmsSentAt: smsSubscriber?.welcome_sms_sent_at || null,
     },
     smsStatus: smsSubscriber?.status || (application.phone_e164 ? "missing" : "none"),
@@ -641,6 +675,20 @@ function compareSubscribers(
 
   if (sort === "name_asc") {
     return a.fullName.localeCompare(b.fullName) || byOrderAsc(a, b);
+  }
+
+  if (sort === "communications_desc") {
+    return (
+      b.communicationStats.totalAttempts - a.communicationStats.totalAttempts ||
+      byOrderAsc(a, b)
+    );
+  }
+
+  if (sort === "communications_asc") {
+    return (
+      a.communicationStats.totalAttempts - b.communicationStats.totalAttempts ||
+      byOrderAsc(a, b)
+    );
   }
 
   if (sort === "newest") {
@@ -771,6 +819,7 @@ function subscriberSearchScore(
 }
 
 async function getAdminBetaSubscriberCollection(input?: {
+  deliveryFilter?: AdminSubscriberDeliveryFilter;
   priorityFilter?: AdminSubscriberPriorityFilter;
   search?: string;
   sort?: AdminSubscriberSort;
@@ -793,7 +842,7 @@ async function getAdminBetaSubscriberCollection(input?: {
     },
   );
   const { emailById, smsById } = await joinSubscriberRecords(applications);
-  const profiles = applications.map((application) =>
+  const baseProfiles = applications.map((application) =>
     subscriberProfileFromRecords({
       application,
       emailSubscriber: emailById.get(stableId("email", application.normalized_email)),
@@ -803,7 +852,28 @@ async function getAdminBetaSubscriberCollection(input?: {
         : undefined,
     }),
   );
+  let communicationStatsBySubscriberId = new Map<
+    string,
+    SubscriberCommunicationStats
+  >();
+
+  try {
+    communicationStatsBySubscriberId =
+      await getCommunicationStatsForSubscribers(baseProfiles);
+  } catch (error) {
+    console.error("[admin/subscribers] communication stats unavailable", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+
+  const profiles = baseProfiles.map((profile) => ({
+    ...profile,
+    communicationStats:
+      communicationStatsBySubscriberId.get(profile.id) ||
+      profile.communicationStats,
+  }));
   const priorityFilter = input?.priorityFilter || "all";
+  const deliveryFilter = input?.deliveryFilter || "all";
   const filteredProfiles = profiles
     .filter((profile) =>
       priorityFilter === "priority"
@@ -811,6 +881,11 @@ async function getAdminBetaSubscriberCollection(input?: {
         : priorityFilter === "standard"
           ? !profile.priorityBeta
           : true,
+    )
+    .filter((profile) =>
+      deliveryFilter === "issues"
+        ? profile.communicationStats.hasDeliveryIssue
+        : true,
     );
   const search = input?.search || "";
   const matches = filteredProfiles
@@ -843,6 +918,7 @@ async function getAdminBetaSubscriberCollection(input?: {
 }
 
 export async function listAdminBetaSubscribers(input?: {
+  deliveryFilter?: AdminSubscriberDeliveryFilter;
   page?: number;
   pageSize?: number;
   priorityFilter?: AdminSubscriberPriorityFilter;
@@ -850,6 +926,7 @@ export async function listAdminBetaSubscribers(input?: {
   sort?: AdminSubscriberSort;
 }): Promise<AdminSubscriberListResult> {
   const collection = await getAdminBetaSubscriberCollection({
+    deliveryFilter: input?.deliveryFilter,
     priorityFilter: input?.priorityFilter,
     search: input?.search,
     sort: input?.sort,
@@ -875,6 +952,7 @@ export async function listAdminBetaSubscribers(input?: {
 }
 
 export async function listAdminBetaSubscribersForExport(input?: {
+  deliveryFilter?: AdminSubscriberDeliveryFilter;
   priorityFilter?: AdminSubscriberPriorityFilter;
   search?: string;
   sort?: AdminSubscriberSort;
@@ -882,7 +960,10 @@ export async function listAdminBetaSubscribersForExport(input?: {
   return getAdminBetaSubscriberCollection(input);
 }
 
-export async function getAdminBetaSubscriber(id: string) {
+export async function getAdminBetaSubscriber(
+  id: string,
+  input?: { includeCommunicationStats?: boolean },
+) {
   const application = await getEffectiveBetaApplicationById(id);
 
   if (!application) {
@@ -891,7 +972,7 @@ export async function getAdminBetaSubscriber(id: string) {
 
   const { emailById, smsById } = await joinSubscriberRecords([application]);
 
-  return subscriberProfileFromRecords({
+  const subscriber = subscriberProfileFromRecords({
     application,
     emailSubscriber: emailById.get(stableId("email", application.normalized_email)),
     priorityLimit: getPriorityBetaLimit(),
@@ -899,6 +980,26 @@ export async function getAdminBetaSubscriber(id: string) {
       ? smsById.get(stableId("sms", application.phone_e164))
       : undefined,
   });
+
+  if (input?.includeCommunicationStats === false) {
+    return subscriber;
+  }
+
+  try {
+    const stats = await getCommunicationStatsForSubscribers([subscriber]);
+
+    return {
+      ...subscriber,
+      communicationStats:
+        stats.get(subscriber.id) || subscriber.communicationStats,
+    };
+  } catch (error) {
+    console.error("[admin/subscriber] communication stats unavailable", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
+
+  return subscriber;
 }
 
 async function countPrioritySubscribers(exceptId?: string) {

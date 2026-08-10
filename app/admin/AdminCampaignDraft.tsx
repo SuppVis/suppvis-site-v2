@@ -238,13 +238,20 @@ type AudienceOverview = {
 type AdminBetaSubscriber = {
   adminNotes: string;
   adminNotesUpdatedAt: string | null;
+  communicationStats: SubscriberCommunicationStats;
   createdAt: string;
   email: string;
   emailDelivery: {
     lastEmailMessageId: string | null;
     lastEmailSentAt: string | null;
     lastEmailType: string | null;
+    resubscribeEmailMessageId: string | null;
+    resubscribeEmailSentAt: string | null;
+    unsubscribeConfirmationEmailMessageId: string | null;
+    unsubscribeConfirmationEmailSentAt: string | null;
+    welcomeEmailMessageId: string | null;
     welcomeEmailSentAt: string | null;
+    welcomeEmailType: string | null;
   };
   emailStatus: string;
   firstName: string;
@@ -268,7 +275,10 @@ type AdminBetaSubscriber = {
     lastSmsMessageSid: string | null;
     lastSmsSentAt: string | null;
     lastSmsStatus: string | null;
+    lastSmsErrorCode: string | null;
+    lastSmsErrorMessageSafe: string | null;
     providerStatus: string | null;
+    welcomeSmsMessageSid: string | null;
     welcomeSmsSentAt: string | null;
   };
   smsStatus: string;
@@ -277,12 +287,40 @@ type AdminBetaSubscriber = {
   updatedAt: string;
 };
 
+type SubscriberCommunicationStats = {
+  deliveryIssueCount: number;
+  hasDeliveryIssue: boolean;
+  issueSummary: string | null;
+  lastCommunicationAt: string | null;
+  successfulCount: number;
+  totalAttempts: number;
+};
+
+type SubscriberCommunicationHistoryItem = {
+  campaignId?: string;
+  channel: "email" | "sms";
+  deliveredAt: string | null;
+  failureCode: string | null;
+  failureReason: string | null;
+  id: string;
+  providerMessageId: string | null;
+  providerStatus: string | null;
+  sortTimestamp: string;
+  status: string;
+  statusLabel: string;
+  title: string;
+  type: "announcement" | "welcome" | "resubscribe" | "unsubscribe_confirmation";
+};
+
 type AdminSubscriberSort =
+  | "communications_asc"
+  | "communications_desc"
   | "name_asc"
   | "newest"
   | "signup_order_asc";
 
 type AdminSubscriberPriorityFilter = "all" | "priority" | "standard";
+type AdminSubscriberDeliveryFilter = "all" | "issues";
 
 type Preview = {
   html: string;
@@ -408,10 +446,18 @@ const SUBSCRIBER_PRIORITY_FILTER_OPTIONS: Array<
   { label: "Priority only", value: "priority" },
   { label: "Standard only", value: "standard" },
 ];
+const SUBSCRIBER_DELIVERY_FILTER_OPTIONS: Array<
+  AdminSelectOption<AdminSubscriberDeliveryFilter>
+> = [
+  { label: "All delivery states", value: "all" },
+  { label: "Delivery issues", value: "issues" },
+];
 const SUBSCRIBER_SORT_OPTIONS: Array<AdminSelectOption<AdminSubscriberSort>> = [
   { label: "Signup order", value: "signup_order_asc" },
   { label: "Newest first", value: "newest" },
   { label: "Name A-Z", value: "name_asc" },
+  { label: "Most communications", value: "communications_desc" },
+  { label: "Least communications", value: "communications_asc" },
 ];
 const MESSAGE_TYPE_OPTIONS: Array<
   AdminSelectOption<FormValues["messageType"]>
@@ -780,6 +826,37 @@ function audienceSegmentLabel(segment: BetaAudienceSegment) {
 
 function formatOptionalDate(value?: string | null) {
   return value ? new Date(value).toLocaleString() : "-";
+}
+
+function subscriberCommunicationStats(
+  subscriber: AdminBetaSubscriber,
+): SubscriberCommunicationStats {
+  return (
+    subscriber.communicationStats || {
+      deliveryIssueCount: 0,
+      hasDeliveryIssue: false,
+      issueSummary: null,
+      lastCommunicationAt: null,
+      successfulCount: 0,
+      totalAttempts: 0,
+    }
+  );
+}
+
+function communicationTypeLabel(type: SubscriberCommunicationHistoryItem["type"]) {
+  if (type === "resubscribe") {
+    return "Resubscribe";
+  }
+
+  if (type === "unsubscribe_confirmation") {
+    return "Unsubscribe confirmation";
+  }
+
+  if (type === "welcome") {
+    return "Welcome";
+  }
+
+  return "Announcement";
 }
 
 function phoneDisplay(subscriber: AdminBetaSubscriber) {
@@ -1829,6 +1906,7 @@ export default function AdminCampaignDraft({
   const workflowGuideScrollInProgressRef = useRef(false);
   const workflowGuideActivityThrottleRef = useRef(0);
   const draftsRequestSeqRef = useRef(0);
+  const subscriberHistoryRequestSeqRef = useRef(0);
   const subscriberListRequestSeqRef = useRef(0);
   const subscriberSuggestionsSeqRef = useRef(0);
   const [audience, setAudience] = useState<AudienceSummary | null>(null);
@@ -1901,6 +1979,8 @@ export default function AdminCampaignDraft({
   const [subscriberPage, setSubscriberPage] = useState(1);
   const [subscriberPageSize] = useState(SUBSCRIBERS_PER_PAGE);
   const [subscriberPriorityCount, setSubscriberPriorityCount] = useState(0);
+  const [subscriberDeliveryFilter, setSubscriberDeliveryFilter] =
+    useState<AdminSubscriberDeliveryFilter>("all");
   const [subscriberPriorityFilter, setSubscriberPriorityFilter] =
     useState<AdminSubscriberPriorityFilter>("all");
   const [subscriberPriorityLimit, setSubscriberPriorityLimit] = useState(300);
@@ -1919,6 +1999,14 @@ export default function AdminCampaignDraft({
     useState(false);
   const [subscriberSuggestionIndex, setSubscriberSuggestionIndex] =
     useState(-1);
+  const [subscriberHistory, setSubscriberHistory] = useState<
+    SubscriberCommunicationHistoryItem[]
+  >([]);
+  const [subscriberHistoryStats, setSubscriberHistoryStats] =
+    useState<SubscriberCommunicationStats | null>(null);
+  const [subscriberHistoryError, setSubscriberHistoryError] =
+    useState<string | null>(null);
+  const [subscriberHistoryLoading, setSubscriberHistoryLoading] = useState(false);
   const [selectedSubscriber, setSelectedSubscriber] =
     useState<AdminBetaSubscriber | null>(null);
   const [subscriberNotesDraft, setSubscriberNotesDraft] = useState("");
@@ -2268,6 +2356,11 @@ export default function AdminCampaignDraft({
     setSmsTestReadiness(null);
     setGuidanceHighlight(null);
     setSaveHighlight(null);
+    subscriberHistoryRequestSeqRef.current += 1;
+    setSubscriberHistory([]);
+    setSubscriberHistoryError(null);
+    setSubscriberHistoryLoading(false);
+    setSubscriberHistoryStats(null);
     setSentHistoryOpen(false);
     setStartPhrase("");
     setTestSendMessageId(null);
@@ -2445,6 +2538,7 @@ export default function AdminCampaignDraft({
   }
 
   async function loadSubscribers(options?: {
+    deliveryFilter?: AdminSubscriberDeliveryFilter;
     filter?: AdminSubscriberPriorityFilter;
     page?: number;
     search?: string;
@@ -2454,12 +2548,14 @@ export default function AdminCampaignDraft({
     const requestSeq = subscriberListRequestSeqRef.current + 1;
     subscriberListRequestSeqRef.current = requestSeq;
     const page = options?.page ?? subscriberPage;
+    const deliveryFilter = options?.deliveryFilter ?? subscriberDeliveryFilter;
     const filter = options?.filter ?? subscriberPriorityFilter;
     const search = options?.search ?? subscriberSearch;
     const sort = options?.sort ?? subscriberSort;
     const params = new URLSearchParams({
       page: String(page),
       pageSize: String(subscriberPageSize),
+      delivery: deliveryFilter,
       priority: filter,
       sort,
     });
@@ -2514,6 +2610,7 @@ export default function AdminCampaignDraft({
     }
 
     const params = new URLSearchParams({
+      delivery: subscriberDeliveryFilter,
       priority: subscriberPriorityFilter,
       sort: subscriberSort,
     });
@@ -2586,6 +2683,7 @@ export default function AdminCampaignDraft({
     setSubscriberSuggestionsLoading(true);
 
     const params = new URLSearchParams({
+      delivery: subscriberDeliveryFilter,
       page: "1",
       pageSize: String(SUBSCRIBER_SUGGESTION_LIMIT),
       priority: subscriberPriorityFilter,
@@ -2638,9 +2736,52 @@ export default function AdminCampaignDraft({
     setStandardOptions(standardPayload.items || []);
   }
 
+  async function loadSubscriberCommunicationHistory(subscriberId: string) {
+    const requestSeq = subscriberHistoryRequestSeqRef.current + 1;
+    subscriberHistoryRequestSeqRef.current = requestSeq;
+    setSubscriberHistoryLoading(true);
+    setSubscriberHistoryError(null);
+
+    try {
+      const response = await adminFetch(
+        `/api/admin/subscribers/${subscriberId}/communication-history`,
+        { cache: "no-store" },
+      );
+      const payload = await parseJsonResponse(response);
+
+      if (subscriberHistoryRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
+      setSubscriberHistory(payload.items || []);
+      setSubscriberHistoryStats(payload.stats || null);
+    } catch (error) {
+      if (subscriberHistoryRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
+      setSubscriberHistory([]);
+      setSubscriberHistoryStats(null);
+      setSubscriberHistoryError(
+        error instanceof Error
+          ? error.message
+          : "Communication history could not be loaded.",
+      );
+    } finally {
+      if (subscriberHistoryRequestSeqRef.current === requestSeq) {
+        setSubscriberHistoryLoading(false);
+      }
+    }
+  }
+
   async function openSubscriber(subscriber: AdminBetaSubscriber) {
     setBusyAction("subscriberDetail");
     setSubscriberActionMessage(null);
+    subscriberHistoryRequestSeqRef.current += 1;
+    setSubscriberHistory([]);
+    setSubscriberHistoryError(null);
+    setSubscriberHistoryLoading(false);
+    setSubscriberHistoryStats(null);
     setSubscriberPriorityReplacementId("");
 
     try {
@@ -2651,6 +2792,7 @@ export default function AdminCampaignDraft({
       const detail = payload.subscriber as AdminBetaSubscriber;
       setSelectedSubscriber(detail);
       setSubscriberNotesDraft(detail.adminNotes || "");
+      loadSubscriberCommunicationHistory(detail.id).catch(() => undefined);
       await loadPriorityOptions();
     } catch (error) {
       setSubscriberError(
@@ -2836,7 +2978,13 @@ export default function AdminCampaignDraft({
 
   useEffect(() => {
     loadSubscribers({ silent: true }).catch(() => undefined);
-  }, [subscriberPage, subscriberPriorityFilter, subscriberSearch, subscriberSort]);
+  }, [
+    subscriberDeliveryFilter,
+    subscriberPage,
+    subscriberPriorityFilter,
+    subscriberSearch,
+    subscriberSort,
+  ]);
 
   useEffect(() => {
     if (!subscriberSuggestionsOpen || !subscriberSearchInput.trim()) {
@@ -2853,7 +3001,12 @@ export default function AdminCampaignDraft({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [subscriberPriorityFilter, subscriberSearchInput, subscriberSuggestionsOpen]);
+  }, [
+    subscriberDeliveryFilter,
+    subscriberPriorityFilter,
+    subscriberSearchInput,
+    subscriberSuggestionsOpen,
+  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -5486,6 +5639,17 @@ export default function AdminCampaignDraft({
             }}
           />
           <AdminSelect
+            label="Delivery filter"
+            value={subscriberDeliveryFilter}
+            options={SUBSCRIBER_DELIVERY_FILTER_OPTIONS}
+            disabled={isBusy}
+            onChange={(next) => {
+              setSubscriberDeliveryFilter(next);
+              setSubscriberPage(1);
+              setSubscriberSuggestionsOpen(false);
+            }}
+          />
+          <AdminSelect
             label="Subscriber sort"
             value={subscriberSort}
             options={SUBSCRIBER_SORT_OPTIONS}
@@ -5553,10 +5717,40 @@ export default function AdminCampaignDraft({
             </thead>
             <tbody className="divide-y divide-white/10">
               {subscriberList.length ? (
-                subscriberList.map((subscriber) => (
-                  <tr key={subscriber.id} className="align-top">
-                    <td className="py-3 pr-4 font-semibold text-text-primary">
-                      {subscriber.fullName}
+                subscriberList.map((subscriber) => {
+                  const stats = subscriberCommunicationStats(subscriber);
+
+                  return (
+                  <tr
+                    key={subscriber.id}
+                    className={`align-top ${
+                      stats.hasDeliveryIssue
+                        ? "bg-red-400/[0.03] outline outline-1 outline-red-400/15"
+                        : ""
+                    }`}
+                  >
+                    <td className="py-3 pr-4 text-text-primary">
+                      <div className="font-semibold">{subscriber.fullName}</div>
+                      <div className="mt-1 text-xs text-text-muted">
+                        {stats.successfulCount} / {stats.totalAttempts}{" "}
+                        communications
+                      </div>
+                      {stats.hasDeliveryIssue ? (
+                        <span
+                          className="mt-2 inline-flex rounded-full border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-xs font-semibold text-red-100"
+                          title={
+                            stats.issueSummary ||
+                            "This subscriber has at least one delivery failure."
+                          }
+                          aria-label={
+                            stats.issueSummary
+                              ? `Delivery issue: ${stats.issueSummary}`
+                              : "Delivery issue"
+                          }
+                        >
+                          Delivery issue
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-3 pr-4 text-text-secondary">
                       {subscriber.signupOrderNumber
@@ -5611,7 +5805,8 @@ export default function AdminCampaignDraft({
                       </button>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td
@@ -6830,6 +7025,11 @@ export default function AdminCampaignDraft({
             if (!isBusy) {
               setSelectedSubscriber(null);
               setSubscriberActionMessage(null);
+              subscriberHistoryRequestSeqRef.current += 1;
+              setSubscriberHistory([]);
+              setSubscriberHistoryError(null);
+              setSubscriberHistoryLoading(false);
+              setSubscriberHistoryStats(null);
               setSubscriberPriorityReplacementId("");
             }
           }}
@@ -6977,6 +7177,147 @@ export default function AdminCampaignDraft({
                     : "Make priority"}
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-text-primary">
+                  Communication history
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-text-secondary">
+                  Newest first. Statuses use provider and recipient-level
+                  tracking, not campaign summary counters.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  loadSubscriberCommunicationHistory(selectedSubscriber.id)
+                }
+                disabled={subscriberHistoryLoading}
+                className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {subscriberHistoryLoading ? "Loading..." : "Retry"}
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-3 text-xs text-text-muted sm:grid-cols-3">
+              {[
+                [
+                  "Attempts",
+                  String(
+                    (subscriberHistoryStats ||
+                      subscriberCommunicationStats(selectedSubscriber))
+                      .totalAttempts,
+                  ),
+                ],
+                [
+                  "Successful",
+                  String(
+                    (subscriberHistoryStats ||
+                      subscriberCommunicationStats(selectedSubscriber))
+                      .successfulCount,
+                  ),
+                ],
+                [
+                  "Issues",
+                  String(
+                    (subscriberHistoryStats ||
+                      subscriberCommunicationStats(selectedSubscriber))
+                      .deliveryIssueCount,
+                  ),
+                ],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-[8px] border border-white/10 bg-[#05090D] p-3"
+                >
+                  <p className="uppercase tracking-[0.12em]">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-text-primary">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {subscriberHistoryError ? (
+              <div className="mt-3 rounded-[8px] border border-red-400/25 bg-red-400/10 p-3 text-sm leading-6 text-red-100">
+                {subscriberHistoryError}
+              </div>
+            ) : subscriberHistoryLoading && !subscriberHistory.length ? (
+              <div className="mt-3 rounded-[8px] border border-white/10 bg-[#05090D] p-4 text-sm text-text-secondary">
+                Loading communication history...
+              </div>
+            ) : subscriberHistory.length ? (
+              <div className="mt-3 space-y-2">
+                {subscriberHistory.map((item) => (
+                  <article
+                    key={item.id}
+                    className={`rounded-[8px] border p-3 ${
+                      item.failureCode ||
+                      ["bounced", "complained", "failed", "rejected"].includes(
+                        item.status,
+                      )
+                        ? "border-red-400/25 bg-red-400/10"
+                        : "border-white/10 bg-[#05090D]"
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-text-primary">
+                          {item.title}
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted">
+                          {communicationTypeLabel(item.type)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-xs font-semibold text-text-secondary">
+                          {item.channel === "sms" ? "Text" : "Email"}
+                        </span>
+                        <span className="rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
+                          {item.statusLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <dl className="mt-3 grid gap-2 text-xs text-text-muted sm:grid-cols-3">
+                      <div>
+                        <dt className="uppercase tracking-[0.12em]">When</dt>
+                        <dd className="mt-1 text-text-secondary">
+                          {formatOptionalDate(item.sortTimestamp)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="uppercase tracking-[0.12em]">
+                          Delivered
+                        </dt>
+                        <dd className="mt-1 text-text-secondary">
+                          {formatOptionalDate(item.deliveredAt)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="uppercase tracking-[0.12em]">Provider</dt>
+                        <dd className="mt-1 text-text-secondary">
+                          {item.providerStatus
+                            ? adminStatusLabel(item.providerStatus)
+                            : "-"}
+                        </dd>
+                      </div>
+                    </dl>
+                    {item.failureReason || item.failureCode ? (
+                      <p className="mt-2 text-xs leading-5 text-red-100">
+                        {item.failureReason || item.failureCode}
+                      </p>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-[8px] border border-white/10 bg-[#05090D] p-4 text-sm text-text-secondary">
+                No tracked communications yet.
+              </div>
+            )}
           </div>
 
           <div className="mt-4 rounded-[8px] border border-white/10 bg-[#080D12] p-4">
