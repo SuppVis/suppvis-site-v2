@@ -12,6 +12,10 @@ import {
 } from "@/app/lib/server/persistence";
 import { campaignReadinessResponse } from "@/app/lib/server/email/campaign-readiness";
 import {
+  firstAdminCampaignLinkFields,
+  normalizeAdminCampaignLinks,
+} from "@/app/lib/server/messages/admin-campaign";
+import {
   enforceRateLimit,
   readJsonBody,
 } from "@/app/lib/server/request";
@@ -28,6 +32,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function campaignResponse(record: EmailCampaignRecord) {
+  const links = normalizeAdminCampaignLinks({
+    ctaLabel: record.cta_label,
+    ctaUrl: record.cta_url,
+    links: record.links,
+  });
+
   return {
     id: record.id,
     messageType: record.message_type,
@@ -36,6 +46,7 @@ function campaignResponse(record: EmailCampaignRecord) {
     body: record.body,
     ctaLabel: record.cta_label,
     ctaUrl: record.cta_url,
+    links,
     status: record.status,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
@@ -201,14 +212,21 @@ export async function PATCH(
         : "draft text";
     } else {
       const submission = updateAdminCampaignEmailSchema.parse(body);
+      const links = normalizeAdminCampaignLinks({
+        ctaLabel: submission.ctaLabel,
+        ctaUrl: submission.ctaUrl,
+        links: submission.links,
+      });
+      const firstLink = firstAdminCampaignLinkFields(links);
 
       updated = await updateEmailCampaignEmailDraft({
         id,
         body: submission.body,
-        cta_label: submission.ctaLabel,
-        cta_url: submission.ctaUrl,
+        cta_label: firstLink.ctaLabel,
+        cta_url: firstLink.ctaUrl,
         expectedVersion: submission.expectedVersion,
         heading: submission.heading,
+        links,
         message_type: submission.messageType,
         now,
         subject: submission.subject,

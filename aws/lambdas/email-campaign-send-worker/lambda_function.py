@@ -88,12 +88,161 @@ def paragraph_html(copy):
     )
 
 
+def normalize_link_placement(value):
+    if isinstance(value, dict) and value.get("type") == "after_paragraph":
+        try:
+            paragraph_index = int(value.get("paragraphIndex"))
+        except (TypeError, ValueError):
+            paragraph_index = 0
+        if paragraph_index > 0:
+            return {"type": "after_paragraph", "paragraphIndex": paragraph_index}
+
+    if isinstance(value, dict) and value.get("type") in {"before_body", "after_body", "footer"}:
+        return {"type": value.get("type")}
+
+    return {"type": "after_body"}
+
+
+def campaign_links(campaign):
+    raw_links = campaign.get("links")
+    links = []
+
+    if isinstance(raw_links, list):
+        for index, raw_link in enumerate(raw_links):
+            if not isinstance(raw_link, dict):
+                continue
+            label = str(raw_link.get("label") or "").strip()
+            url = str(raw_link.get("url") or "").strip()
+            if not label or not url:
+                continue
+            try:
+                order = int(raw_link.get("order"))
+            except (TypeError, ValueError):
+                order = index + 1
+            links.append(
+                {
+                    "id": str(raw_link.get("id") or f"link_{index + 1}"),
+                    "label": label,
+                    "order": order,
+                    "placement": normalize_link_placement(raw_link.get("placement")),
+                    "style": "text" if raw_link.get("style") == "text" else "button",
+                    "url": url,
+                }
+            )
+
+    links = sorted(links, key=lambda link: (link["order"], link["id"]))
+
+    if links:
+        return [{**link, "order": index + 1} for index, link in enumerate(links)]
+
+    cta_label = str(campaign.get("cta_label") or "").strip()
+    cta_url = str(campaign.get("cta_url") or "").strip()
+
+    if not cta_label or not cta_url:
+        return []
+
+    return [
+        {
+            "id": "link_legacy_cta",
+            "label": cta_label,
+            "order": 1,
+            "placement": {"type": "after_body"},
+            "style": "button",
+            "url": cta_url,
+        }
+    ]
+
+
+def link_placement_key(link, paragraph_count):
+    placement = link.get("placement") or {"type": "after_body"}
+    if placement.get("type") == "after_paragraph":
+        paragraph_index = int(placement.get("paragraphIndex") or 0)
+        if 0 < paragraph_index <= paragraph_count:
+            return f"after_paragraph:{paragraph_index}"
+
+    if placement.get("type") in {"before_body", "footer"}:
+        return placement.get("type")
+
+    return "after_body"
+
+
+def grouped_links(links, paragraph_count):
+    groups = {}
+    for link in links:
+        key = link_placement_key(link, paragraph_count)
+        groups.setdefault(key, []).append(link)
+    return groups
+
+
+def button_link_html(link):
+    url = html.escape(link["url"])
+    label = html.escape(link["label"])
+    return (
+        '<p style="margin:0 0 18px 0;text-align:center;">'
+        f'<a href="{url}" style="display:inline-block;'
+        "border-radius:999px;background:#14B8A6;color:#0A0F14;"
+        "text-decoration:none;font-size:16px;font-weight:800;padding:14px 24px;"
+        f'">{label}</a></p>'
+        '<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;'
+        "line-height:1.55;word-break:break-all;text-align:center;"
+        f'">{url}</p>'
+    )
+
+
+def text_link_html(link):
+    return (
+        '<p style="margin:0 0 18px 0;text-align:center;color:#9BAFBF;'
+        'font-size:16px;line-height:1.65;">'
+        f'<a href="{html.escape(link["url"])}" style="color:#14B8A6;'
+        'text-decoration:underline;font-weight:800;">'
+        f'{html.escape(link["label"])}</a></p>'
+    )
+
+
+def link_html(link):
+    return text_link_html(link) if link.get("style") == "text" else button_link_html(link)
+
+
+def links_html(links):
+    return "\n".join(link_html(link) for link in links or [])
+
+
+def body_html_with_links(body, links):
+    body_paragraphs = paragraphs(body)
+    groups = grouped_links(links, len(body_paragraphs))
+    chunks = [links_html(groups.get("before_body"))]
+
+    for index, part in enumerate(body_paragraphs, start=1):
+        chunks.append(paragraph_html(part))
+        chunks.append(links_html(groups.get(f"after_paragraph:{index}")))
+
+    chunks.append(links_html(groups.get("after_body")))
+    chunks.append(links_html(groups.get("footer")))
+    return "\n".join(chunk for chunk in chunks if chunk)
+
+
+def body_text_with_links(body, links):
+    body_paragraphs = paragraphs(body)
+    groups = grouped_links(links, len(body_paragraphs))
+    chunks = [f"{link['label']}: {link['url']}" for link in groups.get("before_body", [])]
+
+    for index, part in enumerate(body_paragraphs, start=1):
+        chunks.append(part)
+        chunks.extend(
+            f"{link['label']}: {link['url']}"
+            for link in groups.get(f"after_paragraph:{index}", [])
+        )
+
+    chunks.extend(f"{link['label']}: {link['url']}" for link in groups.get("after_body", []))
+    chunks.extend(f"{link['label']}: {link['url']}" for link in groups.get("footer", []))
+    return "\n\n".join(chunk for chunk in chunks if chunk)
+
+
 def render_email(campaign, subscriber):
     subject = str(campaign["subject"])
     heading = str(campaign["heading"])
     body = str(campaign["body"])
-    cta_label = str(campaign.get("cta_label") or "").strip()
-    cta_url = str(campaign.get("cta_url") or "").strip()
+    links = campaign_links(campaign)
     app_base_url = os.environ["APP_BASE_URL"].rstrip("/")
     brand_icon_url = html.escape(f"{app_base_url}/email/suppvis-logo.png")
     message_type_labels = {
@@ -107,28 +256,12 @@ def render_email(campaign, subscriber):
         str(campaign.get("message_type") or ""), "BETA ANNOUNCEMENT"
     )
     unsub_url = unsubscribe_url(subscriber)
-    body_html = "\n".join(paragraph_html(part) for part in paragraphs(body))
-
-    if cta_label and cta_url:
-        body_html += (
-            '<p style="margin:0 0 18px 0;text-align:center;">'
-            f'<a href="{html.escape(cta_url)}" style="display:inline-block;'
-            "border-radius:999px;background:#14B8A6;color:#0A0F14;"
-            "text-decoration:none;font-size:16px;font-weight:800;padding:14px 24px;"
-            f'">{html.escape(cta_label)}</a></p>'
-        )
-        body_html += (
-            '<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;'
-            "line-height:1.55;word-break:break-all;text-align:center;"
-            f'">{html.escape(cta_url)}</p>'
-        )
+    body_html = body_html_with_links(body, links)
 
     text_parts = [
         heading,
         "",
-        body.strip(),
-        "",
-        f"{cta_label}: {cta_url}" if cta_label and cta_url else "",
+        body_text_with_links(body, links),
         "",
         "You are receiving this because you joined the SuppVis beta.",
         f"Unsubscribe: {unsub_url}",

@@ -20,6 +20,23 @@ import {
   isUnsafeTestPlaceholder,
 } from "@/app/lib/admin-campaign-defaults";
 
+type CampaignLinkStyle = "button" | "text";
+
+type CampaignLinkPlacement =
+  | { type: "before_body" }
+  | { paragraphIndex: number; type: "after_paragraph" }
+  | { type: "after_body" }
+  | { type: "footer" };
+
+type CampaignLink = {
+  id: string;
+  label: string;
+  order: number;
+  placement: CampaignLinkPlacement;
+  style: CampaignLinkStyle;
+  url: string;
+};
+
 type CampaignDraft = {
   id: string;
   messageType:
@@ -33,6 +50,7 @@ type CampaignDraft = {
   body: string;
   ctaLabel: string;
   ctaUrl: string;
+  links?: CampaignLink[];
   status: string;
   createdAt?: string;
   updatedAt: string;
@@ -310,6 +328,7 @@ type FormValues = {
   ctaLabel: string;
   ctaUrl: string;
   heading: string;
+  links: CampaignLink[];
   messageType: CampaignDraft["messageType"];
   smsBody: string;
   smsEnabled: boolean;
@@ -342,6 +361,7 @@ type NextActionKey =
   | "emailBody"
   | "emailCtaLabel"
   | "emailCtaUrl"
+  | "emailLinks"
   | "emailHeading"
   | "emailPreview"
   | "emailSave"
@@ -411,11 +431,145 @@ const AUDIENCE_SEGMENT_OPTIONS: Array<AdminSelectOption<BetaAudienceSegment>> = 
   },
 ];
 
+class AdminResponseError extends Error {
+  constructor(
+    message: string,
+    public readonly fieldErrors?: Record<string, string[] | undefined>,
+  ) {
+    super(message);
+    this.name = "AdminResponseError";
+  }
+}
+
+function newCampaignLinkId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `link_${crypto.randomUUID().replace(/-/g, "")}`;
+  }
+
+  return `link_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function defaultCampaignLinks(): CampaignLink[] {
+  return [
+    {
+      id: "link_default_cta",
+      label: DEFAULT_ADMIN_EMAIL_CTA_LABEL,
+      order: 1,
+      placement: { type: "after_body" },
+      style: "button",
+      url: DEFAULT_ADMIN_EMAIL_CTA_URL,
+    },
+  ];
+}
+
+function normalizeCampaignLinkPlacement(
+  placement?: CampaignLink["placement"],
+): CampaignLinkPlacement {
+  if (
+    placement?.type === "after_paragraph" &&
+    Number.isInteger(placement.paragraphIndex) &&
+    placement.paragraphIndex > 0
+  ) {
+    return {
+      paragraphIndex: placement.paragraphIndex,
+      type: "after_paragraph",
+    };
+  }
+
+  if (
+    placement?.type === "before_body" ||
+    placement?.type === "after_body" ||
+    placement?.type === "footer"
+  ) {
+    return { type: placement.type };
+  }
+
+  return { type: "after_body" };
+}
+
+function normalizeEditableCampaignLinks(
+  links?: CampaignLink[],
+  fallback?: { ctaLabel?: string; ctaUrl?: string },
+): CampaignLink[] {
+  const source =
+    links && links.length
+      ? links
+      : fallback?.ctaLabel || fallback?.ctaUrl
+        ? [
+            {
+              id: "link_legacy_cta",
+              label: fallback.ctaLabel || "",
+              order: 1,
+              placement: { type: "after_body" } as CampaignLinkPlacement,
+              style: "button" as CampaignLinkStyle,
+              url: fallback.ctaUrl || "",
+            },
+          ]
+        : [];
+
+  return source.map((link, index) => ({
+    id: link.id || `link_${index + 1}`,
+    label: link.label || "",
+    order: index + 1,
+    placement: normalizeCampaignLinkPlacement(link.placement),
+    style: (link.style === "text" ? "text" : "button") as CampaignLinkStyle,
+    url: link.url || "",
+  }));
+}
+
+function completeCampaignLinksForPayload(links: CampaignLink[]) {
+  return links
+    .map((link, index) => ({
+      ...link,
+      label: link.label.trim(),
+      order: index + 1,
+      placement: normalizeCampaignLinkPlacement(link.placement),
+      url: link.url.trim(),
+    }))
+    .filter((link) => link.label || link.url);
+}
+
+function firstCampaignLinkFields(links: CampaignLink[]) {
+  const firstLink = completeCampaignLinksForPayload(links)[0];
+
+  return {
+    ctaLabel: firstLink?.label || "",
+    ctaUrl: firstLink?.url || "",
+  };
+}
+
+function campaignLinksEqual(left: CampaignLink[], right: CampaignLink[]) {
+  return (
+    JSON.stringify(completeCampaignLinksForPayload(left)) ===
+    JSON.stringify(completeCampaignLinksForPayload(right))
+  );
+}
+
+function campaignLinksFromForm(form: FormValues) {
+  return completeCampaignLinksForPayload(form.links);
+}
+
+function firstIncompleteLink(links: CampaignLink[]) {
+  return links.find((link) => {
+    const hasLabel = Boolean(link.label.trim());
+    const hasUrl = Boolean(link.url.trim());
+
+    return hasLabel !== hasUrl;
+  });
+}
+
+function firstInvalidLinkUrl(links: CampaignLink[]) {
+  return completeCampaignLinksForPayload(links).find(
+    (link) => !/^https:\/\//i.test(link.url),
+  );
+}
+
 const initialForm: FormValues = {
   body: DEFAULT_ADMIN_EMAIL_BODY,
   ctaLabel: DEFAULT_ADMIN_EMAIL_CTA_LABEL,
   ctaUrl: DEFAULT_ADMIN_EMAIL_CTA_URL,
   heading: DEFAULT_ADMIN_EMAIL_HEADING,
+  links: defaultCampaignLinks(),
   messageType: DEFAULT_ADMIN_MESSAGE_TYPE,
   smsBody: DEFAULT_ADMIN_SMS_BODY,
   smsEnabled: true,
@@ -437,7 +591,7 @@ async function parseJsonResponse(response: Response) {
       payload?.message ||
       payload?.code ||
       "The admin action could not be completed.";
-    throw new Error(message);
+    throw new AdminResponseError(message, payload?.fieldErrors);
   }
 
   return payload;
@@ -451,11 +605,18 @@ function adminFetch(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 function campaignToForm(campaign: CampaignDraft): FormValues {
-  return {
-    body: campaign.body,
+  const links = normalizeEditableCampaignLinks(campaign.links, {
     ctaLabel: campaign.ctaLabel,
     ctaUrl: campaign.ctaUrl,
+  });
+  const firstLink = firstCampaignLinkFields(links);
+
+  return {
+    body: campaign.body,
+    ctaLabel: firstLink.ctaLabel,
+    ctaUrl: firstLink.ctaUrl,
     heading: campaign.heading,
+    links,
     messageType: campaign.messageType,
     smsBody: campaign.smsBody || DEFAULT_ADMIN_SMS_BODY,
     smsEnabled: true,
@@ -857,31 +1018,180 @@ function localParagraphs(body: string) {
     .filter(Boolean);
 }
 
-function localEmailPreviewHtml(form: FormValues) {
-  const label = messageTypeEmailLabel(form.messageType);
-  const brandIconUrl = "https://www.suppvis.health/email/suppvis-logo.png";
-  const bodyHtml = [
-    ...localParagraphs(form.body).map((paragraph) =>
+function localLinkPlacementKey(
+  placement: CampaignLinkPlacement,
+  paragraphCount: number,
+) {
+  if (
+    placement.type === "after_paragraph" &&
+    placement.paragraphIndex > 0 &&
+    placement.paragraphIndex <= paragraphCount
+  ) {
+    return `after_paragraph:${placement.paragraphIndex}`;
+  }
+
+  if (placement.type === "before_body" || placement.type === "footer") {
+    return placement.type;
+  }
+
+  return "after_body";
+}
+
+function localGroupedLinks(links: CampaignLink[], paragraphCount: number) {
+  return completeCampaignLinksForPayload(links).reduce<
+    Record<string, CampaignLink[]>
+  >((groups, link) => {
+    const key = localLinkPlacementKey(link.placement, paragraphCount);
+    groups[key] = groups[key] || [];
+    groups[key].push(link);
+    return groups;
+  }, {});
+}
+
+function localLinkHtml(link: CampaignLink) {
+  if (link.style === "text") {
+    return `<p style="margin:0 0 18px 0;text-align:center;color:#9BAFBF;font-size:16px;line-height:1.65;"><a href="${escapeHtml(
+      link.url,
+    )}" style="color:#14B8A6;text-decoration:underline;font-weight:800;">${escapeHtml(
+      link.label,
+    )}</a></p>`;
+  }
+
+  return `<p style="margin:0 0 18px 0;text-align:center;"><a href="${escapeHtml(
+    link.url,
+  )}" style="display:inline-block;border-radius:999px;background:#14B8A6;color:#0A0F14;text-decoration:none;font-size:16px;font-weight:800;padding:14px 24px;">${escapeHtml(
+    link.label,
+  )}</a></p>
+<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(
+    link.url,
+  )}</p>`;
+}
+
+function localLinksHtml(links?: CampaignLink[]) {
+  return (links || []).map(localLinkHtml).join("\n");
+}
+
+function localEmailBodyHtml(form: FormValues) {
+  const paragraphs = localParagraphs(form.body);
+  const groups = localGroupedLinks(form.links, paragraphs.length);
+  const chunks = [localLinksHtml(groups.before_body)];
+
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    chunks.push(
       `<p style="margin:0 0 18px 0;color:#9BAFBF;font-size:16px;line-height:1.65;">${paragraph
         .split(/\n/)
         .map(escapeHtml)
         .join("<br />")}</p>`,
-    ),
-    form.ctaLabel && form.ctaUrl
-      ? `<p style="margin:0 0 18px 0;text-align:center;"><a href="${escapeHtml(
-          form.ctaUrl,
-        )}" style="display:inline-block;border-radius:999px;background:#14B8A6;color:#0A0F14;text-decoration:none;font-size:16px;font-weight:800;padding:14px 24px;">${escapeHtml(
-          form.ctaLabel,
-        )}</a></p>`
-      : "",
-    form.ctaUrl
-      ? `<p style="margin:0 0 22px 0;color:#9BAFBF;font-size:13px;line-height:1.55;word-break:break-all;text-align:center;">${escapeHtml(
-          form.ctaUrl,
-        )}</p>`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    );
+    chunks.push(localLinksHtml(groups[`after_paragraph:${paragraphNumber}`]));
+  });
+
+  chunks.push(localLinksHtml(groups.after_body));
+  chunks.push(localLinksHtml(groups.footer));
+
+  return chunks.filter(Boolean).join("\n");
+}
+
+function localEmailPreviewText(form: FormValues) {
+  const paragraphs = localParagraphs(form.body);
+  const groups = localGroupedLinks(form.links, paragraphs.length);
+  const chunks = [
+    form.heading,
+    "",
+    ...((groups.before_body || []).map(
+      (link) => `${link.label}: ${link.url}`,
+    )),
+  ];
+
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    chunks.push(paragraph);
+    chunks.push(
+      ...((groups[`after_paragraph:${paragraphNumber}`] || []).map(
+        (link) => `${link.label}: ${link.url}`,
+      )),
+    );
+  });
+
+  chunks.push(...((groups.after_body || []).map((link) => `${link.label}: ${link.url}`)));
+  chunks.push(...((groups.footer || []).map((link) => `${link.label}: ${link.url}`)));
+  chunks.push(
+    "",
+    "You are receiving this because you joined the SuppVis beta.",
+    "Unsubscribe link will be inserted per recipient before a production send.",
+  );
+
+  return chunks.filter((part) => part !== "").join("\n");
+}
+
+function placementValue(placement: CampaignLinkPlacement) {
+  if (placement.type === "after_paragraph") {
+    return `after_paragraph:${placement.paragraphIndex}`;
+  }
+
+  return placement.type;
+}
+
+function placementFromValue(value: string): CampaignLinkPlacement {
+  if (value.startsWith("after_paragraph:")) {
+    const paragraphIndex = Number(value.split(":")[1]);
+
+    if (Number.isInteger(paragraphIndex) && paragraphIndex > 0) {
+      return { paragraphIndex, type: "after_paragraph" };
+    }
+  }
+
+  if (value === "before_body" || value === "after_body" || value === "footer") {
+    return { type: value };
+  }
+
+  return { type: "after_body" };
+}
+
+function placementOptions(body: string, currentPlacement?: CampaignLinkPlacement) {
+  const paragraphs = localParagraphs(body);
+  const options = [
+    { label: "Before message body", value: "before_body" },
+    ...paragraphs.map((_, index) => ({
+      label: `After paragraph ${index + 1}`,
+      value: `after_paragraph:${index + 1}`,
+    })),
+    { label: "After message body", value: "after_body" },
+    { label: "Footer / bottom", value: "footer" },
+  ];
+
+  if (
+    currentPlacement?.type === "after_paragraph" &&
+    currentPlacement.paragraphIndex > paragraphs.length
+  ) {
+    options.splice(-2, 0, {
+      label: `After deleted paragraph ${currentPlacement.paragraphIndex}`,
+      value: placementValue(currentPlacement),
+    });
+  }
+
+  return options;
+}
+
+function placementWarning(
+  placement: CampaignLinkPlacement,
+  paragraphCount: number,
+) {
+  if (
+    placement.type === "after_paragraph" &&
+    placement.paragraphIndex > paragraphCount
+  ) {
+    return `Paragraph ${placement.paragraphIndex} no longer exists. This link will send after the message body unless you choose a new placement.`;
+  }
+
+  return null;
+}
+
+function localEmailPreviewHtml(form: FormValues) {
+  const label = messageTypeEmailLabel(form.messageType);
+  const brandIconUrl = "https://www.suppvis.health/email/suppvis-logo.png";
+  const bodyHtml = localEmailBodyHtml(form);
 
   return `<!doctype html>
 <html lang="en">
@@ -1493,6 +1803,7 @@ export default function AdminCampaignDraft({
   const emailCtaLabelRef = useRef<HTMLInputElement | null>(null);
   const emailCtaUrlRef = useRef<HTMLInputElement | null>(null);
   const emailHeadingFieldRef = useRef<HTMLInputElement | null>(null);
+  const emailLinksRef = useRef<HTMLDivElement | null>(null);
   const firstEmailFieldRef = useRef<HTMLInputElement | null>(null);
   const textWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const textHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -1645,8 +1956,13 @@ export default function AdminCampaignDraft({
   const emailChangedSinceSave = Boolean(
     campaign &&
       (form.body !== campaign.body ||
-        form.ctaLabel !== campaign.ctaLabel ||
-        form.ctaUrl !== campaign.ctaUrl ||
+        !campaignLinksEqual(
+          form.links,
+          normalizeEditableCampaignLinks(campaign.links, {
+            ctaLabel: campaign.ctaLabel,
+            ctaUrl: campaign.ctaUrl,
+          }),
+        ) ||
         form.heading !== campaign.heading ||
         form.messageType !== campaign.messageType ||
         form.subject !== campaign.subject),
@@ -1701,6 +2017,10 @@ export default function AdminCampaignDraft({
   const defaultEmailPreviewHtml = useMemo(
     () => localEmailPreviewHtml(emailPreviewSnapshot),
     [emailPreviewSnapshot],
+  );
+  const emailParagraphCount = useMemo(
+    () => localParagraphs(form.body).length,
+    [form.body],
   );
   const defaultSmsPreview = useMemo(
     () => localSmsPreview(smsPreviewSnapshot),
@@ -1788,8 +2108,7 @@ export default function AdminCampaignDraft({
         ? form.subject !== initialForm.subject ||
           form.heading !== initialForm.heading ||
           form.body !== initialForm.body ||
-          form.ctaLabel !== initialForm.ctaLabel ||
-          form.ctaUrl !== initialForm.ctaUrl ||
+          !campaignLinksEqual(form.links, initialForm.links) ||
           form.smsBody !== initialForm.smsBody
         : emailChangedSinceSave || smsChangedSinceSave),
   );
@@ -2041,6 +2360,12 @@ export default function AdminCampaignDraft({
       nextErrors.body = "Add email copy before saving.";
     } else if (isBlockedPlaceholder(form.body)) {
       nextErrors.body = "Replace test placeholder text before saving.";
+    }
+
+    if (firstIncompleteLink(form.links)) {
+      nextErrors.links = "Each link needs both text and an https:// URL.";
+    } else if (firstInvalidLinkUrl(form.links)) {
+      nextErrors.links = "Links must use https:// URLs.";
     }
 
     setFieldErrors(nextErrors);
@@ -2849,6 +3174,7 @@ export default function AdminCampaignDraft({
       key === "body" ||
       key === "ctaLabel" ||
       key === "ctaUrl" ||
+      key === "links" ||
       key === "heading" ||
       key === "messageType" ||
       key === "subject"
@@ -2862,6 +3188,126 @@ export default function AdminCampaignDraft({
       setSmsTestRecipient(null);
       setSmsTestReadiness(null);
       setSmsTestModalState(null);
+    }
+  }
+
+  function updateEmailLinks(
+    updater: CampaignLink[] | ((links: CampaignLink[]) => CampaignLink[]),
+  ) {
+    setForm((current) => {
+      const nextLinks = normalizeEditableCampaignLinks(
+        typeof updater === "function" ? updater(current.links) : updater,
+      );
+      const firstLink = firstCampaignLinkFields(nextLinks);
+
+      return {
+        ...current,
+        ctaLabel: firstLink.ctaLabel,
+        ctaUrl: firstLink.ctaUrl,
+        links: nextLinks,
+      };
+    });
+    setAudience(null);
+    setAudienceRefreshError(null);
+    setFieldErrors((current) => ({
+      ...current,
+      ctaLabel: undefined,
+      ctaUrl: undefined,
+      links: undefined,
+    }));
+    setEmailPreviewOutdated(true);
+    setTestSendMessageId(null);
+  }
+
+  function updateEmailLink(
+    id: string,
+    patch:
+      | Partial<CampaignLink>
+      | ((link: CampaignLink) => Partial<CampaignLink>),
+  ) {
+    updateEmailLinks((links) =>
+      links.map((link) => {
+        if (link.id !== id) {
+          return link;
+        }
+
+        const resolvedPatch = typeof patch === "function" ? patch(link) : patch;
+
+        return {
+          ...link,
+          ...resolvedPatch,
+          placement: normalizeCampaignLinkPlacement(
+            resolvedPatch.placement || link.placement,
+          ),
+        };
+      }),
+    );
+  }
+
+  function addEmailLink() {
+    updateEmailLinks((links) => [
+      ...links,
+      {
+        id: newCampaignLinkId(),
+        label: "",
+        order: links.length + 1,
+        placement: { type: "after_body" },
+        style: "button",
+        url: "",
+      },
+    ]);
+  }
+
+  function removeEmailLink(id: string) {
+    updateEmailLinks((links) => links.filter((link) => link.id !== id));
+  }
+
+  function moveEmailLink(id: string, direction: -1 | 1) {
+    updateEmailLinks((links) => {
+      const index = links.findIndex((link) => link.id === id);
+      const targetIndex = index + direction;
+
+      if (index < 0 || targetIndex < 0 || targetIndex >= links.length) {
+        return links;
+      }
+
+      const nextLinks = [...links];
+      const [link] = nextLinks.splice(index, 1);
+      nextLinks.splice(targetIndex, 0, link);
+      return nextLinks;
+    });
+  }
+
+  function applyApiFieldErrors(error: unknown) {
+    if (!(error instanceof AdminResponseError) || !error.fieldErrors) {
+      return;
+    }
+
+    const nextErrors: Partial<Record<keyof FormValues, string>> = {};
+
+    for (const [key, messages] of Object.entries(error.fieldErrors)) {
+      const firstMessage = messages?.find(Boolean);
+
+      if (!firstMessage) {
+        continue;
+      }
+
+      if (
+        key === "subject" ||
+        key === "heading" ||
+        key === "body" ||
+        key === "links" ||
+        key === "smsBody" ||
+        key === "messageType"
+      ) {
+        nextErrors[key] = firstMessage;
+      } else if (key === "ctaLabel" || key === "ctaUrl") {
+        nextErrors.links = firstMessage;
+      }
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors((current) => ({ ...current, ...nextErrors }));
     }
   }
 
@@ -2990,9 +3436,9 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           body: form.body,
-          ctaLabel: form.ctaLabel,
-          ctaUrl: form.ctaUrl,
+          ...firstCampaignLinkFields(form.links),
           heading: form.heading,
+          links: campaignLinksFromForm(form),
           messageType: form.messageType,
           subject: form.subject,
         }),
@@ -3012,6 +3458,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("emailPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text: error instanceof Error ? error.message : "Could not save email.",
@@ -3041,10 +3488,10 @@ export default function AdminCampaignDraft({
         },
         body: JSON.stringify({
           body: form.body,
-          ctaLabel: form.ctaLabel,
-          ctaUrl: form.ctaUrl,
           expectedVersion: campaign.version,
+          ...firstCampaignLinkFields(form.links),
           heading: form.heading,
+          links: campaignLinksFromForm(form),
           messageType: form.messageType,
           saveChannel: "email",
           subject: form.subject,
@@ -3065,6 +3512,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("emailPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text: error instanceof Error ? error.message : "Could not save email.",
@@ -3119,6 +3567,7 @@ export default function AdminCampaignDraft({
       setGuidanceHighlight("smsPreview");
       window.setTimeout(() => setGuidanceHighlight(null), 1800);
     } catch (error) {
+      applyApiFieldErrors(error);
       setMessage({
         tone: "error",
         text:
@@ -3327,10 +3776,10 @@ export default function AdminCampaignDraft({
         body: JSON.stringify({
           body: form.body,
           campaignId: campaign?.id,
-          ctaLabel: form.ctaLabel,
-          ctaUrl: form.ctaUrl,
           expectedVersion: campaign?.version,
+          ...firstCampaignLinkFields(form.links),
           heading: form.heading,
+          links: campaignLinksFromForm(form),
           messageType: form.messageType,
           subject: form.subject,
         }),
@@ -4036,19 +4485,13 @@ export default function AdminCampaignDraft({
       };
     }
 
-    if (form.ctaUrl.trim() && !form.ctaLabel.trim()) {
-      return {
-        key: "emailCtaLabel",
-        label: "the Link text field",
-        ref: emailCtaLabelRef,
-      };
-    }
+    const incompleteLink = firstIncompleteLink(form.links);
 
-    if (form.ctaLabel.trim() && !form.ctaUrl.trim()) {
+    if (incompleteLink) {
       return {
-        key: "emailCtaUrl",
-        label: "the Link URL field",
-        ref: emailCtaUrlRef,
+        key: "emailLinks",
+        label: "the Email links section",
+        ref: emailLinksRef,
       };
     }
 
@@ -4154,9 +4597,8 @@ export default function AdminCampaignDraft({
     emailSaved,
     emailTestReady,
     form.body,
-    form.ctaLabel,
-    form.ctaUrl,
     form.heading,
+    form.links,
     form.smsBody,
     form.subject,
     isSendStarted,
@@ -4237,6 +4679,7 @@ export default function AdminCampaignDraft({
       action.key === "emailBody" ||
       action.key === "emailCtaLabel" ||
       action.key === "emailCtaUrl" ||
+      action.key === "emailLinks" ||
       action.key === "smsBody"
     ) {
       return `Fill in ${action.label} next.`;
@@ -5554,40 +5997,186 @@ export default function AdminCampaignDraft({
             ) : null}
           </label>
 
-          <div className="grid gap-4 sm:grid-cols-[0.8fr_1.2fr]">
-            <label className="block">
-              <span className="text-sm font-semibold text-text-primary">
-                Link text
-              </span>
-              <input
-                ref={emailCtaLabelRef}
-                value={form.ctaLabel}
-                onChange={(event) => updateField("ctaLabel", event.target.value)}
-                maxLength={64}
+          <div
+            ref={emailLinksRef}
+            className={`rounded-[8px] border border-white/10 bg-[#080D12] p-4 ${guidedControlClass("emailLinks")}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-text-primary">
+                  Email links
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-text-muted">
+                  Add buttons or text links and choose where each one appears.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={addEmailLink}
                 disabled={isSendStarted}
-                className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaLabel")}`}
-              />
-              <span className="mt-2 block text-xs leading-5 text-text-muted">
-                Optional. Leave link text and URL blank for an email with no
-                button.
+                className="rounded-full border border-accent/50 px-4 py-2 text-xs font-bold text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                + Add link
+              </button>
+            </div>
+
+            {form.links.length ? (
+              <div className="mt-4 space-y-4">
+                {form.links.map((link, index) => {
+                  const warning = placementWarning(
+                    link.placement,
+                    emailParagraphCount,
+                  );
+
+                  return (
+                    <div
+                      key={link.id}
+                      className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-text-muted">
+                          Link {index + 1}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => moveEmailLink(link.id, -1)}
+                            disabled={isSendStarted || index === 0}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            Up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveEmailLink(link.id, 1)}
+                            disabled={
+                              isSendStarted || index === form.links.length - 1
+                            }
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-text-secondary transition hover:border-accent/50 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            Down
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeEmailLink(link.id)}
+                            disabled={isSendStarted}
+                            className="rounded-full border border-red-300/20 px-3 py-1.5 text-xs font-semibold text-red-100 transition hover:border-red-200/50 hover:bg-red-400/10 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                        <label className="block">
+                          <span className="text-sm font-semibold text-text-primary">
+                            Label
+                          </span>
+                          <input
+                            ref={index === 0 ? emailCtaLabelRef : undefined}
+                            value={link.label}
+                            onChange={(event) =>
+                              updateEmailLink(link.id, {
+                                label: event.target.value,
+                              })
+                            }
+                            maxLength={64}
+                            disabled={isSendStarted}
+                            className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${
+                              index === 0
+                                ? guidedControlClass("emailCtaLabel")
+                                : ""
+                            }`}
+                          />
+                        </label>
+
+                        <label className="block">
+                          <span className="text-sm font-semibold text-text-primary">
+                            URL
+                          </span>
+                          <input
+                            ref={index === 0 ? emailCtaUrlRef : undefined}
+                            value={link.url}
+                            onChange={(event) =>
+                              updateEmailLink(link.id, {
+                                url: event.target.value,
+                              })
+                            }
+                            maxLength={300}
+                            disabled={isSendStarted}
+                            placeholder="https://"
+                            className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition placeholder:text-text-muted focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${
+                              index === 0 ? guidedControlClass("emailCtaUrl") : ""
+                            }`}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="text-sm font-semibold text-text-primary">
+                            Style
+                          </span>
+                          <select
+                            value={link.style}
+                            onChange={(event) =>
+                              updateEmailLink(link.id, {
+                                style: event.target.value as CampaignLinkStyle,
+                              })
+                            }
+                            disabled={isSendStarted}
+                            className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm font-semibold text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <option value="button">Button</option>
+                            <option value="text">Text link</option>
+                          </select>
+                        </label>
+
+                        <label className="block">
+                          <span className="text-sm font-semibold text-text-primary">
+                            Placement
+                          </span>
+                          <select
+                            value={placementValue(link.placement)}
+                            onChange={(event) =>
+                              updateEmailLink(link.id, {
+                                placement: placementFromValue(event.target.value),
+                              })
+                            }
+                            disabled={isSendStarted}
+                            className="mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm font-semibold text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {placementOptions(form.body, link.placement).map(
+                              (option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ),
+                            )}
+                          </select>
+                          {warning ? (
+                            <span className="mt-2 block text-xs leading-5 text-yellow-100">
+                              {warning}
+                            </span>
+                          ) : null}
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-[8px] border border-dashed border-white/15 bg-[#05090D] p-4 text-sm leading-6 text-text-secondary">
+                No links are attached. This email will send without a button or
+                link block.
+              </div>
+            )}
+
+            {fieldErrors.links ? (
+              <span className="mt-3 block text-xs text-red-100">
+                {fieldErrors.links}
               </span>
-            </label>
-            <label className="block">
-              <span className="text-sm font-semibold text-text-primary">
-                Link URL
-              </span>
-              <input
-                ref={emailCtaUrlRef}
-                value={form.ctaUrl}
-                onChange={(event) => updateField("ctaUrl", event.target.value)}
-                maxLength={300}
-                disabled={isSendStarted}
-                className={`mt-2 w-full rounded-[8px] border border-white/10 bg-[#080D12] px-4 py-3 text-sm text-text-primary outline-none transition focus:border-accent disabled:cursor-not-allowed disabled:opacity-60 ${guidedControlClass("emailCtaUrl")}`}
-              />
-              <span className="mt-2 block text-xs leading-5 text-text-muted">
-                Optional. URLs are validated only when supplied.
-              </span>
-            </label>
+            ) : null}
           </div>
         </div>
 
@@ -5755,20 +6344,7 @@ export default function AdminCampaignDraft({
                 />
               ) : (
                 <pre className="max-h-[620px] overflow-auto whitespace-pre-wrap rounded-[8px] border border-white/10 bg-[#0D1117] p-5 text-sm leading-6 text-text-secondary">
-                  {[
-                    emailPreviewSnapshot.heading,
-                    "",
-                    emailPreviewSnapshot.body.trim(),
-                    "",
-                    emailPreviewSnapshot.ctaLabel && emailPreviewSnapshot.ctaUrl
-                      ? `${emailPreviewSnapshot.ctaLabel}: ${emailPreviewSnapshot.ctaUrl}`
-                      : "",
-                    "",
-                    "You are receiving this because you joined the SuppVis beta.",
-                    "Unsubscribe link will be inserted per recipient before a production send.",
-                  ]
-                    .filter((part) => part !== "")
-                    .join("\n")}
+                  {localEmailPreviewText(emailPreviewSnapshot)}
                 </pre>
               )}
             </>

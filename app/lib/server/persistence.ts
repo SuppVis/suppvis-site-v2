@@ -9,6 +9,10 @@ import {
   updateDynamoItem,
   upsertDynamoItem,
 } from "./dynamo";
+import type {
+  AdminCampaignLink,
+  AdminCampaignLinkPlacement,
+} from "./messages/admin-campaign";
 
 export type BetaApplicationRecord = {
   id: string;
@@ -342,6 +346,7 @@ export type EmailCampaignRecord = {
   body: string;
   cta_label: string;
   cta_url: string;
+  links: AdminCampaignLink[];
   status: EmailCampaignStatus;
   created_by: string;
   updated_by: string;
@@ -633,6 +638,97 @@ function betaAudienceSegmentAttribute(value: unknown) {
     : "all";
 }
 
+function stringArrayAttribute(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function adminCampaignLinkPlacementAttribute(
+  value: unknown,
+): AdminCampaignLinkPlacement {
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    (value as { type?: unknown }).type === "after_paragraph"
+  ) {
+    const paragraphIndex = Number(
+      (value as { paragraphIndex?: unknown }).paragraphIndex,
+    );
+
+    if (Number.isInteger(paragraphIndex) && paragraphIndex > 0) {
+      return { paragraphIndex, type: "after_paragraph" };
+    }
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    ((value as { type?: unknown }).type === "before_body" ||
+      (value as { type?: unknown }).type === "after_body" ||
+      (value as { type?: unknown }).type === "footer")
+  ) {
+    return {
+      type: (value as { type: "before_body" | "after_body" | "footer" }).type,
+    };
+  }
+
+  return { type: "after_body" };
+}
+
+function adminCampaignLinksAttribute(
+  value: unknown,
+  ctaLabel: string,
+  ctaUrl: string,
+): AdminCampaignLink[] {
+  const links = (Array.isArray(value) ? value : [])
+    .map((rawLink, index): AdminCampaignLink | null => {
+      if (!rawLink || typeof rawLink !== "object") {
+        return null;
+      }
+
+      const link = rawLink as Record<string, unknown>;
+      const label = stringAttribute(link.label)?.trim() || "";
+      const url = stringAttribute(link.url)?.trim() || "";
+
+      if (!label || !url) {
+        return null;
+      }
+
+      const id = stringAttribute(link.id)?.trim() || `link_${index + 1}`;
+      const order = numberAttribute(link.order) || index + 1;
+
+      return {
+        id,
+        label,
+        order,
+        placement: adminCampaignLinkPlacementAttribute(link.placement),
+        style: link.style === "text" ? "text" : "button",
+        url,
+      };
+    })
+    .filter((link): link is AdminCampaignLink => Boolean(link))
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    .map((link, index) => ({ ...link, order: index + 1 }));
+
+  if (links.length || !ctaLabel || !ctaUrl) {
+    return links;
+  }
+
+  return [
+    {
+      id: "link_legacy_cta",
+      label: ctaLabel,
+      order: 1,
+      placement: { type: "after_body" },
+      style: "button",
+      url: ctaUrl,
+    },
+  ];
+}
+
 function nullableStringAttribute(value: unknown) {
   return value === null ? null : stringAttribute(value);
 }
@@ -651,6 +747,8 @@ function emailCampaignFromAttributes(
   const createdAt = stringAttribute(attributes?.created_at);
   const updatedAt = stringAttribute(attributes?.updated_at);
   const version = numberAttribute(attributes?.version);
+  const ctaLabel = stringAttribute(attributes?.cta_label) || "";
+  const ctaUrl = stringAttribute(attributes?.cta_url) || "";
 
   if (
     !id ||
@@ -675,8 +773,9 @@ function emailCampaignFromAttributes(
     subject,
     heading,
     body,
-    cta_label: stringAttribute(attributes?.cta_label) || "",
-    cta_url: stringAttribute(attributes?.cta_url) || "",
+    cta_label: ctaLabel,
+    cta_url: ctaUrl,
+    links: adminCampaignLinksAttribute(attributes?.links, ctaLabel, ctaUrl),
     status,
     created_by: createdBy,
     updated_by: updatedBy,
@@ -1733,6 +1832,7 @@ export async function createEmailCampaignDraft(record: EmailCampaignRecord) {
       body: record.body,
       cta_label: record.cta_label,
       cta_url: record.cta_url,
+      links: record.links,
       status: record.status,
       created_by: record.created_by,
       updated_by: record.updated_by,
@@ -1980,6 +2080,7 @@ export async function updateEmailCampaignEmailDraft(input: {
   expectedVersion: number;
   heading: string;
   id: string;
+  links: AdminCampaignLink[];
   message_type: EmailCampaignMessageType;
   now: string;
   subject: string;
@@ -1998,6 +2099,7 @@ export async function updateEmailCampaignEmailDraft(input: {
       body: input.body,
       cta_label: input.cta_label,
       cta_url: input.cta_url,
+      links: input.links,
       email_draft_version: nextVersion,
       email_preview_generated_at: null,
       email_preview_version: 0,
@@ -2140,6 +2242,7 @@ export async function updateEmailCampaignDraft(input: {
   expectedVersion: number;
   heading: string;
   id: string;
+  links: AdminCampaignLink[];
   message_type: EmailCampaignMessageType;
   now: string;
   subject: string;
@@ -2165,6 +2268,7 @@ export async function updateEmailCampaignDraft(input: {
       body: input.body,
       cta_label: input.cta_label,
       cta_url: input.cta_url,
+      links: input.links,
       email_draft_version: nextVersion,
       email_preview_generated_at: null,
       email_preview_version: 0,

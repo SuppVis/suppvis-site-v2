@@ -2,7 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { recordAdminCampaignAudit } from "@/app/lib/server/admin-campaign-audit";
 import { requireAdminSession } from "@/app/lib/server/admin-session";
 import { handleApiError, PublicApiError } from "@/app/lib/server/errors";
-import { renderAdminCampaignEmail } from "@/app/lib/server/messages/admin-campaign";
+import {
+  adminCampaignLinksEqual,
+  normalizeAdminCampaignLinks,
+  renderAdminCampaignEmail,
+} from "@/app/lib/server/messages/admin-campaign";
 import {
   getEmailCampaign,
   markEmailCampaignEmailPreviewGenerated,
@@ -64,8 +68,18 @@ export async function POST(request: NextRequest) {
 
       if (
         campaign.body !== submission.body ||
-        campaign.cta_label !== submission.ctaLabel ||
-        campaign.cta_url !== submission.ctaUrl ||
+        !adminCampaignLinksEqual(
+          normalizeAdminCampaignLinks({
+            ctaLabel: campaign.cta_label,
+            ctaUrl: campaign.cta_url,
+            links: campaign.links,
+          }),
+          normalizeAdminCampaignLinks({
+            ctaLabel: submission.ctaLabel,
+            ctaUrl: submission.ctaUrl,
+            links: submission.links,
+          }),
+        ) ||
         campaign.heading !== submission.heading ||
         campaign.message_type !== submission.messageType ||
         campaign.subject !== submission.subject
@@ -100,6 +114,7 @@ export async function POST(request: NextRequest) {
       ctaLabel: submission.ctaLabel,
       ctaUrl: submission.ctaUrl,
       heading: submission.heading,
+      links: submission.links,
       messageType: submission.messageType,
       subject: submission.subject,
     });
