@@ -2464,7 +2464,6 @@
         }
 
         </style>
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 </head>
 <body>
     <!-- Scroll Progress Indicator -->
@@ -3087,7 +3086,7 @@
 
             <!-- Inline email form -->
             <div style="max-width:520px;margin:0 auto 48px;" id="waitlistInlineForm">
-                <form id="inlineWaitlistForm" action="https://formspree.io/f/YOUR_FORM_ID" method="POST" onsubmit="handleInlineSubmit(event)">
+                <form id="inlineWaitlistForm" action="/#waitlist" method="GET" onsubmit="handleInlineSubmit(event)">
                     <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
                         <input
                             type="email"
@@ -3170,7 +3169,7 @@
             </div>
 
             <!-- Form -->
-            <form id="modalWaitlistForm" action="https://formspree.io/f/YOUR_FORM_ID" method="POST" onsubmit="handleModalSubmit(event)">
+            <form id="modalWaitlistForm" action="/#waitlist" method="GET" onsubmit="handleModalSubmit(event)">
                 <div style="margin-bottom:16px;">
                     <label style="display:block;font-size:13px;color:#94A3B8;font-weight:500;margin-bottom:8px;letter-spacing:0.3px;">First Name</label>
                     <input type="text" name="name" placeholder="Alex" style="width:100%;padding:14px 18px;background:rgba(255,255,255,0.05);border:1.5px solid rgba(20,184,166,0.2);border-radius:10px;color:#F5F1E8;font-size:15px;font-family:inherit;outline:none;transition:border-color 0.2s,box-shadow 0.2s;" onfocus="this.style.borderColor='#14B8A6';this.style.boxShadow='0 0 0 3px rgba(20,184,166,0.12)'" onblur="this.style.borderColor='rgba(20,184,166,0.2)';this.style.boxShadow='none'"/>
@@ -3220,7 +3219,7 @@
     <!-- Footer -->
 
     <!-- JavaScript -->
-    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+    <script>
         // ── THEME: follow system preference ──
         const html = document.documentElement;
         const applyTheme = () => {
@@ -3252,57 +3251,19 @@
             if (e.key === 'Escape') closeWaitlistModal();
         });
 
-        // Handle modal form submission
-        async function handleModalSubmit(e) {
+        function redirectToCurrentBetaForm(e) {
             e.preventDefault();
-            const form = document.getElementById('modalWaitlistForm');
-            const btn = form.querySelector('button[type="submit"]');
-            btn.textContent = 'Sending...';
-            btn.disabled = true;
+            window.location.href = '/#waitlist';
+        }
 
-            try {
-                const res = await fetch(form.action, {
-                    method: 'POST',
-                    body: new FormData(form),
-                    headers: { 'Accept': 'application/json' }
-                });
-                if (res.ok) {
-                    form.style.display = 'none';
-                    document.getElementById('modalSuccessState').style.display = 'block';
-                } else {
-                    throw new Error();
-                }
-            } catch {
-                // Fallback — show success anyway for demo (remove in prod)
-                form.style.display = 'none';
-                document.getElementById('modalSuccessState').style.display = 'block';
-            }
+        // Handle modal form submission
+        function handleModalSubmit(e) {
+            redirectToCurrentBetaForm(e);
         }
 
         // Handle inline form submission
-        async function handleInlineSubmit(e) {
-            e.preventDefault();
-            const form = document.getElementById('inlineWaitlistForm');
-            const btn = form.querySelector('button[type="submit"]');
-            btn.textContent = 'Sending...';
-            btn.disabled = true;
-
-            try {
-                const res = await fetch(form.action, {
-                    method: 'POST',
-                    body: new FormData(form),
-                    headers: { 'Accept': 'application/json' }
-                });
-                if (res.ok) {
-                    document.getElementById('inlineWaitlistForm').style.display = 'none';
-                    document.getElementById('inlineSuccessState').style.display = 'block';
-                } else {
-                    throw new Error();
-                }
-            } catch {
-                document.getElementById('inlineWaitlistForm').style.display = 'none';
-                document.getElementById('inlineSuccessState').style.display = 'block';
-            }
+        function handleInlineSubmit(e) {
+            redirectToCurrentBetaForm(e);
         }
 
         // Show sticky CTA on mobile after scrolling past hero

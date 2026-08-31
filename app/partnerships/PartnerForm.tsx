@@ -2,6 +2,8 @@
 
 import { useState, FormEvent } from "react";
 
+const PARTNERSHIP_EMAIL = "partner@suppvis.health";
+
 const PARTNER_TYPES = [
   "Brand Partner",
   "Research Partner",
@@ -11,31 +13,47 @@ const PARTNER_TYPES = [
 
 const YES_NO_SOME = ["Yes", "No", "Some"];
 
+function formValue(data: FormData, key: string) {
+  return String(data.get(key) || "").trim();
+}
+
+function buildPartnershipEmailUrl(data: FormData) {
+  const partnerType = formValue(data, "partnerType");
+  const lines = [
+    "Hi SuppVis,",
+    "",
+    "I'd like to discuss a partnership.",
+    "",
+    `Name: ${formValue(data, "name")}`,
+    `Company: ${formValue(data, "company")}`,
+    `Email: ${formValue(data, "email")}`,
+    `Website: ${formValue(data, "website")}`,
+    `Partnership type: ${partnerType}`,
+  ];
+
+  if (partnerType === "Brand Partner") {
+    lines.push(
+      `Third-party tested: ${formValue(data, "thirdPartyTested")}`,
+      `Uses proprietary blends: ${formValue(data, "proprietaryBlends")}`,
+    );
+  }
+
+  lines.push("", "Message:", formValue(data, "message"));
+
+  return `mailto:${PARTNERSHIP_EMAIL}?subject=${encodeURIComponent(
+    "SuppVis partnership inquiry",
+  )}&body=${encodeURIComponent(lines.join("\n"))}`;
+}
+
 export default function PartnerForm() {
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [partnerType, setPartnerType] = useState("");
 
   const isBrand = partnerType === "Brand Partner";
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoading(true);
-
-    const form = e.currentTarget;
-    const data = new FormData(form);
-
-    try {
-      await fetch("https://formspree.io/f/placeholder", {
-        method: "POST",
-        body: data,
-        headers: { Accept: "application/json" },
-      });
-    } catch {
-      // Still show success state for now
-    }
-
-    setLoading(false);
+    window.location.href = buildPartnershipEmailUrl(new FormData(e.currentTarget));
     setSubmitted(true);
   };
 
@@ -43,7 +61,17 @@ export default function PartnerForm() {
     return (
       <div className="rounded-2xl bg-bg-secondary border border-accent/20 p-10 text-center">
         <p className="text-text-primary text-xl font-semibold">
-          Message received. We&rsquo;ll be in touch within five business days.
+          Your email app should open with your partnership message.
+        </p>
+        <p className="mt-3 text-sm text-text-muted leading-relaxed">
+          If it did not open, email{" "}
+          <a
+            href={`mailto:${PARTNERSHIP_EMAIL}`}
+            className="text-accent hover:text-accent-hover transition-colors"
+          >
+            {PARTNERSHIP_EMAIL}
+          </a>
+          .
         </p>
       </div>
     );
@@ -208,10 +236,9 @@ export default function PartnerForm() {
 
       <button
         type="submit"
-        disabled={loading}
         className="w-full rounded-xl bg-accent text-bg-primary font-semibold text-lg py-4 hover:bg-accent-hover transition-colors disabled:opacity-60"
       >
-        {loading ? "Sending..." : "Send Message"}
+        Open Email
       </button>
     </form>
   );

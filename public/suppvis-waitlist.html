@@ -754,7 +754,6 @@
             .trust-card { text-align: center; }
         }
     </style>
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
         <script>(function(){document.documentElement.setAttribute('data-theme',window.matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');})();</script>
 </head>
 <body>
@@ -855,7 +854,7 @@
 
         <!-- Form -->
         <div class="form-wrapper" id="waitlist-form">
-            <form id="waitlistForm" action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+            <form id="waitlistForm" action="/#waitlist" method="GET" onsubmit="window.location.href='/#waitlist'; return false;">
                 <div class="form-row">
                     <input type="text" name="name" class="form-input" placeholder="Your full name" required autocomplete="name"/>
                     <input type="email" name="email" class="form-input" placeholder="Your email address" required autocomplete="email"/>

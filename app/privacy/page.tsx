@@ -243,8 +243,9 @@ export default function PrivacyPage() {
                       Section 3
                     </li>
                     <li>
-                      Email and analytics providers that help us communicate with
-                      users and understand product usage
+                      Email, SMS, hosting, infrastructure, and diagnostic
+                      providers that help us communicate with users and operate
+                      the Services
                     </li>
                     <li>
                       Payment processors, if and when we introduce paid tiers
