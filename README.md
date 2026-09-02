@@ -65,9 +65,17 @@ Do not commit `.env.local`, real secrets, access keys, Twilio tokens, or recipie
 | `/affiliate-disclosure` | Affiliate disclosure. |
 | `/unsubscribe` | Email unsubscribe page. |
 | `/admin` | Protected admin announcement console. |
+| `/admin/catalog` | Protected one-product-at-a-time catalog curation workspace. |
 | `/admin/sign-in` | Admin sign-in entry page. |
 
 The `/admin` route is intentionally not linked from public navigation. Security is enforced server-side and does not rely on the URL being hidden.
+
+The catalog workspace reuses the Entra website allowlist and proxies every
+catalog request through a server-only, request-bound bridge assertion. Configure
+`CATALOG_PLATFORM_BASE_URL`, a matching 32-byte-or-longer
+`CATALOG_ADMIN_BRIDGE_SECRET`, `ADMIN_SITE_ORIGIN`, and only the exact private
+upload/image origins in `CATALOG_IMAGE_BROWSER_ORIGINS`. The browser never
+receives the bridge secret, assertion, S3 bucket name, or object key.
 
 ### Page Actions
 

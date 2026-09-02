@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import {
@@ -120,6 +121,12 @@ export default async function AdminPage() {
             <p className="mt-2 text-xs leading-5 text-text-muted">
               Admin access expires after six idle minutes.
             </p>
+            <Link
+              href="/admin/catalog"
+              className="mt-3 inline-flex rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E] transition hover:bg-accent-hover"
+            >
+              Open catalog workspace
+            </Link>
             <form action={signOutAction} className="mt-3">
               <button className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-text-secondary transition hover:border-accent/60 hover:text-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D1117]">
                 Sign out

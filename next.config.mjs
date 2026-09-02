@@ -1,3 +1,21 @@
+function catalogBrowserOrigins() {
+  return (process.env.CATALOG_IMAGE_BROWSER_ORIGINS || "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((value) => {
+      const url = new URL(value);
+      if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+        throw new Error("CATALOG_IMAGE_BROWSER_ORIGINS entries must be origins only.");
+      }
+      if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
+        throw new Error("Catalog browser origins must use HTTPS outside local development.");
+      }
+      return url.origin;
+    });
+}
+
+const privateCatalogOrigins = catalogBrowserOrigins();
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -6,8 +24,8 @@ const contentSecurityPolicy = [
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://cdn.shopify.com https://m.media-amazon.com",
-  "connect-src 'self' https://suppvis-platform.vercel.app",
+  `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://cdn.shopify.com https://m.media-amazon.com ${privateCatalogOrigins.join(" ")}`.trim(),
+  `connect-src 'self' https://suppvis-platform.vercel.app ${privateCatalogOrigins.join(" ")}`.trim(),
   "form-action 'self' mailto:",
   "frame-src 'self'",
   "upgrade-insecure-requests",

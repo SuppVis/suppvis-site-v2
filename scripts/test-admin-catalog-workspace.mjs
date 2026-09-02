@@ -1,0 +1,175 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import {
+  applyTemplateToDraft,
+  catalogDraftBlockers,
+  catalogProductFromDraft,
+  createEmptyCatalogDraft,
+  newIngredientDraft,
+} from "../app/admin/catalog/catalog-draft.ts";
+import {
+  catalogRoleLimits,
+  evidenceBlockers,
+  evidenceImageSets,
+  moveEvidenceFile,
+  serializableEvidence,
+} from "../app/admin/catalog/catalog-evidence.ts";
+
+const valid = createEmptyCatalogDraft();
+valid.labelName = "Zinc 30 mg";
+valid.brandName = "Example";
+valid.servingSizeLabelText = "Serving Size 1 Capsule";
+valid.components = [{
+  ...newIngredientDraft("Zinc"),
+  resolution: "matched",
+  canonicalKey: "zinc",
+  canonicalName: "Zinc",
+  amountDisclosureStatus: "disclosed",
+  amountText: "30 mg",
+}];
+assert.deepEqual(catalogDraftBlockers(valid), []);
+assert.equal(catalogProductFromDraft(valid).productType, "supplement");
+assert.equal(catalogProductFromDraft(valid).primaryCanonicalKey, "zinc");
+
+const duplicateTopLevel = structuredClone(valid);
+duplicateTopLevel.components.push({ ...duplicateTopLevel.components[0], id: "duplicate-zinc" });
+assert.match(catalogDraftBlockers(duplicateTopLevel).join(" "), /duplicates another top-level ingredient/);
+
+const unresolved = structuredClone(valid);
+unresolved.components[0].resolution = "ambiguous";
+unresolved.components[0].canonicalKey = null;
+assert.match(catalogDraftBlockers(unresolved).join(" "), /research-library decision/);
+unresolved.components[0].resolution = "not_in_research_library";
+assert.deepEqual(catalogDraftBlockers(unresolved), []);
+assert.equal(catalogProductFromDraft(unresolved).primaryCanonicalKey, null);
+
+const grouped = structuredClone(valid);
+grouped.components = [{
+  id: "group",
+  componentType: "proprietary_blend",
+  labelName: "Mineral blend",
+  amountText: "60 mg",
+  reviewReasons: [],
+  children: [valid.components[0], { ...valid.components[0], id: "second", labelName: "Copper", canonicalKey: "copper" }],
+}];
+assert.equal(catalogProductFromDraft(grouped).productType, "blend");
+assert.equal(catalogProductFromDraft(grouped).primaryCanonicalKey, null);
+grouped.hierarchyReviewRequired = true;
+assert.match(catalogDraftBlockers(grouped).join(" "), /hierarchy review/);
+
+const candidate = {
+  templateId: "ocr:1",
+  source: "ocr_template",
+  sourceLabel: "OCR",
+  sourceRecordId: null,
+  sourceRetrievedAt: "2026-09-02T12:00:00.000Z",
+  sourceProductName: "Source label",
+  sourceBrandName: "Source brand",
+  servingSize: { labelText: "Serving Size 2 Capsules", amount: 2, unit: "capsule" },
+  servingSizeLabelText: "Serving Size 2 Capsules",
+  components: [{
+    componentType: "ingredient",
+    labelName: "Zinc",
+    amountDisclosureStatus: "disclosed",
+    amountText: "25 mg",
+    libraryResolution: { status: "confident", canonicalKey: "zinc", canonicalName: "Zinc", matchReason: "exact", candidates: [] },
+    needsReview: false,
+    reviewReasons: [],
+  }],
+  nutritionFacts: [],
+  derivedProductType: "supplement",
+  hierarchyStatus: "ready",
+  reviewReasons: [],
+};
+const applied = applyTemplateToDraft(valid, candidate);
+assert.equal(valid.labelName, "Zinc 30 mg", "Source candidates must not mutate the existing draft.");
+assert.equal(applied.labelName, "Source label");
+assert.equal(applied.components[0].resolution, "matched");
+assert.equal(applied.templateProvenance.entryMethod, "ocr_template");
+
+const publicCandidate = {
+  ...candidate,
+  templateId: "nih:2",
+  source: "nih_dsld_template",
+  sourceLabel: "NIH DSLD",
+  sourceRecordId: "DSLD-2",
+};
+const switchedNewDraft = applyTemplateToDraft(applied, publicCandidate);
+assert.equal(switchedNewDraft.templateProvenance.entryMethod, "nih_dsld_template",
+  "a new draft must record the source candidate the administrator actually accepted");
+assert.equal(switchedNewDraft.templateProvenance.sourceRecordId, "DSLD-2");
+const existingWithOriginalProvenance = {
+  ...valid,
+  templateProvenance: {
+    entryMethod: "open_food_facts_template",
+    sourceRecordId: "OFF-1",
+    sourceRetrievedAt: "2026-09-01T12:00:00.000Z",
+  },
+};
+const replacedExisting = applyTemplateToDraft(existingWithOriginalProvenance, publicCandidate, true);
+assert.deepEqual(replacedExisting.templateProvenance, existingWithOriginalProvenance.templateProvenance,
+  "replacement templates must not rewrite the product's original creation provenance");
+
+const invalidGuidance = structuredClone(valid);
+invalidGuidance.doseGuidanceState = "structured";
+invalidGuidance.doseGuidanceText = "Take one daily";
+invalidGuidance.doseGuidanceAmount = "1";
+invalidGuidance.doseGuidanceUnit = "bottles";
+invalidGuidance.timingGuidanceState = "structured";
+invalidGuidance.timingGuidanceText = "At breakfast";
+invalidGuidance.timingGuidanceBlock = "breakfast";
+assert.match(catalogDraftBlockers(invalidGuidance).join(" "), /supported app dose unit/);
+assert.match(catalogDraftBlockers(invalidGuidance).join(" "), /supported app timing block/);
+
+const duplicateNutrition = structuredClone(valid);
+duplicateNutrition.nutritionFacts = [
+  { id: "sodium-1", factKey: "sodium", labelName: "Sodium", amountText: "0 mg", amountValue: "0", amountUnit: "mg", dailyValuePercent: "0", reviewReasons: [] },
+  { id: "sodium-2", factKey: "sodium", labelName: "Salt", amountText: "0 mg", amountValue: "0", amountUnit: "mg", dailyValuePercent: "0", reviewReasons: [] },
+  { id: "custom-1", factKey: "custom", labelName: "Sugar alcohol", amountText: "1 g", amountValue: "1", amountUnit: "g", dailyValuePercent: "", reviewReasons: [] },
+  { id: "custom-2", factKey: "custom", labelName: " sugar   ALCOHOL ", amountText: "1 g", amountValue: "1", amountUnit: "g", dailyValuePercent: "", reviewReasons: [] },
+];
+const nutritionBlockers = catalogDraftBlockers(duplicateNutrition).join(" ");
+assert.match(nutritionBlockers, /Standard nutrition fact sodium is duplicated/);
+assert.match(nutritionBlockers, /Custom nutrition fact sugar\s+ALCOHOL is duplicated/i);
+
+const evidence = [
+  { clientId: "front-a", role: "front_label", fileName: "a.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "a", uploadHandle: "front-handle", expiresAt: "later", status: "uploaded", error: null },
+  { clientId: "facts-a", role: "supplement_facts", fileName: "1.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "b", uploadHandle: "facts-1", expiresAt: "later", status: "uploaded", error: null },
+  { clientId: "facts-b", role: "supplement_facts", fileName: "2.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "c", uploadHandle: "facts-2", expiresAt: "later", status: "uploaded", error: null },
+  { clientId: "barcode-a", role: "barcode", fileName: "b.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "d", uploadHandle: "barcode-handle", expiresAt: "later", status: "uploaded", error: null },
+];
+assert.deepEqual(evidenceBlockers(evidence, true), []);
+assert.deepEqual(catalogRoleLimits, { front_label: 12, supplement_facts: 4, barcode: 12 });
+assert.deepEqual(evidenceImageSets(evidence, "append").map((set) => [set.role, set.uploadHandles]), [
+  ["front_label", ["front-handle"]],
+  ["supplement_facts", ["facts-1", "facts-2"]],
+  ["barcode", ["barcode-handle"]],
+]);
+const reordered = moveEvidenceFile(evidence, "facts-b", -1);
+assert.deepEqual(reordered.filter((file) => file.role === "supplement_facts").map((file) => file.clientId), ["facts-b", "facts-a"]);
+const partial = [...evidence, { ...evidence[0], clientId: "failed", status: "failed", uploadHandle: null }];
+assert.match(evidenceBlockers(partial, false).join(" "), /Upload or remove/);
+assert.equal(serializableEvidence(partial).some((file) => file.clientId === "failed"), false);
+const expired = [{ ...evidence[0], expiresAt: "2000-01-01T00:00:00.000Z" }];
+assert.match(evidenceBlockers(expired, false).join(" "), /expired pending evidence/);
+
+const workspaceSource = readFileSync("app/admin/catalog/CatalogWorkspace.tsx", "utf8");
+const saveStart = workspaceSource.indexOf("async function saveDraft()");
+const saveEnd = workspaceSource.indexOf("async function viewImage", saveStart);
+assert.ok(saveStart > 0 && saveEnd > saveStart);
+const saveSource = workspaceSource.slice(saveStart, saveEnd);
+for (const mutation of ["createCatalogProduct", "updateCatalogProduct", "attachCatalogBarcode", "reassignCatalogBarcode"]) {
+  assert.match(saveSource, new RegExp(`await ${mutation}\\(`), `${mutation} must be confined to Save draft.`);
+  const outsideSave = `${workspaceSource.slice(0, saveStart)}${workspaceSource.slice(saveEnd)}`;
+  assert.doesNotMatch(outsideSave, new RegExp(`await ${mutation}\\(`), `${mutation} escaped Save draft.`);
+}
+assert.match(workspaceSource, /caught\.code === "REVISION_CONFLICT"/);
+assert.match(workspaceSource, /loadProduct\(selected\.id, false\)/);
+assert.match(workspaceSource, /Use source label:/);
+assert.match(workspaceSource, /localStorage\.setItem/);
+assert.match(workspaceSource, /suppressNextPersistence/);
+assert.match(workspaceSource, /canonicalKey/);
+assert.match(workspaceSource, /brandName/);
+assert.match(workspaceSource, /barcode operation still needs to be retried after a fresh lookup/);
+
+console.log("Website admin catalog workspace state checks passed.");
