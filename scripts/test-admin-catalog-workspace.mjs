@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  applySelectedReplacement,
   applyTemplateToDraft,
   catalogDraftBlockers,
   catalogProductFromDraft,
@@ -86,6 +87,7 @@ assert.equal(valid.labelName, "Zinc 30 mg", "Source candidates must not mutate t
 assert.equal(applied.labelName, "Source label");
 assert.equal(applied.components[0].resolution, "matched");
 assert.equal(applied.templateProvenance.entryMethod, "ocr_template");
+assert.match(applied.sourceReviewReasons.join(" "), /Review all source values and preselected research-library matches/);
 
 const publicCandidate = {
   ...candidate,
@@ -109,6 +111,27 @@ const existingWithOriginalProvenance = {
 const replacedExisting = applyTemplateToDraft(existingWithOriginalProvenance, publicCandidate, true);
 assert.deepEqual(replacedExisting.templateProvenance, existingWithOriginalProvenance.templateProvenance,
   "replacement templates must not rewrite the product's original creation provenance");
+
+const noSelection = { labelName: false, brandName: false, servingSize: false, formula: false, nutritionKeys: [] };
+assert.deepEqual(applySelectedReplacement(valid, candidate, noSelection), valid,
+  "unchecked replacement values must leave every current field unchanged");
+const servingOnly = applySelectedReplacement(valid, candidate, { ...noSelection, servingSize: true });
+assert.equal(servingOnly.servingSizeAmount, "2");
+assert.deepEqual(servingOnly.components, valid.components);
+assert.equal(servingOnly.labelName, valid.labelName);
+const formulaOnly = applySelectedReplacement(valid, candidate, { ...noSelection, formula: true });
+assert.equal(formulaOnly.components[0].amountText, "25 mg");
+assert.equal(formulaOnly.servingSizeAmount, valid.servingSizeAmount);
+assert.deepEqual(formulaOnly.templateProvenance, valid.templateProvenance);
+const sodium = { id: "sodium", factKey: "sodium", labelName: "Sodium", amountText: "15 mg", amountValue: "15", amountUnit: "mg", dailyValuePercent: "1", reviewReasons: [] };
+const nutritionCurrent = { ...valid, nutritionFacts: [sodium] };
+const nutritionCandidate = { ...candidate, nutritionFacts: [{ ...sodium, amountText: "30 mg", amountValue: 30, dailyValuePercent: 2 }] };
+const nutritionOnly = applySelectedReplacement(nutritionCurrent, nutritionCandidate, { ...noSelection, nutritionKeys: ["sodium"] });
+assert.equal(nutritionOnly.nutritionFacts[0].amountText, "30 mg");
+assert.deepEqual(nutritionOnly.components, valid.components);
+assert.equal(applySelectedReplacement(nutritionCurrent, candidate, noSelection).nutritionFacts.length, 1);
+assert.equal(applySelectedReplacement(nutritionCurrent, candidate, { ...noSelection, nutritionKeys: ["sodium"] }).nutritionFacts.length, 0,
+  "removal requires an explicit nutrition choice");
 
 const invalidGuidance = structuredClone(valid);
 invalidGuidance.doseGuidanceState = "structured";
@@ -149,7 +172,11 @@ const reordered = moveEvidenceFile(evidence, "facts-b", -1);
 assert.deepEqual(reordered.filter((file) => file.role === "supplement_facts").map((file) => file.clientId), ["facts-b", "facts-a"]);
 const partial = [...evidence, { ...evidence[0], clientId: "failed", status: "failed", uploadHandle: null }];
 assert.match(evidenceBlockers(partial, false).join(" "), /Upload or remove/);
-assert.equal(serializableEvidence(partial).some((file) => file.clientId === "failed"), false);
+assert.equal(serializableEvidence(partial).some((file) => file.clientId === "failed"), true);
+assert.match(serializableEvidence(partial).at(-1).error, /reselected after reload/);
+assert.equal(serializableEvidence([{ ...evidence[0], file: { secretLocalBytes: true } }])[0].file, undefined);
+assert.equal(serializableEvidence([{ ...evidence[0], status: "uploading" }])[0].status, "failed",
+  "an interrupted upload must not remain permanently busy after reload");
 const expired = [{ ...evidence[0], expiresAt: "2000-01-01T00:00:00.000Z" }];
 assert.match(evidenceBlockers(expired, false).join(" "), /expired pending evidence/);
 

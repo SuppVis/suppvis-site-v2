@@ -292,7 +292,64 @@ export function applyTemplateToDraft(
           },
     hierarchyReviewRequired: candidate.hierarchyStatus === "needs_review",
     hierarchyReviewAcknowledged: candidate.hierarchyStatus === "ready",
-    sourceReviewReasons: [...candidate.reviewReasons],
+    sourceReviewReasons: [...new Set([
+      ...candidate.reviewReasons,
+      "Review all source values and preselected research-library matches before saving.",
+    ])],
+  };
+}
+
+export type CatalogReplacementSelection = {
+  labelName: boolean;
+  brandName: boolean;
+  servingSize: boolean;
+  formula: boolean;
+  nutritionKeys: string[];
+};
+
+export function catalogNutritionIdentity(fact: Pick<CatalogNutritionDraft, "factKey" | "labelName">) {
+  return fact.factKey === "custom"
+    ? `custom:${fact.labelName.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()}`
+    : fact.factKey;
+}
+
+/** Apply only explicit replacement choices, keeping the existing creation provenance. */
+export function applySelectedReplacement(
+  current: CatalogEditorDraft,
+  candidate: CatalogFormulaTemplateCandidate,
+  selection: CatalogReplacementSelection,
+): CatalogEditorDraft {
+  const proposed = applyTemplateToDraft(current, candidate, true);
+  const chosenNutrition = new Set(selection.nutritionKeys);
+  const proposedNutrition = new Map(proposed.nutritionFacts.map((fact) => [catalogNutritionIdentity(fact), fact]));
+  const existingKeys = new Set(current.nutritionFacts.map(catalogNutritionIdentity));
+  return {
+    ...current,
+    ...(selection.labelName ? { labelName: proposed.labelName } : {}),
+    ...(selection.brandName ? { brandName: proposed.brandName } : {}),
+    ...(selection.servingSize ? {
+      servingSizeLabelText: proposed.servingSizeLabelText,
+      servingSizeAmount: proposed.servingSizeAmount,
+      servingSizeUnit: proposed.servingSizeUnit,
+    } : {}),
+    ...(selection.formula ? {
+      components: proposed.components,
+      hierarchyReviewRequired: proposed.hierarchyReviewRequired,
+      hierarchyReviewAcknowledged: proposed.hierarchyReviewAcknowledged,
+      sourceReviewReasons: proposed.sourceReviewReasons,
+    } : {}),
+    nutritionFacts: [
+      ...current.nutritionFacts.flatMap((fact) => {
+        const key = catalogNutritionIdentity(fact);
+        if (!chosenNutrition.has(key)) return [fact];
+        const replacement = proposedNutrition.get(key);
+        return replacement ? [replacement] : [];
+      }),
+      ...proposed.nutritionFacts.filter((fact) => {
+        const key = catalogNutritionIdentity(fact);
+        return chosenNutrition.has(key) && !existingKeys.has(key);
+      }),
+    ],
   };
 }
 

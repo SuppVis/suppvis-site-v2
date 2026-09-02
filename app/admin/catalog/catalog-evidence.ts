@@ -121,7 +121,6 @@ export function moveEvidenceFile(
 
 export function serializableEvidence(files: CatalogEvidenceFile[]) {
   return files
-    .filter((file) => file.uploadHandle)
     .map((file): CatalogEvidenceFile => ({
       clientId: file.clientId,
       role: file.role,
@@ -131,8 +130,10 @@ export function serializableEvidence(files: CatalogEvidenceFile[]) {
       sha256: file.sha256,
       uploadHandle: file.uploadHandle,
       expiresAt: file.expiresAt,
-      status: file.status,
-      error: file.error,
+      status: file.status === "uploaded" && file.uploadHandle ? "uploaded" : "failed",
+      error: file.status === "uploaded" && file.uploadHandle
+        ? file.error
+        : "The local file must be reselected after reload. Remove this entry and add the image again.",
     }));
 }
 

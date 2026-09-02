@@ -15,6 +15,7 @@ import {
   updateCatalogProduct,
 } from "./catalog-api";
 import {
+  applySelectedReplacement,
   applyTemplateToDraft,
   catalogDraftBlockers,
   catalogProductFromDraft,
@@ -30,6 +31,7 @@ import {
 } from "./catalog-evidence";
 import CatalogEvidencePanel from "./CatalogEvidencePanel";
 import CatalogFormulaEditor from "./CatalogFormulaEditor";
+import CatalogReplacementReview from "./CatalogReplacementReview";
 import type {
   CatalogBarcodeDecodeResponse,
   CatalogBarcodeFormat,
@@ -626,7 +628,18 @@ export default function CatalogWorkspace() {
           </div>
         </section>
 
-        {diff ? <section className="rounded-[8px] border border-warning/30 bg-warning/5 p-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-warning">Read-only replacement diff</p><h2 className="mt-1 font-headline text-xl font-bold">{diff.candidate.sourceLabel} versus revision {diff.result.comparedRevision}</h2><p className="mt-2 text-sm text-text-secondary">Serving basis {diff.result.servingSize.changed ? "changes" : "is unchanged"}; {diff.result.componentChanges.length} component changes; {diff.result.nutritionFactChanges.length} nutrition changes.</p><div className="mt-3 max-h-48 overflow-y-auto rounded border border-white/10 bg-[#080D12] p-3 text-xs text-text-secondary">{diff.result.componentChanges.map((change, index) => <p key={`${change.path}:${index}`}>{change.kind}: {change.path}</p>)}{diff.result.nutritionFactChanges.map((change, index) => <p key={`${change.factKey}:${index}`}>{change.kind}: nutrition {change.factKey}</p>)}{diff.result.reviewReasons.map((reason) => <p key={reason} className="text-warning">review: {reason}</p>)}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => { setDraft((current) => applyTemplateToDraft(current, diff.candidate, true)); setDiff(null); setNotice(`Applied ${diff.candidate.sourceLabel} to editable browser state only.`); }} className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E]">Apply proposed formula to editor</button><button type="button" onClick={() => setDiff(null)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold">Reject source</button></div></section> : null}
+        {diff ? <CatalogReplacementReview
+          key={`${diff.candidate.templateId}:${diff.result.comparedRevision}`}
+          candidate={diff.candidate}
+          result={diff.result}
+          draft={draft}
+          onApply={(selection) => {
+            setDraft((current) => applySelectedReplacement(current, diff.candidate, selection));
+            setDiff(null);
+            setNotice(`Applied selected ${diff.candidate.sourceLabel} values to editable browser state only.`);
+          }}
+          onReject={() => setDiff(null)}
+        /> : null}
 
         <CatalogFormulaEditor draft={draft} onChange={setDraft} />
 
