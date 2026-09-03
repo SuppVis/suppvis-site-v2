@@ -660,7 +660,22 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
               <input id="catalog-barcode-digits" value={barcode.value} onChange={(event) => changeBarcode({ value: event.target.value })} className={`${inputClass} mt-1`} />
               <BarcodeImagePreview file={barcodeEvidenceFile} />
             </div>
-            <label className="text-xs font-semibold text-text-muted">Format<select value={barcode.format} onChange={(event) => changeBarcode({ format: event.target.value as CatalogBarcodeFormat })} className={`${inputClass} mt-1`}><option value="upc_a">UPC-A</option><option value="upc_e">UPC-E</option><option value="ean_8">EAN-8</option><option value="ean_13">EAN-13</option><option value="gtin_14">GTIN-14</option></select></label>
+            <div>
+              <div className="flex items-center gap-1 text-xs font-semibold text-text-muted">
+                <label htmlFor="catalog-barcode-format">Format</label>
+                <span className="group relative inline-flex">
+                  <button type="button" aria-label="About barcode formats" aria-describedby="catalog-barcode-format-help" className="flex h-4 w-4 items-center justify-center rounded-full border border-white/20 text-[10px] text-text-muted hover:border-accent hover:text-accent focus:border-accent focus:text-accent focus:outline-none">?</button>
+                  <span id="catalog-barcode-format-help" role="tooltip" className="pointer-events-none invisible absolute left-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded border border-white/15 bg-[#111820] p-3 text-left text-xs font-normal leading-5 text-text-secondary opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+                    <span className="block"><strong className="text-text-primary">UPC-A:</strong> 12 digits, common on US and Canadian retail products — 012345678905.</span>
+                    <span className="mt-1 block"><strong className="text-text-primary">UPC-E:</strong> 8 digits, a compressed UPC for small packages — 01234505.</span>
+                    <span className="mt-1 block"><strong className="text-text-primary">EAN-8:</strong> 8 digits, compact international retail code — 96385074.</span>
+                    <span className="mt-1 block"><strong className="text-text-primary">EAN-13:</strong> 13 digits, common on international retail products — 4006381333931.</span>
+                    <span className="mt-1 block"><strong className="text-text-primary">GTIN-14:</strong> 14 digits, often used for cases or packaging levels — 00012345678905.</span>
+                  </span>
+                </span>
+              </div>
+              <select id="catalog-barcode-format" value={barcode.format} onChange={(event) => changeBarcode({ format: event.target.value as CatalogBarcodeFormat })} className={`${inputClass} mt-1`}><option value="upc_a">UPC-A</option><option value="upc_e">UPC-E</option><option value="ean_8">EAN-8</option><option value="ean_13">EAN-13</option><option value="gtin_14">GTIN-14</option></select>
+            </div>
             <label className="text-xs font-semibold text-text-muted">Package label<input value={barcode.packageLabel} onChange={(event) => changeBarcode({ packageLabel: event.target.value })} className={`${inputClass} mt-1`} placeholder="60 capsules" /></label>
             <div className="grid grid-cols-2 gap-2"><label className="text-xs font-semibold text-text-muted">Amount<input value={barcode.packageAmount} onChange={(event) => changeBarcode({ packageAmount: event.target.value })} className={`${inputClass} mt-1`} /></label><label className="text-xs font-semibold text-text-muted">Unit<input value={barcode.packageUnit} onChange={(event) => changeBarcode({ packageUnit: event.target.value })} className={`${inputClass} mt-1`} /></label></div>
           </div>

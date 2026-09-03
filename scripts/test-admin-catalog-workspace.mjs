@@ -198,6 +198,12 @@ assert.match(workspaceSource, /URL\.createObjectURL\(file\)/);
 assert.match(workspaceSource, /URL\.revokeObjectURL\(nextUrl\)/,
   "local barcode preview object URLs must be released when replaced or unmounted");
 assert.match(workspaceSource, /visible \? "Hide image" : "View image"/);
+assert.match(workspaceSource, /aria-label="About barcode formats"/,
+  "the barcode format control must expose an accessible format guide");
+assert.match(workspaceSource, /role="tooltip"/);
+for (const format of ["UPC-A:", "UPC-E:", "EAN-8:", "EAN-13:", "GTIN-14:"]) {
+  assert.match(workspaceSource, new RegExp(format), `${format} must be explained in the barcode format tooltip`);
+}
 const saveStart = workspaceSource.indexOf("async function saveDraft()");
 const saveEnd = workspaceSource.indexOf("async function viewImage", saveStart);
 assert.ok(saveStart > 0 && saveEnd > saveStart);
