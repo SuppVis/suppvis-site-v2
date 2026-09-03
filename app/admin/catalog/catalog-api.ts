@@ -73,6 +73,8 @@ function queryString(values: Record<string, string | number | boolean | null | u
 
 export function searchCatalogProducts(input: {
   q?: string;
+  exactLabelName?: string;
+  exactBrandName?: string;
   status?: CatalogProductStatus | "all";
   canonicalKey?: string;
   brandName?: string;

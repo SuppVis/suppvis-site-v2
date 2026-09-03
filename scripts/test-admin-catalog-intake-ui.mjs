@@ -123,14 +123,14 @@ handler = (r) => r.url.includes("/products/search") ? json({ error: { code: "UNA
 click("Find potential matches"); await screen.findByText("Search failed");
 assert.equal(screen.queryByRole("button", { name: /No match/ }), null);
 handler = (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null;
-click("Find potential matches"); await screen.findByText("No potential matches found."); click(/No match/);
+click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
 assert.ok(screen.getByText("Product label"));
 assert.equal(screen.queryByText("Formula sources"), null);
 assert.equal(writes().length, 0);
 
 // A barcode-free manual product can save, but never creates an empty barcode/package row.
 await start({}, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
-click("Find potential matches"); await screen.findByText("No potential matches found."); click(/No match/);
+click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
 assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, false);
 click("Save draft"); await waitFor(() => assert.equal(saved.length, 1));
 assert.equal(writes().length, 1); assert.equal(writes()[0].body.barcode, undefined); assert.deepEqual(writes()[0].body.imageSets, []);
@@ -231,9 +231,65 @@ await start({}, (r) => r.url.includes("/barcodes/") && ++barcodeReads > 1 ? json
 await manualBarcode(); await searchAndCompare(); confirmFactors(); click("Use this matching draft"); click("Save draft");
 await screen.findByText("This barcode is already in the database"); assert.equal(writes().length, 0);
 
+// OCR fills name/brand directly; admins may correct them before an exact, all-status check.
+await start({ draft: { ...draft, labelName: "Old label", brandName: "Old brand" } });
+await upload(1, "front.png");
+await waitFor(() => assert.equal(screen.getByLabelText("Intake product name").value, "Zinc"));
+assert.equal(screen.getByLabelText("Intake brand").value, "Example");
+assert.equal(screen.queryByRole("button", { name: /Use source (label|brand|form|variant)/ }), null);
+type("Intake product name", "ZINC"); type("Intake brand", "EXAMPLE");
+click("Find potential matches"); await screen.findByText("Potential matching products");
+const identityRequests = calls.filter((call) => call.url.includes("/products/search"));
+assert.equal(identityRequests.length, 1, "identity must use one paired request, not two broad searches");
+const identityParams = new URL(identityRequests[0].url, "https://local.invalid").searchParams;
+assert.equal(identityParams.get("q"), null);
+assert.equal(identityParams.get("exactLabelName"), "ZINC");
+assert.equal(identityParams.get("exactBrandName"), "EXAMPLE");
+assert.equal(identityParams.get("status"), "all");
+assert.ok(screen.getByRole("button", { name: /Example · Zinc.*draft/ }));
+assert.equal(screen.queryByText("Product label"), null);
+
+// Pagination retains both exact terms, and multiple exact matches remain reviewable.
+await start({}, (r) => {
+  if (!r.url.includes("/products/search")) return null;
+  const params = new URL(r.url, "https://local.invalid").searchParams;
+  assert.equal(params.get("exactLabelName"), "Zinc");
+  assert.equal(params.get("exactBrandName"), "Example");
+  return params.has("cursor")
+    ? json({ results: [{ ...product, id: "second-exact-match", status: "retired" }], nextCursor: null })
+    : json({ results: [product], nextCursor: "next-exact-page" });
+});
+click("Find potential matches"); await screen.findByText("Potential matching products");
+click("Load more potential matches"); await screen.findByRole("button", { name: /Example · Zinc.*retired/ });
+assert.ok(screen.getByRole("button", { name: /Example · Zinc.*draft/ }));
+assert.equal(screen.queryByRole("button", { name: "Load more potential matches" }), null);
+
+// Unexpected broad results (e.g. an older backend) must not present false matches or open creation.
+await start({}, (r) => r.url.includes("/products/search") ? json({ results: [{ ...product, labelName: "Zinc extra" }], nextCursor: null }) : null);
+click("Find potential matches"); await screen.findByText(/identity check returned unexpected results/);
+assert.equal(screen.queryByText("Potential matching products"), null);
+assert.equal(screen.queryByText("Product label"), null);
+
+// Changes other than letter case are not potential matches and require no extra "No match" click.
+for (const [name, brand] of [["Zinc extra", "Example"], ["Zinc", "Example extra"], ["Zin", "Example"], ["Zinc", "Exámple"], ["Zi-nc", "Example"], ["Zinc  30 mg", "Example"]]) {
+  await start({ draft: { ...draft, labelName: name, brandName: brand } }, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
+  click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
+  assert.ok(screen.getByText("Product label"));
+  assert.equal(screen.queryByRole("button", { name: /No match/ }), null);
+  assert.equal(writes().length, 0);
+}
+
+// A late identity response cannot reopen the new-product form for corrected input.
+let releaseIdentity;
+await start({}, (r) => r.url.includes("/products/search") ? new Promise((resolve) => { releaseIdentity = resolve; }) : null);
+click("Find potential matches"); await waitFor(() => assert.equal(typeof releaseIdentity, "function"));
+type("Intake brand", "Corrected brand");
+await act(async () => { releaseIdentity(json({ results: [], nextCursor: null })); });
+assert.equal(screen.queryByText("Product label"), null);
+
 // Editing the confirmed name/brand invalidates a previous no-match decision.
 await start({}, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
-click("Find potential matches"); await screen.findByText("No potential matches found."); click(/No match/);
+click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
 type("Brand", "Another brand"); assert.equal(screen.queryByRole("button", { name: "Save draft" }), null);
 
 await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });

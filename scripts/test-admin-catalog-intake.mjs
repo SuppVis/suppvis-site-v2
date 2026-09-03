@@ -17,6 +17,9 @@ for (const state of ["undecided", "processing", "analysis_failed"]) assert.equal
 assert.equal(sourcesResolved({ barcode: "skipped", front_label: "skipped", supplement_facts: "skipped" }), true);
 assert.equal(identityKey(" Product ", " Brand "), identityKey("product", "brand"));
 assert.notEqual(identityKey("Product v2", "brand"), identityKey("product", "brand"));
+for (const [label, brand] of [["Produc", "Brand"], ["Product extra", "Brand"], ["Product", "Brand extra"], ["Product", "Bränd"], ["Pro-duct", "Brand"], ["Pro  duct", "Brand"]]) {
+  assert.notEqual(identityKey(label, brand), identityKey("Product", "Brand"), "identity matching must not normalize spelling, accents, punctuation, or internal whitespace");
+}
 assert.equal(allFactorsConfirmed(identifyingFactors.map(() => true)), true);
 assert.equal(allFactorsConfirmed([]), false);
 assert.equal(allFactorsConfirmed(identifyingFactors.map((_, i) => i !== 2)), false);

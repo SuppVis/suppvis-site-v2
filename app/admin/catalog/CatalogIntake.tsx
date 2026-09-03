@@ -18,7 +18,6 @@ const primary = `${button} bg-accent text-[#03100E]`;
 const input = "mt-1 w-full rounded border border-white/15 bg-[#080D12] px-3 py-2 text-sm";
 const message = (error: unknown) => error instanceof Error ? error.message : "The catalog request failed.";
 type BarcodeMode = "undecided" | "image" | "manual" | "none";
-type SearchPage = { query: string; cursor: string | null };
 
 function ProductComparison({ product }: { product: CatalogProductDetailDto }) {
   return <div className="mt-3 space-y-3 text-sm">
@@ -42,7 +41,7 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
   const [front, setFront] = useState<CatalogFrontLabelTemplateResponse | null>(null);
   const [templates, setTemplates] = useState<CatalogFormulaTemplateCandidate[]>([]);
   const [candidates, setCandidates] = useState<CatalogProductBrowserSummaryDto[]>([]);
-  const [pages, setPages] = useState<SearchPage[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [searchedKey, setSearchedKey] = useState<string | null>(null);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [target, setTarget] = useState<CatalogProductDetailDto | null>(null);
@@ -102,7 +101,7 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
 
   function invalidate() {
     generation.current++;
-    setSearchedKey(null); setNewKey(null); setCandidates([]); setPages([]); setTarget(null); setChecks([]); setAttach(false);
+    setSearchedKey(null); setNewKey(null); setCandidates([]); setNextCursor(null); setTarget(null); setChecks([]); setAttach(false);
   }
   function sourceState(role: CatalogImageRole, state: SourceState) {
     setSources((current) => ({ ...current, [role]: state }));
@@ -153,19 +152,31 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
     else if (target && (next.physicalForm !== draft.physicalForm || next.variant !== draft.variant)) { setChecks([]); setAttach(false); }
     setDraft(next);
   }
+  function frontIdentity(candidate: CatalogFrontLabelTemplateResponse) {
+    invalidate();
+    setFront(candidate);
+    setDraft((current) => ({
+      ...current,
+      labelName: candidate.labelNameCandidates.find((value) => value.trim()) ?? current.labelName,
+      brandName: candidate.brandNameCandidates.find((value) => value.trim()) ?? current.brandName,
+    }));
+  }
   async function search(more = false) {
     if (!resolved || !draft.labelName.trim() || !draft.brandName.trim()) return;
     const token = ++generation.current;
     setBusy("search"); setError(null); setNewKey(null); setAttach(false); setTarget(null); setChecks([]);
     if (!more) { setSearchedKey(null); setCandidates([]); }
     try {
-      // Search both independently so OCR brand spelling differences do not hide name matches.
-      const queries = more ? pages.filter((page) => page.cursor) : [...new Set([draft.labelName.trim(), draft.brandName.trim()])].map((query) => ({ query, cursor: null }));
-      const responses = await Promise.all(queries.map(async (page) => ({ query: page.query, response: await searchCatalogProducts({ q: page.query, status: "all", limit: 30, cursor: page.cursor ?? undefined }) })));
+      // Require both fields to match before pagination; general catalog search remains separate.
+      const response = await searchCatalogProducts({ exactLabelName: draft.labelName.trim(), exactBrandName: draft.brandName.trim(), status: "all", limit: 30, cursor: more ? nextCursor ?? undefined : undefined });
       if (token !== generation.current) return;
-      setCandidates((current) => [...new Map([...(more ? current : []), ...responses.flatMap(({ response }) => response.results)].map((product) => [product.id, product])).values()]);
-      setPages(responses.map(({ query, response }) => ({ query, cursor: response.nextCursor })));
+      if (response.results.some((product) => identityKey(product.labelName, product.brandName) !== key)) {
+        throw new Error("The identity check returned unexpected results. Refresh and retry before continuing.");
+      }
+      setCandidates((current) => [...new Map([...(more ? current : []), ...response.results].map((product) => [product.id, product])).values()]);
+      setNextCursor(response.nextCursor);
       setSearchedKey(key);
+      if (!more && !response.results.length && !response.nextCursor) setNewKey(key);
     } catch (caught) { if (token === generation.current) setError(message(caught)); }
     finally { setBusy(null); }
   }
@@ -226,7 +237,7 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
     {notice ? <p role="status" className={`${panel} text-sm text-text-secondary`}>{notice}</p> : null}
     {error ? <p role="alert" className={`${panel} text-sm text-error`}>{error}</p> : null}
     <fieldset disabled={busy !== null} className="min-w-0 space-y-4">
-      <CatalogEvidencePanel files={files} onChange={setFiles} disabled={busy !== null} onFrontCandidate={setFront} onFormulaCandidate={(candidate) => setTemplates((current) => [candidate, ...current.filter((entry) => entry.source !== "ocr_template")])} onBarcodeCandidate={decoded}
+      <CatalogEvidencePanel files={files} onChange={setFiles} disabled={busy !== null} onFrontCandidate={frontIdentity} onFormulaCandidate={(candidate) => setTemplates((current) => [candidate, ...current.filter((entry) => entry.source !== "ocr_template")])} onBarcodeCandidate={decoded}
         intake={{ states: sources, onState: sourceState, onSkip: skip, onSkipAll: skipAll, onManualBarcode: manualDigits, stopForDuplicate: !!found,
           barcodeControl: mode === "image" || mode === "manual" ? <CatalogBarcodeFields value={barcode} onChange={changeBarcode} file={files.find((file) => file.role === "barcode")?.file} lookupFailed={!!lookup.error} retry={lookup.retry} lookupMessage={lookup.error || (lookup.checking ? "Checking SuppVis for this barcode…" : found ? "Already in the catalog. Review the match below." : lookup.result ? "No existing barcode found. Confirm the digits and resolve the other sources." : "Valid digits will be checked automatically.")} /> : null }} />
       {found ? <section className={panel}>
@@ -238,21 +249,18 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
       {resolved && !found ? <>
         <section className={panel}>
           <h3 className="text-lg font-semibold">Check product identity</h3>
-          <p className="mt-1 text-sm text-text-secondary">Review the name and brand before searching all draft, published, and retired entries. A name match alone does not establish the same formula.</p>
+          <p className="mt-1 text-sm text-text-secondary">Check the label name and brand below. Matches must have both the same label name and brand, ignoring capitalization.</p>
           {mode === "none" && !allSkipped ? <p className="mt-2 text-sm text-warning">Barcode skipped: only continue without one if its image and digits are unavailable. No package-size child can be added without a barcode in Phase 1.</p> : null}
-          {front ? <div className="mt-3 flex flex-wrap gap-2">{front.labelNameCandidates.map((value) => <button className={button} key={`name:${value}`} onClick={() => changeDraft({ ...draft, labelName: value })}>Use source label: {value}</button>)}{front.brandNameCandidates.map((value) => <button className={button} key={`brand:${value}`} onClick={() => changeDraft({ ...draft, brandName: value })}>Use source brand: {value}</button>)}{front.reviewReasons.length ? <p className="w-full text-xs text-warning">{front.reviewReasons.join(", ")}</p> : null}</div> : null}
-          {front?.physicalFormCandidate || front?.variantCandidate ? <div className="mt-2 flex gap-2">
-            {front.physicalFormCandidate ? <button className={button} onClick={() => changeDraft({ ...draft, physicalForm: front.physicalFormCandidate! })}>Use source form: {front.physicalFormCandidate}</button> : null}
-            {front.variantCandidate ? <button className={button} onClick={() => changeDraft({ ...draft, variant: front.variantCandidate! })}>Use source variant: {front.variantCandidate}</button> : null}
-          </div> : null}
+          {front?.reviewReasons.length ? <p className="mt-3 text-xs text-warning">{front.reviewReasons.join(", ")}</p> : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs">Product / label name<input aria-label="Intake product name" maxLength={200} className={input} value={draft.labelName} onChange={(e) => changeDraft({ ...draft, labelName: e.target.value })} /></label><label className="text-xs">Brand / manufacturer<input aria-label="Intake brand" maxLength={160} className={input} value={draft.brandName} onChange={(e) => changeDraft({ ...draft, brandName: e.target.value })} /></label></div>
           <button className={`${primary} mt-3`} disabled={!draft.labelName.trim() || !draft.brandName.trim()} onClick={() => void search()}>Find potential matches</button>
+          {searched && !candidates.length && !nextCursor ? <p role="status" className="mt-3 text-sm">No matches found. Continue with the new product below.</p> : null}
         </section>
         {searched && !creating && !attaching ? <section className={panel}>
           <h3 className="text-lg font-semibold">Potential matching products</h3>
           <p className="mt-1 text-sm text-text-muted">Compare the full identifying details. Package quantity and barcode may differ; everything else must match.</p>
           <div className="mt-3 space-y-2">{candidates.map((product) => <button className="block w-full rounded border border-white/15 p-3 text-left text-sm" key={product.id} onClick={() => void compare(product.id)}><strong>{product.brandName} · {product.labelName}</strong><span className="mt-1 block">{product.status} · {product.variant || "No variant"} · {product.physicalForm}{product.needsFollowUp ? " · Needs follow-up/review" : ""}</span></button>)}{!candidates.length ? <p>No potential matches found.</p> : null}</div>
-          {pages.some((page) => page.cursor) ? <button className={`${button} mt-3`} onClick={() => void search(true)}>Load more potential matches</button> : null}
+          {nextCursor ? <button className={`${button} mt-3`} onClick={() => void search(true)}>Load more potential matches</button> : null}
           {target ? <div className="mt-4 border-t border-white/15 pt-3">
             <ProductComparison product={target} />
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{files.filter((file) => file.role !== "barcode").map((file) => <LocalSourceImage key={file.clientId} file={file.file} alt={`New package ${file.role.replaceAll("_", " ")} for comparison`} />)}</div>
@@ -267,7 +275,7 @@ export default function CatalogIntake({ onOpen, onSaved }: { onOpen: (id: string
         </section> : null}
         {attaching && target ? <section className={panel}><h3 className="text-lg font-semibold">Add a barcode to {target.brandName} {target.labelName}</h3><p className="mt-2 text-sm">Only the new barcode, its optional package size, and its barcode image will be saved. Existing product details, front-label images, and Supplement Facts images remain unchanged. Other newly uploaded images will expire.</p><PackageFields value={barcode} onChange={changeBarcode} /><button className={`${button} mt-3`} onClick={() => { setAttach(false); setChecks([]); }}>Back to product comparison</button></section> : null}
         {creating ? <>
-          <section className={panel}><h3 className="font-semibold">New product draft</h3><button className={`${button} mt-2`} onClick={() => setNewKey(null)}>Back to potential matches</button>{mode !== "none" ? <PackageFields value={barcode} onChange={changeBarcode} /> : <p className="mt-2 text-xs text-text-muted">This product will have no barcode or package-size record.</p>}</section>
+          <section className={panel}><h3 className="font-semibold">New product draft</h3>{candidates.length ? <button className={`${button} mt-2`} onClick={() => setNewKey(null)}>Back to potential matches</button> : null}{mode !== "none" ? <PackageFields value={barcode} onChange={changeBarcode} /> : <p className="mt-2 text-xs text-text-muted">This product will have no barcode or package-size record.</p>}</section>
           {!allSkipped ? <section className={panel}><h3 className="text-lg font-semibold">Formula sources</h3><p className="mt-1 text-xs text-text-muted">{mode === "none" ? "OCR or manual entry" : "OCR → NIH DSLD → Open Food Facts → manual"}. Select a source explicitly; candidates are never merged.</p>{mode !== "none" ? <button className={`${button} mt-3`} onClick={() => void publicTemplates()}>Load NIH & OFF candidates</button> : null}<div className="mt-3 grid gap-3 lg:grid-cols-2">{templates.map((candidate) => <div className="rounded border border-white/15 p-3 text-sm" key={candidate.templateId}><strong>{candidate.sourceLabel}</strong><p>{candidate.components.length} top-level formula rows · {candidate.nutritionFacts.length} nutrition rows</p><p className="text-xs text-warning">{candidate.reviewReasons.join(", ")}</p><button className={`${button} mt-2`} onClick={() => { const next = applyTemplateToDraft(draft, candidate, false); setDraft({ ...next, labelName: draft.labelName, brandName: draft.brandName }); }}>Use source in editor</button></div>)}<p className="text-sm">Manual entry: enter or correct the formula below.</p></div></section> : null}
           <CatalogFormulaEditor draft={draft} onChange={changeDraft} />
         </> : null}
