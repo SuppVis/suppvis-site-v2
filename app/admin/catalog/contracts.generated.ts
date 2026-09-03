@@ -164,6 +164,8 @@ export interface UpdateCatalogProductRequest {
 export interface AttachCatalogBarcodeRequest {
   barcode: CatalogBarcodeInput;
   imageSets?: CatalogImageSetInput[];
+  /** New-product intake: require the reviewed draft revision. Omitted by legacy clients. */
+  expectedRevision?: number;
 }
 
 export interface ReassignCatalogBarcodeRequest {

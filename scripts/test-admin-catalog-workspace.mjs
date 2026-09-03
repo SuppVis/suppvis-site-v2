@@ -197,7 +197,8 @@ assert.match(workspaceSource, /Uploaded barcode label for digit verification/,
 assert.match(workspaceSource, /URL\.createObjectURL\(file\)/);
 assert.match(workspaceSource, /URL\.revokeObjectURL\(nextUrl\)/,
   "local barcode preview object URLs must be released when replaced or unmounted");
-assert.match(workspaceSource, /visible \? "Hide image" : "View image"/);
+assert.doesNotMatch(workspaceSource, /visible \? "Hide image" : "View image"/,
+  "barcode comparison images must remain visible");
 assert.match(workspaceSource, /aria-label="About barcode formats"/,
   "the barcode format control must expose an accessible format guide");
 assert.match(workspaceSource, /role="tooltip"/);

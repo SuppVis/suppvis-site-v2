@@ -10,7 +10,8 @@
     "test:admin-catalog-contracts": "node scripts/verify-admin-catalog-contracts.mjs",
     "test:admin-catalog-bridge": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-bridge.mjs",
     "test:admin-catalog-database": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-database.mjs",
-    "test:admin-catalog-workspace": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-workspace.mjs"
+    "test:admin-catalog-workspace": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-workspace.mjs",
+    "test:admin-catalog-intake": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-intake.mjs && tsx --tsconfig scripts/tsconfig.catalog-tests.json scripts/test-admin-catalog-intake-ui.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1079.0",
@@ -32,12 +33,15 @@
     "@aws-sdk/client-lambda": "^3.1086.0",
     "@aws-sdk/client-sns": "^3.1086.0",
     "@tailwindcss/postcss": "^4.1.4",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.29",
+    "jsdom": "^26.1.0",
     "tailwindcss": "^4.1.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.4.5"
   }
 }

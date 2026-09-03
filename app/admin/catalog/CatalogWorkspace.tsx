@@ -31,6 +31,7 @@ import {
   type CatalogEvidenceFile,
 } from "./catalog-evidence";
 import CatalogEvidencePanel from "./CatalogEvidencePanel";
+import CatalogIntake from "./CatalogIntake";
 import CatalogFormulaEditor from "./CatalogFormulaEditor";
 import CatalogReplacementReview from "./CatalogReplacementReview";
 import type {
@@ -117,11 +118,9 @@ function barcodeInput(draft: BarcodeDraft): CatalogBarcodeInput {
 }
 
 function BarcodeImagePreview({ file }: { file?: File }) {
-  const [visible, setVisible] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    setVisible(false);
     if (!file) {
       setPreviewUrl(null);
       return;
@@ -134,24 +133,14 @@ function BarcodeImagePreview({ file }: { file?: File }) {
   if (!file || !previewUrl) return null;
   return (
     <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        className="text-xs font-semibold text-accent hover:underline"
-        aria-expanded={visible}
-      >
-        {visible ? "Hide image" : "View image"}
-      </button>
-      {visible ? (
-        <Image
-          src={previewUrl}
-          alt="Uploaded barcode label for digit verification"
-          width={960}
-          height={640}
-          unoptimized
-          className="mt-2 h-auto max-h-72 w-full rounded border border-white/10 bg-white object-contain"
-        />
-      ) : null}
+      <Image
+        src={previewUrl}
+        alt="Uploaded barcode label for digit verification"
+        width={960}
+        height={640}
+        unoptimized
+        className="mt-2 h-auto max-h-72 w-full rounded border border-white/10 bg-white object-contain"
+      />
     </div>
   );
 }
@@ -290,6 +279,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
   useEffect(() => { void runSearch({}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!selected?.id) return; // New-product intake owns its independent recovery state.
     if (suppressNextPersistence.current) {
       suppressNextPersistence.current = false;
       return;
@@ -629,6 +619,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
           </section>
         ) : null}
 
+        {!selected ? <CatalogIntake onOpen={(id) => void loadProduct(id)} onSaved={(id) => { void loadProduct(id, false); void runSearch(filters); }} /> : <>
         <CatalogEvidencePanel
           files={evidence}
           onChange={setEvidence}
@@ -718,6 +709,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
             <button type="button" disabled={blockers.length > 0 || busy !== null} onClick={() => void saveDraft()} className="shrink-0 rounded-full bg-accent px-6 py-3 text-sm font-extrabold text-[#03100E] disabled:cursor-not-allowed disabled:opacity-40">{busy === "save" ? "Saving draft…" : "Save draft"}</button>
           </div>
         </section>
+        </>}
       </div>
     </div>
   );
