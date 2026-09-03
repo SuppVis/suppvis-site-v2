@@ -47,6 +47,7 @@ fireEvent.blur(helpButton);
 helpView.unmount();
 HTMLElement.prototype.getBoundingClientRect = originalRect;
 const { default: CatalogIntake } = await import("../app/admin/catalog/CatalogIntake.tsx");
+const { default: CatalogEvidencePanel } = await import("../app/admin/catalog/CatalogEvidencePanel.tsx");
 const { createEmptyCatalogDraft, newIngredientDraft } = await import("../app/admin/catalog/catalog-draft.ts");
 const { identifyingFactors } = await import("../app/admin/catalog/catalog-intake.ts");
 const id = "11111111-1111-4111-8111-111111111111";
@@ -72,9 +73,13 @@ globalThis.fetch = async (url, options = {}) => {
   const override = await handler?.(request);
   if (override) return override;
   if (request.url.includes("/barcodes/")) return json({ found: false, normalizedBarcode: barcode });
-  if (request.url.includes("/products/search")) return json({ results: [product], nextCursor: null });
+  if (request.url.includes("/products/search")) {
+    const params = new URL(request.url, "https://local.invalid").searchParams;
+    const match = params.get("exactLabelName")?.toLowerCase() === product.labelName.toLowerCase() && params.get("exactBrandName")?.toLowerCase() === product.brandName.toLowerCase();
+    return json({ results: match ? [product] : [], nextCursor: null });
+  }
   if (request.url === `/api/admin/catalog/products/${id}`) return json(product);
-  if (request.url === "/api/admin/catalog/images/uploads") return json({ uploads: request.body.files.map((file) => ({ clientId: file.clientId, uploadHandle: `opaque-${file.role}`, uploadUrl: `https://upload.invalid/${file.role}`, method: "PUT", requiredHeaders: {}, expiresAt: "2099-01-01T00:00:00Z" })) });
+  if (request.url === "/api/admin/catalog/images/uploads") return json({ uploads: request.body.files.map((file) => ({ clientId: file.clientId, uploadHandle: file.role === "supplement_facts" ? `opaque-facts-${file.clientId}` : `opaque-${file.role}`, uploadUrl: `https://upload.invalid/${file.role}`, method: "PUT", requiredHeaders: {}, expiresAt: "2099-01-01T00:00:00Z" })) });
   if (request.url.startsWith("https://upload.invalid/")) return new Response(null, { status: 200 });
   if (request.url.endsWith("/templates/barcode")) return json({ status: "decoded", candidate: barcode, requiresConfirmation: true, warnings: [] });
   if (request.url.endsWith("/templates/front-label")) return json({ labelNameCandidates: ["Zinc"], brandNameCandidates: ["Example"], physicalFormCandidate: "capsule", variantCandidate: null, reviewReasons: [] });
@@ -99,7 +104,7 @@ async function manualBarcode() {
   await screen.findByText(/No existing barcode found/);
 }
 async function searchAndCompare() {
-  click("Find potential matches"); await screen.findByText("Potential matching products");
+  await screen.findByText("Potential matching products");
   click(/Example · Zinc.*draft/); await screen.findByText("Formula per serving");
 }
 function confirmFactors() { for (const factor of identifyingFactors) fireEvent.click(screen.getByLabelText(factor)); }
@@ -115,22 +120,22 @@ await start();
 assert.equal(screen.queryByText("Product label"), null);
 assert.equal(document.querySelectorAll("h3")[0].textContent, "Barcode");
 click(/Skip all images/);
-assert.ok(screen.getByText("Check product identity"));
+assert.ok(screen.getByLabelText("Intake product name"));
 assert.equal(screen.queryByText("Formula sources"), null);
 assert.equal(screen.queryByLabelText("Printed/decoded digits"), null);
 type("Intake product name", "Zinc"); type("Intake brand", "Example");
 handler = (r) => r.url.includes("/products/search") ? json({ error: { code: "UNAVAILABLE", message: "Search failed" } }, 503) : null;
-click("Find potential matches"); await screen.findByText("Search failed");
+await screen.findByText("Search failed");
 assert.equal(screen.queryByRole("button", { name: /No match/ }), null);
 handler = (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null;
-click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
+click("Retry product check"); await screen.findByText("No matches found. Continue with the new product below.");
 assert.ok(screen.getByText("Product label"));
 assert.equal(screen.queryByText("Formula sources"), null);
 assert.equal(writes().length, 0);
 
 // A barcode-free manual product can save, but never creates an empty barcode/package row.
 await start({}, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
-click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
+await screen.findByText("No matches found. Continue with the new product below.");
 assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, false);
 click("Save draft"); await waitFor(() => assert.equal(saved.length, 1));
 assert.equal(writes().length, 1); assert.equal(writes()[0].body.barcode, undefined); assert.deepEqual(writes()[0].body.imageSets, []);
@@ -160,9 +165,9 @@ await start({}, (r) => r.url.endsWith("/templates/front-label") ? json({ error: 
 const frontDrop = document.querySelectorAll('input[type="file"]')[1].closest("label");
 fireEvent.drop(frontDrop, { dataTransfer: { types: ["Files"], files: [new File(["image fixture"], "front.png", { type: "image/png" })] } });
 await screen.findByText("OCR failed");
-assert.equal(screen.queryByText("Check product identity"), null);
+assert.ok(screen.getByLabelText("Intake product name"), "identity fields remain available while another source fails");
 click("Keep image, enter details manually");
-assert.ok(screen.getByText("Check product identity"));
+assert.ok(screen.getByLabelText("Intake product name"));
 assert.equal(writes().length, 0);
 
 // Failed automatic lookup is retried explicitly; an older in-flight response cannot win.
@@ -170,7 +175,7 @@ let failLookup = true;
 await start({}, (r) => r.url.includes("/barcodes/") && failLookup ? json({ error: { code: "UNAVAILABLE", message: "Lookup unavailable" } }, 503) : null);
 click("Manually type barcode digits"); type("Printed/decoded digits", barcode.value);
 await screen.findByText("Lookup unavailable");
-assert.equal(screen.queryByText("Check product identity"), null);
+assert.ok(screen.getByLabelText("Intake product name"), "identity fields remain available while another source fails");
 failLookup = false; click("Retry failed barcode check"); await screen.findByText(/No existing barcode found/);
 
 let releaseLookup;
@@ -238,7 +243,7 @@ await waitFor(() => assert.equal(screen.getByLabelText("Intake product name").va
 assert.equal(screen.getByLabelText("Intake brand").value, "Example");
 assert.equal(screen.queryByRole("button", { name: /Use source (label|brand|form|variant)/ }), null);
 type("Intake product name", "ZINC"); type("Intake brand", "EXAMPLE");
-click("Find potential matches"); await screen.findByText("Potential matching products");
+await screen.findByText("Potential matching products");
 const identityRequests = calls.filter((call) => call.url.includes("/products/search"));
 assert.equal(identityRequests.length, 1, "identity must use one paired request, not two broad searches");
 const identityParams = new URL(identityRequests[0].url, "https://local.invalid").searchParams;
@@ -259,21 +264,21 @@ await start({}, (r) => {
     ? json({ results: [{ ...product, id: "second-exact-match", status: "retired" }], nextCursor: null })
     : json({ results: [product], nextCursor: "next-exact-page" });
 });
-click("Find potential matches"); await screen.findByText("Potential matching products");
+await screen.findByText("Potential matching products");
 click("Load more potential matches"); await screen.findByRole("button", { name: /Example · Zinc.*retired/ });
 assert.ok(screen.getByRole("button", { name: /Example · Zinc.*draft/ }));
 assert.equal(screen.queryByRole("button", { name: "Load more potential matches" }), null);
 
 // Unexpected broad results (e.g. an older backend) must not present false matches or open creation.
 await start({}, (r) => r.url.includes("/products/search") ? json({ results: [{ ...product, labelName: "Zinc extra" }], nextCursor: null }) : null);
-click("Find potential matches"); await screen.findByText(/identity check returned unexpected results/);
+await screen.findByText(/identity check returned unexpected results/);
 assert.equal(screen.queryByText("Potential matching products"), null);
-assert.equal(screen.queryByText("Product label"), null);
+assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, true);
 
 // Changes other than letter case are not potential matches and require no extra "No match" click.
 for (const [name, brand] of [["Zinc extra", "Example"], ["Zinc", "Example extra"], ["Zin", "Example"], ["Zinc", "Exámple"], ["Zi-nc", "Example"], ["Zinc  30 mg", "Example"]]) {
   await start({ draft: { ...draft, labelName: name, brandName: brand } }, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
-  click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
+  await screen.findByText("No matches found. Continue with the new product below.");
   assert.ok(screen.getByText("Product label"));
   assert.equal(screen.queryByRole("button", { name: /No match/ }), null);
   assert.equal(writes().length, 0);
@@ -282,15 +287,147 @@ for (const [name, brand] of [["Zinc extra", "Example"], ["Zinc", "Example extra"
 // A late identity response cannot reopen the new-product form for corrected input.
 let releaseIdentity;
 await start({}, (r) => r.url.includes("/products/search") ? new Promise((resolve) => { releaseIdentity = resolve; }) : null);
-click("Find potential matches"); await waitFor(() => assert.equal(typeof releaseIdentity, "function"));
+await waitFor(() => assert.equal(typeof releaseIdentity, "function"));
 type("Intake brand", "Corrected brand");
 await act(async () => { releaseIdentity(json({ results: [], nextCursor: null })); });
-assert.equal(screen.queryByText("Product label"), null);
+assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, true);
+
+// Front-label OCR matches before the other source choices and lives inside its image card.
+await start();
+await upload(1, "front-first.png");
+await screen.findByText("Potential matching products");
+assert.equal(screen.getByLabelText("Intake product name").closest("[data-source-role]").dataset.sourceRole, "front_label");
+assert.equal(screen.getByText("Potential matching products").closest("[data-source-role]").dataset.sourceRole, "front_label");
+assert.equal(screen.queryByRole("button", { name: "Find potential matches" }), null);
+assert.equal(document.querySelector('[data-source-role="supplement_facts"] input[type="file"]').disabled, false);
+assert.equal(calls.some((request) => request.url.endsWith("/templates/ocr")), false);
+assert.equal(screen.queryByText("Product label"), null, "unselected image choices still gate the full editor");
+type("Intake brand", "Different brand");
+await screen.findByText("No matches found. Continue with the new product below.");
+assert.equal(new URL(calls.filter((request) => request.url.includes("/products/search")).at(-1).url, "https://local.invalid").searchParams.get("exactBrandName"), "Different brand");
+
+// Concurrent roles and adding more panels during OCR preserve all files; only latest analysis wins.
+let finishFront;
+const factRuns = [];
+const factsCandidate = (name) => ({ candidate: { templateId: name, source: "ocr_template", sourceLabel: name, components: [], nutritionFacts: [], reviewReasons: [] } });
+await start(null, (request) => {
+  if (request.url.endsWith("/templates/front-label")) return new Promise((resolve) => { finishFront = resolve; });
+  if (request.url.endsWith("/templates/ocr")) return new Promise((resolve) => { factRuns.push({ resolve, body: request.body }); });
+  return null;
+});
+await upload(1, "front-delayed.png");
+await waitFor(() => assert.equal(typeof finishFront, "function"));
+await upload(2, "facts-one.png");
+await waitFor(() => assert.equal(factRuns.length, 1));
+assert.equal(document.querySelector('[data-source-role="supplement_facts"] input[type="file"]').disabled, false,
+  "another panel may be added while Supplement Facts OCR runs");
+await upload(2, "facts-two.png");
+await waitFor(() => assert.equal(factRuns.length, 2));
+assert.equal(factRuns[0].body.imageUploadHandles.length, 1);
+assert.equal(factRuns[1].body.imageUploadHandles.length, 2);
+await upload(0, "barcode-concurrent.png");
+await screen.findByText(/No existing barcode found/);
+assert.ok(screen.getByText("Product label"), "fields are editable before front/facts OCR completes");
+assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, true);
+type("Intake product name", "Manually corrected label");
+await act(async () => { factRuns[1].resolve(json(factsCandidate("Newest combined facts"))); });
+await screen.findByText("Newest combined facts");
+await act(async () => { factRuns[0].resolve(json(factsCandidate("Stale one-panel facts"))); });
+assert.equal(screen.queryByText("Stale one-panel facts"), null);
+await act(async () => { finishFront(json({ labelNameCandidates: ["Stale OCR label"], brandNameCandidates: ["Example"], physicalFormCandidate: null, variantCandidate: null, reviewReasons: [] })); });
+assert.equal(screen.getByLabelText("Intake product name").value, "Manually corrected label", "late OCR must not overwrite manual edits");
+assert.equal(screen.getByLabelText("Intake brand").value, "Example", "an untouched field still receives OCR prefill");
+await waitFor(() => {
+  const preserved = JSON.parse(localStorage.getItem("suppvis:admin-catalog:intake:v1"));
+  assert.equal(preserved.files.length, 4);
+  assert.ok(preserved.files.every((file) => file.status === "uploaded"));
+  assert.deepEqual(preserved.files.filter((file) => file.role === "supplement_facts").map((file) => file.fileName), ["facts-one.png", "facts-two.png"]);
+});
+
+// Reordering while analysis is pending invalidates the previous ordered-set result.
+const factsSection = document.querySelector('[data-source-role="supplement_facts"]');
+fireEvent.click(factsSection.querySelectorAll('[aria-label="Move image earlier"]')[1]);
+await waitFor(() => assert.equal(factRuns.length, 3));
+assert.deepEqual(factRuns[2].body.imageUploadHandles, [...factRuns[1].body.imageUploadHandles].reverse());
+await act(async () => { factRuns[2].resolve(json(factsCandidate("Reordered combined facts"))); });
+await screen.findByText("Reordered combined facts");
+assert.equal(screen.queryByText("Newest combined facts"), null);
+
+// Uploads in different columns can overlap and complete in reverse order without losing evidence.
+const pendingPuts = new Map();
+await start(null, (request) => {
+  if (request.url.startsWith("https://upload.invalid/")) return new Promise((resolve) => pendingPuts.set(request.url, resolve));
+  if (request.url.endsWith("/templates/ocr")) return json(factsCandidate("Parallel facts"));
+  return null;
+});
+for (const [index, name] of [[1, "parallel-front.png"], [2, "parallel-facts.png"]]) {
+  fireEvent.change(document.querySelectorAll('input[type="file"]')[index], { target: { files: [new File(["fixture"], name, { type: "image/png" })] } });
+}
+await waitFor(() => assert.equal(pendingPuts.size, 2));
+assert.equal(document.querySelector('[data-source-role="barcode"] input[type="file"]').disabled, false);
+await act(async () => { pendingPuts.get("https://upload.invalid/supplement_facts")(new Response(null, { status: 200 })); });
+await act(async () => { pendingPuts.get("https://upload.invalid/front_label")(new Response(null, { status: 200 })); });
+await screen.findByText("Potential matching products");
+await waitFor(() => {
+  const preserved = JSON.parse(localStorage.getItem("suppvis:admin-catalog:intake:v1"));
+  assert.equal(preserved.files.length, 2);
+  assert.ok(preserved.files.every((file) => file.status === "uploaded"));
+});
+
+// Replacing a front image during OCR ignores the discarded image's eventual result.
+const frontRuns = [];
+await start(null, (request) => request.url.endsWith("/templates/front-label") ? new Promise((resolve) => frontRuns.push(resolve)) : null);
+await upload(1, "old-front.png");
+await waitFor(() => assert.equal(frontRuns.length, 1));
+await upload(1, "new-front.png");
+await waitFor(() => assert.equal(frontRuns.length, 2));
+await act(async () => { frontRuns[1](json({ labelNameCandidates: ["Newest label"], brandNameCandidates: ["Newest brand"], reviewReasons: [] })); });
+await act(async () => { frontRuns[0](json({ labelNameCandidates: ["Stale label"], brandNameCandidates: ["Stale brand"], reviewReasons: [] })); });
+assert.equal(screen.getByLabelText("Intake product name").value, "Newest label");
+assert.equal(screen.getByLabelText("Intake brand").value, "Newest brand");
+assert.equal(screen.queryByText(/old-front.png/), null);
+
+// Skipping all sources during OCR cancels late state changes and keeps manual identity intact.
+let abandonedFront;
+await start(null, (request) => request.url.endsWith("/templates/front-label") ? new Promise((resolve) => { abandonedFront = resolve; }) : null);
+await upload(1, "abandoned.png");
+await waitFor(() => assert.equal(typeof abandonedFront, "function"));
+click(/Skip all images/);
+type("Intake product name", "Manual label"); type("Intake brand", "Manual brand");
+await act(async () => { abandonedFront(json({ labelNameCandidates: ["Discarded label"], brandNameCandidates: ["Discarded brand"], reviewReasons: [] })); });
+assert.equal(screen.getByLabelText("Intake product name").value, "Manual label");
+assert.equal(screen.getByLabelText("Intake brand").value, "Manual brand");
+assert.equal(screen.queryByText(/abandoned.png/), null);
+
+// An editor changing products without unmounting its evidence panel rejects the old OCR result.
+cleanup(); calls = [];
+const resetFrontRuns = [];
+const acceptedFrontLabels = [];
+handler = (request) => request.url.endsWith("/templates/front-label") ? new Promise((resolve) => resetFrontRuns.push(resolve)) : null;
+function ResetEvidenceHarness() {
+  const [files, setFiles] = React.useState([]);
+  return React.createElement(React.Fragment, null,
+    React.createElement("button", { onClick: () => setFiles([]) }, "Open another product"),
+    React.createElement(CatalogEvidencePanel, { files, onChange: setFiles,
+      onFrontCandidate: (candidate) => acceptedFrontLabels.push(candidate.labelNameCandidates[0]),
+      onBarcodeCandidate: () => {}, onFormulaCandidate: () => {} }));
+}
+render(React.createElement(ResetEvidenceHarness));
+await upload(0, "previous-product.png");
+await waitFor(() => assert.equal(resetFrontRuns.length, 1));
+click("Open another product");
+await act(async () => { resetFrontRuns[0](json({ labelNameCandidates: ["Wrong product"], brandNameCandidates: [], reviewReasons: [] })); });
+assert.deepEqual(acceptedFrontLabels, []);
+assert.equal(screen.queryByText(/previous-product.png/), null);
+await upload(0, "current-product.png");
+await waitFor(() => assert.equal(resetFrontRuns.length, 2));
+await act(async () => { resetFrontRuns[1](json({ labelNameCandidates: ["Current product"], brandNameCandidates: [], reviewReasons: [] })); });
+assert.deepEqual(acceptedFrontLabels, ["Current product"]);
 
 // Editing the confirmed name/brand invalidates a previous no-match decision.
 await start({}, (r) => r.url.includes("/products/search") ? json({ results: [], nextCursor: null }) : null);
-click("Find potential matches"); await screen.findByText("No matches found. Continue with the new product below.");
-type("Brand", "Another brand"); assert.equal(screen.queryByRole("button", { name: "Save draft" }), null);
+await screen.findByText("No matches found. Continue with the new product below.");
+type("Brand", "Another brand"); assert.equal(screen.getByRole("button", { name: "Save draft" }).disabled, true);
 
 await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
 assert.ok(localStorage.getItem("suppvis:admin-catalog:intake:v1").includes("Another brand"));

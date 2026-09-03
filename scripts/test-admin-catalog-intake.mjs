@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { barcodeValidation, barcodeBlockers, emptyBarcode, emptySources, sourcesResolved, identityKey, identifyingFactors, allFactorsConfirmed } from "../app/admin/catalog/catalog-intake.ts";
+import { barcodeValidation, barcodeBlockers, emptyBarcode, emptySources, sourcesResolved, sourceChoicesMade, identityKey, identifyingFactors, allFactorsConfirmed } from "../app/admin/catalog/catalog-intake.ts";
 import { evidenceImageSets } from "../app/admin/catalog/catalog-evidence.ts";
 
 for (const [format, digits] of [["upc_a", "012345678905"], ["upc_e", "01234505"], ["ean_8", "96385074"], ["ean_13", "4006381333931"], ["gtin_14", "00012345678905"]]) {
@@ -13,7 +13,9 @@ assert.notEqual(barcodeValidation("01234567890x5", "upc_a"), null);
 assert.equal(sourcesResolved(emptySources()), false);
 const ready = { barcode: "skipped", front_label: "ready", supplement_facts: "skipped" };
 assert.equal(sourcesResolved(ready), true);
-for (const state of ["undecided", "processing", "analysis_failed"]) assert.equal(sourcesResolved({ ...ready, front_label: state }), false);
+for (const state of ["undecided", "processing", "uploading", "analyzing", "analysis_failed"]) assert.equal(sourcesResolved({ ...ready, front_label: state }), false);
+assert.equal(sourceChoicesMade(emptySources()), false);
+assert.equal(sourceChoicesMade({ ...ready, front_label: "analyzing" }), true, "background OCR must not gate the editor");
 assert.equal(sourcesResolved({ barcode: "skipped", front_label: "skipped", supplement_facts: "skipped" }), true);
 assert.equal(identityKey(" Product ", " Brand "), identityKey("product", "brand"));
 assert.notEqual(identityKey("Product v2", "brand"), identityKey("product", "brand"));

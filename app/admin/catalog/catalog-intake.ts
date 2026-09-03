@@ -1,6 +1,6 @@
 import type { CatalogBarcodeFormat, CatalogBarcodeLookupResponse, CatalogImageRole } from "./contracts.generated";
 
-export type SourceState = "undecided" | "processing" | "ready" | "skipped" | "analysis_failed";
+export type SourceState = "undecided" | "processing" | "uploading" | "analyzing" | "ready" | "skipped" | "analysis_failed";
 export type SourceStates = Record<CatalogImageRole, SourceState>;
 export type BarcodeDraft = {
   value: string;
@@ -56,6 +56,9 @@ export function barcodeBlockers(draft: BarcodeDraft, lookup: CatalogBarcodeLooku
 }
 export function sourcesResolved(sources: SourceStates) {
   return Object.values(sources).every((state) => state === "ready" || state === "skipped");
+}
+export function sourceChoicesMade(sources: SourceStates) {
+  return Object.values(sources).every((state) => state !== "undecided");
 }
 export function identityKey(labelName: string, brandName: string) {
   return JSON.stringify([labelName.trim().toLowerCase(), brandName.trim().toLowerCase()]);
