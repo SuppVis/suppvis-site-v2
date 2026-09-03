@@ -22,6 +22,11 @@ export type CatalogDatabaseSort = {
   direction: "ascending" | "descending";
 } | null;
 
+export const defaultCatalogDatabaseSort: CatalogDatabaseSort = {
+  key: "updated",
+  direction: "descending",
+};
+
 export type CatalogDatabaseFilters = {
   query: string;
   status: CatalogProductStatus | "all";
@@ -88,7 +93,7 @@ export function catalogDatabaseStateFromParams(params: Pick<URLSearchParams, "ge
     sort: sortBy && sortKeys.has(sortBy as CatalogDatabaseSortKey)
       && (direction === "ascending" || direction === "descending")
       ? { key: sortBy as CatalogDatabaseSortKey, direction }
-      : null,
+      : sortBy === "none" ? null : defaultCatalogDatabaseSort,
   };
 }
 
@@ -114,7 +119,8 @@ export function catalogDatabaseUrlParams(
     ["type", filters.productType === "all" ? "" : filters.productType],
     ["review", filters.review === "all" ? "" : filters.review],
     ["evidence", filters.evidence === "all" ? "" : filters.evidence],
-    ["sort", sort?.key ?? ""],
+    // Explicitly preserve no-sort selections instead of restoring the default on reload.
+    ["sort", sort?.key ?? "none"],
     ["direction", sort?.direction ?? ""],
   ];
   values.forEach(([key, value]) => {

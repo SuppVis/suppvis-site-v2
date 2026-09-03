@@ -8,6 +8,7 @@ import {
   catalogEvidenceSummary,
   catalogPrimaryIdentity,
   defaultCatalogDatabaseFilters,
+  defaultCatalogDatabaseSort,
   nextCatalogDatabaseSort,
 } from "../app/admin/catalog/catalog-database.ts";
 
@@ -52,6 +53,26 @@ assert.deepEqual(nextCatalogDatabaseSort({ key: "brand", direction: "descending"
   direction: "ascending",
 });
 
+for (const query of ["", "view=database", "view=database&status=draft"]) {
+  assert.deepEqual(catalogDatabaseStateFromParams(new URLSearchParams(query)).sort,
+    { key: "updated", direction: "descending" },
+    "database views without an explicit sort must show recently updated products first");
+}
+assert.deepEqual(
+  catalogDatabaseStateFromParams(new URLSearchParams("sort=brand&direction=ascending")).sort,
+  { key: "brand", direction: "ascending" },
+  "explicit saved sorts must override the default",
+);
+const noSort = nextCatalogDatabaseSort(defaultCatalogDatabaseSort, "updated");
+assert.equal(noSort, null, "the default descending sort must retain the header's three-state cycle");
+const noSortParams = catalogDatabaseUrlParams(
+  new URLSearchParams("sort=updated&direction=descending"), defaultCatalogDatabaseFilters, noSort,
+);
+assert.equal(noSortParams.get("sort"), "none");
+assert.equal(noSortParams.get("direction"), null);
+assert.equal(catalogDatabaseStateFromParams(noSortParams).sort, null,
+  "an explicit no-sort selection must survive URL round trips");
+
 const urlState = catalogDatabaseStateFromParams(new URLSearchParams(
   "view=database&q=creatine&status=retired&type=blend&review=needs-review&evidence=missing&sort=updated&direction=descending",
 ));
@@ -79,7 +100,7 @@ assert.equal(serialized.get("sort"), "updated");
 assert.equal(serialized.get("direction"), "descending");
 assert.deepEqual(
   catalogDatabaseStateFromParams(new URLSearchParams("status=bad&type=bad&sort=bad&direction=descending")),
-  { filters: defaultCatalogDatabaseFilters, sort: null },
+  { filters: defaultCatalogDatabaseFilters, sort: defaultCatalogDatabaseSort },
   "unsupported URL state must fail closed to the default database view",
 );
 
