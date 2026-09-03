@@ -199,9 +199,15 @@ assert.match(workspaceSource, /URL\.revokeObjectURL\(nextUrl\)/,
   "local barcode preview object URLs must be released when replaced or unmounted");
 assert.doesNotMatch(workspaceSource, /visible \? "Hide image" : "View image"/,
   "barcode comparison images must remain visible");
-assert.match(workspaceSource, /aria-label="About barcode formats"/,
+const formatHelpSource = readFileSync("app/admin/catalog/CatalogBarcodeFormatHelp.tsx", "utf8");
+assert.match(workspaceSource, /<CatalogBarcodeFormatHelp>/);
+assert.match(readFileSync("app/admin/catalog/CatalogBarcodeFields.tsx", "utf8"), /<CatalogBarcodeFormatHelp>/);
+assert.match(formatHelpSource, /aria-label="About barcode formats"/,
   "the barcode format control must expose an accessible format guide");
-assert.match(workspaceSource, /role="tooltip"/);
+assert.match(formatHelpSource, /role="tooltip"/);
+assert.match(formatHelpSource, /fixed inset-x-4/,
+  "format help must use the available viewport width with safe side margins");
+assert.doesNotMatch(formatHelpSource, /\bw-(64|80)\b/);
 for (const format of ["UPC-A:", "UPC-E:", "EAN-8:", "EAN-13:", "GTIN-14:"]) {
   assert.match(workspaceSource, new RegExp(format), `${format} must be explained in the barcode format tooltip`);
 }

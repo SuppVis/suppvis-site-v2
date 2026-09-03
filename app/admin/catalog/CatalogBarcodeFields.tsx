@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { barcodeValidation, type BarcodeDraft } from "./catalog-intake";
 import type { CatalogBarcodeFormat } from "./contracts.generated";
+import CatalogBarcodeFormatHelp from "./CatalogBarcodeFormatHelp";
 
 const inputClass = "mt-1 w-full rounded border border-white/15 bg-[#080D12] px-3 py-2 text-sm";
 const formats: [CatalogBarcodeFormat, string, string][] = [
@@ -54,9 +55,7 @@ export default function CatalogBarcodeFields({ value, onChange, file, lookupMess
     {!file ? <p className="text-xs text-text-muted">No comparison image supplied. Confirm the digits against the physical package.</p> : null}
     <div className="text-xs">
       <label htmlFor="intake-barcode-format">Barcode format</label>{" "}
-      <span className="group relative inline-flex"><button type="button" aria-label="About barcode formats" aria-describedby="intake-format-help" className="rounded-full border border-white/30 px-1">?</button>
-        <span id="intake-format-help" role="tooltip" className="invisible absolute left-0 top-full z-20 mt-1 w-64 rounded border border-white/20 bg-[#111820] p-3 shadow-xl group-hover:visible group-focus-within:visible">{formats.map(([, name, description]) => <span className="mb-2 block" key={name}><strong>{name}:</strong> {description}</span>)}</span>
-      </span>
+      <CatalogBarcodeFormatHelp>{formats.map(([, name, description]) => <span className="mb-2 block last:mb-0" key={name}><strong>{name}:</strong> {description}</span>)}</CatalogBarcodeFormatHelp>
       <select id="intake-barcode-format" value={value.format} onChange={(e) => onChange({ format: e.target.value as CatalogBarcodeFormat })} className={inputClass}>{formats.map(([format, name]) => <option key={format} value={format}>{name}</option>)}</select>
     </div>
     {invalid && value.value ? <p className="text-xs text-warning">{invalid}</p> : null}

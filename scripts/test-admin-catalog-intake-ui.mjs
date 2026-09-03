@@ -12,6 +12,40 @@ URL.createObjectURL = () => "blob:http://localhost/test-image";
 URL.revokeObjectURL = () => {};
 const React = await import("react");
 const { render, cleanup, fireEvent, screen, waitFor, act } = await import("@testing-library/react");
+const { default: CatalogBarcodeFormatHelp } = await import("../app/admin/catalog/CatalogBarcodeFormatHelp.tsx");
+// Format help escapes narrow upload columns and remains anchored on scroll/resize.
+const originalRect = HTMLElement.prototype.getBoundingClientRect;
+let anchorTop = 100;
+HTMLElement.prototype.getBoundingClientRect = function () {
+  return this.getAttribute("role") === "tooltip"
+    ? { height: 180 }
+    : { top: anchorTop, bottom: anchorTop + 16 };
+};
+const helpView = render(React.createElement("div", { style: { width: 200, overflow: "hidden" } },
+  React.createElement(CatalogBarcodeFormatHelp, null, "UPC-A: 12 digits")));
+const helpButton = screen.getByRole("button", { name: "About barcode formats" });
+assert.equal(screen.queryByRole("tooltip"), null);
+fireEvent.mouseEnter(helpButton.parentElement);
+let help = screen.getByRole("tooltip");
+assert.equal(help.parentElement, document.body, "narrow/overflowing columns must not constrain tooltip width");
+assert.equal(helpButton.getAttribute("aria-describedby"), help.id);
+assert.equal(help.style.top, "124px");
+assert.ok(help.classList.contains("inset-x-4"));
+anchorTop = 700;
+fireEvent.resize(window);
+assert.equal(help.style.top, "512px", "help must move above the trigger near the viewport bottom");
+anchorTop = 200;
+fireEvent.scroll(window);
+assert.equal(help.style.top, "224px");
+fireEvent.mouseLeave(helpButton.parentElement);
+assert.equal(screen.queryByRole("tooltip"), null);
+fireEvent.focus(helpButton);
+assert.ok(screen.getByRole("tooltip"));
+fireEvent.keyDown(helpButton, { key: "Escape" });
+assert.equal(screen.queryByRole("tooltip"), null);
+fireEvent.blur(helpButton);
+helpView.unmount();
+HTMLElement.prototype.getBoundingClientRect = originalRect;
 const { default: CatalogIntake } = await import("../app/admin/catalog/CatalogIntake.tsx");
 const { createEmptyCatalogDraft, newIngredientDraft } = await import("../app/admin/catalog/catalog-draft.ts");
 const { identifyingFactors } = await import("../app/admin/catalog/catalog-intake.ts");
