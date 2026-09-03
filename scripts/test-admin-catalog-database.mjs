@@ -4,6 +4,8 @@ import {
   canOpenCatalogWorkspace,
   catalogEvidenceSummary,
   catalogPrimaryIdentity,
+  nextCatalogDatabaseSort,
+  sortCatalogDatabaseProducts,
 } from "../app/admin/catalog/catalog-database.ts";
 
 const summary = {
@@ -36,6 +38,66 @@ assert.equal(canOpenCatalogWorkspace({ status: "draft" }), true);
 assert.equal(canOpenCatalogWorkspace({ status: "published" }), false);
 assert.equal(canOpenCatalogWorkspace({ status: "retired" }), false);
 
+const products = [
+  summary,
+  {
+    ...summary,
+    id: "22222222-2222-4222-8222-222222222222",
+    labelName: "Zinc",
+    brandName: "Alpha",
+    productType: "blend",
+    status: "retired",
+    primaryCanonicalKey: null,
+    barcodeCount: 1,
+    activeLeafCount: 3,
+    imageCount: 0,
+    needsFollowUp: true,
+    updatedAt: "2026-09-01T12:00:00.000Z",
+  },
+  {
+    ...summary,
+    id: "33333333-3333-4333-8333-333333333333",
+    labelName: "Ashwagandha",
+    brandName: "Zulu",
+    status: "published",
+    primaryCanonicalKey: null,
+    barcodeCount: 4,
+    activeLeafCount: 2,
+    imageCount: 1,
+    updatedAt: "2026-09-02T12:00:00.000Z",
+  },
+];
+
+let sort = nextCatalogDatabaseSort(null, "product");
+assert.deepEqual(sort, { key: "product", direction: "ascending" });
+sort = nextCatalogDatabaseSort(sort, "product");
+assert.deepEqual(sort, { key: "product", direction: "descending" });
+sort = nextCatalogDatabaseSort(sort, "product");
+assert.equal(sort, null, "the third click must restore original catalog order");
+assert.deepEqual(nextCatalogDatabaseSort({ key: "brand", direction: "descending" }, "status"), {
+  key: "status",
+  direction: "ascending",
+});
+
+function sortedIds(key, direction = "ascending") {
+  return sortCatalogDatabaseProducts(products, { key, direction }).map((product) => product.id);
+}
+
+const [creatineId, zincId, ashwagandhaId] = products.map((product) => product.id);
+assert.deepEqual(sortedIds("product"), [ashwagandhaId, creatineId, zincId]);
+assert.deepEqual(sortedIds("brand"), [zincId, creatineId, ashwagandhaId]);
+assert.deepEqual(sortedIds("type"), [zincId, creatineId, ashwagandhaId]);
+assert.deepEqual(sortedIds("status"), [creatineId, ashwagandhaId, zincId]);
+assert.deepEqual(sortedIds("identity"), [creatineId, zincId, ashwagandhaId]);
+assert.deepEqual(sortedIds("barcodes"), [zincId, creatineId, ashwagandhaId]);
+assert.deepEqual(sortedIds("ingredients"), [creatineId, ashwagandhaId, zincId]);
+assert.deepEqual(sortedIds("evidence"), [zincId, ashwagandhaId, creatineId]);
+assert.deepEqual(sortedIds("followUp"), [creatineId, ashwagandhaId, zincId]);
+assert.deepEqual(sortedIds("updated"), [zincId, ashwagandhaId, creatineId]);
+assert.deepEqual(sortedIds("product", "descending"), [zincId, creatineId, ashwagandhaId]);
+assert.strictEqual(sortCatalogDatabaseProducts(products, null), products,
+  "no sort must preserve the original array and order");
+
 const databaseSource = readFileSync("app/admin/catalog/CatalogDatabase.tsx", "utf8");
 const workspaceSource = readFileSync("app/admin/catalog/CatalogWorkspace.tsx", "utf8");
 const pageSource = readFileSync("app/admin/catalog/page.tsx", "utf8");
@@ -60,5 +122,10 @@ assert.match(pageSource, />\s*Add \/ edit catalog\s*</);
 assert.match(pageSource, />\s*Catalog database\s*</);
 assert.match(databaseSource, /view=workspace&product=/,
   "database rows must deep-link to the product-level workspace");
+assert.match(databaseSource, /aria-sort=\{activeDirection \?\? "none"\}/,
+  "sortable headers must expose their current direction to assistive technology");
+for (const column of ["product", "brand", "type", "status", "identity", "barcodes", "ingredients", "evidence", "followUp", "updated"]) {
+  assert.match(databaseSource, new RegExp(`column="${column}"`), `${column} must have a sortable header`);
+}
 
 console.log("Website admin catalog database view checks passed.");

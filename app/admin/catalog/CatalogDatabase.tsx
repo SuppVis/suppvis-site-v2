@@ -7,6 +7,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
   type SyntheticEvent,
@@ -20,6 +21,10 @@ import {
   canOpenCatalogWorkspace,
   catalogEvidenceSummary,
   catalogPrimaryIdentity,
+  nextCatalogDatabaseSort,
+  sortCatalogDatabaseProducts,
+  type CatalogDatabaseSort,
+  type CatalogDatabaseSortKey,
 } from "./catalog-database";
 import type {
   CatalogComponentDto,
@@ -88,6 +93,41 @@ function DetailItem({ label, value }: { label: string; value: ReactNode }) {
       <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">{label}</dt>
       <dd className="mt-1 break-words text-sm text-text-secondary">{value ?? "—"}</dd>
     </div>
+  );
+}
+
+function SortableHeader({
+  column,
+  label,
+  sort,
+  onSort,
+  align = "left",
+}: {
+  column: CatalogDatabaseSortKey;
+  label: string;
+  sort: CatalogDatabaseSort;
+  onSort: (column: CatalogDatabaseSortKey) => void;
+  align?: "left" | "right";
+}) {
+  const activeDirection = sort?.key === column ? sort.direction : null;
+  const nextState = activeDirection === "ascending"
+    ? "descending"
+    : activeDirection === "descending" ? "original order" : "ascending";
+  return (
+    <th scope="col" aria-sort={activeDirection ?? "none"} className="px-2 py-1">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        title={`Sort ${label} ${nextState}`}
+        className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left transition hover:bg-white/5 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${align === "right" ? "justify-end text-right" : "justify-start"}`}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true" className={activeDirection ? "text-accent" : "text-text-muted/60"}>
+          {activeDirection === "ascending" ? "▲" : activeDirection === "descending" ? "▼" : "↕"}
+        </span>
+        <span className="sr-only">Activate to sort {nextState}</span>
+      </button>
+    </th>
   );
 }
 
@@ -344,6 +384,12 @@ export default function CatalogDatabase() {
   const [details, setDetails] = useState<Record<string, DetailLoadState>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<CatalogDatabaseSort>(null);
+
+  const displayedProducts = useMemo(
+    () => sortCatalogDatabaseProducts(products, sort),
+    [products, sort],
+  );
 
   const loadProducts = useCallback(async (cursor?: string, append = false) => {
     setLoading(true);
@@ -391,6 +437,10 @@ export default function CatalogDatabase() {
     if (willExpand && !details[productId]) void loadDetail(productId);
   }
 
+  function toggleSort(column: CatalogDatabaseSortKey) {
+    setSort((current) => nextCatalogDatabaseSort(current, column));
+  }
+
   return (
     <section className="rounded-[8px] border border-white/10 bg-[#0D1117] shadow-2xl shadow-black/20">
       <div className="border-b border-white/10 p-5">
@@ -410,20 +460,20 @@ export default function CatalogDatabase() {
         <table className="w-full min-w-[1360px] border-collapse text-left text-sm">
           <thead className="bg-[#080D12] text-[11px] uppercase tracking-[0.1em] text-text-muted">
             <tr>
-              <th className="px-4 py-3">Product</th>
-              <th className="px-4 py-3">Brand</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Primary identity</th>
-              <th className="px-4 py-3 text-right">Barcodes</th>
-              <th className="px-4 py-3 text-right">Ingredients</th>
-              <th className="px-4 py-3">Evidence</th>
-              <th className="px-4 py-3">Follow-up</th>
-              <th className="px-4 py-3">Updated</th>
+              <SortableHeader column="product" label="Product" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="brand" label="Brand" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="type" label="Type" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="status" label="Status" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="identity" label="Primary identity" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="barcodes" label="Barcodes" sort={sort} onSort={toggleSort} align="right" />
+              <SortableHeader column="ingredients" label="Ingredients" sort={sort} onSort={toggleSort} align="right" />
+              <SortableHeader column="evidence" label="Evidence" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="followUp" label="Follow-up" sort={sort} onSort={toggleSort} />
+              <SortableHeader column="updated" label="Updated" sort={sort} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
-            {products.map((product) => {
+            {displayedProducts.map((product) => {
               const isExpanded = expanded.has(product.id);
               const detail = details[product.id];
               return (
