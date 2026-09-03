@@ -209,8 +209,7 @@ export default function CatalogEvidencePanel({
     <section className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Private evidence</p>
-          <h2 className="mt-1 font-headline text-xl font-bold">Role-specific source images</h2>
+          <h2 className="font-headline text-xl font-bold">Source images</h2>
         </div>
         <p className="max-w-xl text-xs leading-5 text-text-muted">Images are optional. Front label and barcode accept one image each; Supplement Facts accepts up to four ordered images. Upload and analysis start automatically, and images remain private.</p>
       </div>
