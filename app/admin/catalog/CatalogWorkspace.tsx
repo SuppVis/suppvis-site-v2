@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CatalogApiError,
@@ -113,6 +114,46 @@ function barcodeInput(draft: BarcodeDraft): CatalogBarcodeInput {
         }
       : null,
   };
+}
+
+function BarcodeImagePreview({ file }: { file?: File }) {
+  const [visible, setVisible] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setVisible(false);
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(file);
+    setPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  if (!file || !previewUrl) return null;
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        className="text-xs font-semibold text-accent hover:underline"
+        aria-expanded={visible}
+      >
+        {visible ? "Hide image" : "View image"}
+      </button>
+      {visible ? (
+        <Image
+          src={previewUrl}
+          alt="Uploaded barcode label for digit verification"
+          width={960}
+          height={640}
+          unoptimized
+          className="mt-2 h-auto max-h-72 w-full rounded border border-white/10 bg-white object-contain"
+        />
+      ) : null}
+    </div>
+  );
 }
 
 function barcodeBlockers(draft: BarcodeDraft, lookup: CatalogBarcodeLookupResponse | null) {
@@ -450,6 +491,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
     }
     return [...new Set(all)];
   }, [barcode, barcodeEvidenceId, barcodeLookup, confirmReassignment, draft, evidence, selected]);
+  const barcodeEvidenceFile = evidence.find((file) => file.role === "barcode")?.file;
 
   async function saveDraft() {
     if (blockers.length > 0) return;
@@ -613,7 +655,11 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
             <button type="button" disabled={busy !== null || !barcode.value.trim()} onClick={() => void loadPublicCandidates()} className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold disabled:opacity-40">Load NIH & OFF candidates</button>
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <label className="text-xs font-semibold text-text-muted xl:col-span-2">Printed/decoded digits<input value={barcode.value} onChange={(event) => changeBarcode({ value: event.target.value })} className={`${inputClass} mt-1`} /></label>
+            <div className="xl:col-span-2">
+              <label htmlFor="catalog-barcode-digits" className="text-xs font-semibold text-text-muted">Printed/decoded digits</label>
+              <input id="catalog-barcode-digits" value={barcode.value} onChange={(event) => changeBarcode({ value: event.target.value })} className={`${inputClass} mt-1`} />
+              <BarcodeImagePreview file={barcodeEvidenceFile} />
+            </div>
             <label className="text-xs font-semibold text-text-muted">Format<select value={barcode.format} onChange={(event) => changeBarcode({ format: event.target.value as CatalogBarcodeFormat })} className={`${inputClass} mt-1`}><option value="upc_a">UPC-A</option><option value="upc_e">UPC-E</option><option value="ean_8">EAN-8</option><option value="ean_13">EAN-13</option><option value="gtin_14">GTIN-14</option></select></label>
             <label className="text-xs font-semibold text-text-muted">Package label<input value={barcode.packageLabel} onChange={(event) => changeBarcode({ packageLabel: event.target.value })} className={`${inputClass} mt-1`} placeholder="60 capsules" /></label>
             <div className="grid grid-cols-2 gap-2"><label className="text-xs font-semibold text-text-muted">Amount<input value={barcode.packageAmount} onChange={(event) => changeBarcode({ packageAmount: event.target.value })} className={`${inputClass} mt-1`} /></label><label className="text-xs font-semibold text-text-muted">Unit<input value={barcode.packageUnit} onChange={(event) => changeBarcode({ packageUnit: event.target.value })} className={`${inputClass} mt-1`} /></label></div>

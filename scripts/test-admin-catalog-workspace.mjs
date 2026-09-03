@@ -192,6 +192,12 @@ const expired = [{ ...evidence[0], expiresAt: "2000-01-01T00:00:00.000Z" }];
 assert.match(evidenceBlockers(expired).join(" "), /expired pending evidence/);
 
 const workspaceSource = readFileSync("app/admin/catalog/CatalogWorkspace.tsx", "utf8");
+assert.match(workspaceSource, /Uploaded barcode label for digit verification/,
+  "the barcode identity field must offer an inline preview of the selected barcode image");
+assert.match(workspaceSource, /URL\.createObjectURL\(file\)/);
+assert.match(workspaceSource, /URL\.revokeObjectURL\(nextUrl\)/,
+  "local barcode preview object URLs must be released when replaced or unmounted");
+assert.match(workspaceSource, /visible \? "Hide image" : "View image"/);
 const saveStart = workspaceSource.indexOf("async function saveDraft()");
 const saveEnd = workspaceSource.indexOf("async function viewImage", saveStart);
 assert.ok(saveStart > 0 && saveEnd > saveStart);
