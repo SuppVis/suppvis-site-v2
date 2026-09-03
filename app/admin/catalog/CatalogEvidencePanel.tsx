@@ -196,7 +196,7 @@ export default function CatalogEvidencePanel({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Private evidence</p>
           <h2 className="mt-1 font-headline text-xl font-bold">Role-specific source images</h2>
         </div>
-        <p className="max-w-xl text-xs leading-5 text-text-muted">Originals upload directly with opaque handles. Order is retained inside each role; permanent storage identifiers never enter browser state.</p>
+        <p className="max-w-xl text-xs leading-5 text-text-muted">Upload clear photos for each label section. Images remain private, and multiple images are saved in the order shown below.</p>
       </div>
       {notice ? <p role="status" className="mt-3 rounded border border-white/10 bg-[#080D12] p-3 text-sm text-text-secondary">{notice}</p> : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
