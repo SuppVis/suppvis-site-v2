@@ -9,6 +9,7 @@ import {
   newIngredientDraft,
 } from "../app/admin/catalog/catalog-draft.ts";
 import {
+  addEvidenceFiles,
   catalogRoleLimits,
   evidenceBlockers,
   evidenceImageSets,
@@ -161,8 +162,18 @@ const evidence = [
   { clientId: "facts-b", role: "supplement_facts", fileName: "2.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "c", uploadHandle: "facts-2", expiresAt: "later", status: "uploaded", error: null },
   { clientId: "barcode-a", role: "barcode", fileName: "b.jpg", mimeType: "image/jpeg", byteSize: 10, sha256: "d", uploadHandle: "barcode-handle", expiresAt: "later", status: "uploaded", error: null },
 ];
-assert.deepEqual(evidenceBlockers(evidence, true), []);
-assert.deepEqual(catalogRoleLimits, { front_label: 12, supplement_facts: 4, barcode: 12 });
+assert.deepEqual(evidenceBlockers(evidence), []);
+assert.deepEqual(evidenceBlockers([]), [], "new drafts may be saved without evidence images");
+assert.deepEqual(catalogRoleLimits, { front_label: 1, supplement_facts: 4, barcode: 1 });
+const replacementFront = addEvidenceFiles(evidence, "front_label", [{
+  name: "replacement.jpg", type: "image/jpeg", size: 20,
+}]);
+assert.deepEqual(replacementFront.filter((file) => file.role === "front_label").map((file) => file.fileName), ["replacement.jpg"],
+  "selecting a new front-label image must replace the pending front-label selection");
+assert.throws(() => addEvidenceFiles(evidence, "barcode", [
+  { name: "barcode-1.jpg", type: "image/jpeg", size: 20 },
+  { name: "barcode-2.jpg", type: "image/jpeg", size: 20 },
+]), /accepts one image/, "front-label and barcode roles reject multi-image selection");
 assert.deepEqual(evidenceImageSets(evidence, "append").map((set) => [set.role, set.uploadHandles]), [
   ["front_label", ["front-handle"]],
   ["supplement_facts", ["facts-1", "facts-2"]],
@@ -171,14 +182,14 @@ assert.deepEqual(evidenceImageSets(evidence, "append").map((set) => [set.role, s
 const reordered = moveEvidenceFile(evidence, "facts-b", -1);
 assert.deepEqual(reordered.filter((file) => file.role === "supplement_facts").map((file) => file.clientId), ["facts-b", "facts-a"]);
 const partial = [...evidence, { ...evidence[0], clientId: "failed", status: "failed", uploadHandle: null }];
-assert.match(evidenceBlockers(partial, false).join(" "), /Upload or remove/);
+assert.match(evidenceBlockers(partial).join(" "), /Upload or remove/);
 assert.equal(serializableEvidence(partial).some((file) => file.clientId === "failed"), true);
 assert.match(serializableEvidence(partial).at(-1).error, /reselected after reload/);
 assert.equal(serializableEvidence([{ ...evidence[0], file: { secretLocalBytes: true } }])[0].file, undefined);
 assert.equal(serializableEvidence([{ ...evidence[0], status: "uploading" }])[0].status, "failed",
   "an interrupted upload must not remain permanently busy after reload");
 const expired = [{ ...evidence[0], expiresAt: "2000-01-01T00:00:00.000Z" }];
-assert.match(evidenceBlockers(expired, false).join(" "), /expired pending evidence/);
+assert.match(evidenceBlockers(expired).join(" "), /expired pending evidence/);
 
 const workspaceSource = readFileSync("app/admin/catalog/CatalogWorkspace.tsx", "utf8");
 const saveStart = workspaceSource.indexOf("async function saveDraft()");

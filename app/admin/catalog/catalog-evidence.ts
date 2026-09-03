@@ -25,9 +25,9 @@ export const CATALOG_MAX_WORKFLOW_BYTES = 100 * 1024 * 1024;
 export const CATALOG_MAX_WORKFLOW_IMAGES = 12;
 
 export const catalogRoleLimits: Record<CatalogImageRole, number> = {
-  front_label: 12,
+  front_label: 1,
   supplement_facts: 4,
-  barcode: 12,
+  barcode: 1,
 };
 
 const allowedMimeTypes = new Set<CatalogUploadMimeType>([
@@ -57,13 +57,16 @@ export function validateEvidenceAddition(
   role: CatalogImageRole,
   files: File[],
 ) {
-  if (existing.length + files.length > CATALOG_MAX_WORKFLOW_IMAGES) {
+  const retainedExisting = catalogRoleLimits[role] === 1
+    ? existing.filter((entry) => entry.role !== role)
+    : existing;
+  if (retainedExisting.length + files.length > CATALOG_MAX_WORKFLOW_IMAGES) {
     return `A product workflow accepts at most ${CATALOG_MAX_WORKFLOW_IMAGES} images.`;
   }
-  if (existing.filter((entry) => entry.role === role).length + files.length > catalogRoleLimits[role]) {
+  if (retainedExisting.filter((entry) => entry.role === role).length + files.length > catalogRoleLimits[role]) {
     return role === "supplement_facts"
       ? "Supplement Facts accepts one to four ordered images."
-      : "Too many images were selected for this evidence role.";
+      : `${role === "front_label" ? "Front label" : "Barcode"} accepts one image. Choose a single replacement image.`;
   }
   if (files.some((file) => file.size <= 0 || file.size > CATALOG_MAX_IMAGE_BYTES)) {
     return "Every image must be non-empty and no larger than 20 MiB.";
@@ -71,7 +74,7 @@ export function validateEvidenceAddition(
   if (files.some((file) => !catalogMimeType(file))) {
     return "Images must be JPEG, PNG, WebP, HEIC, or HEIF.";
   }
-  const total = existing.reduce((sum, file) => sum + file.byteSize, 0)
+  const total = retainedExisting.reduce((sum, file) => sum + file.byteSize, 0)
     + files.reduce((sum, file) => sum + file.size, 0);
   if (total > CATALOG_MAX_WORKFLOW_BYTES) return "One product workflow accepts at most 100 MiB of images.";
   return null;
@@ -84,8 +87,11 @@ export function addEvidenceFiles(
 ): CatalogEvidenceFile[] {
   const issue = validateEvidenceAddition(existing, role, files);
   if (issue) throw new Error(issue);
+  const retainedExisting = catalogRoleLimits[role] === 1
+    ? existing.filter((entry) => entry.role !== role)
+    : existing;
   return [
-    ...existing,
+    ...retainedExisting,
     ...files.map((file): CatalogEvidenceFile => ({
       clientId: crypto.randomUUID(),
       role,
@@ -157,7 +163,7 @@ export function evidenceImageSets(
   });
 }
 
-export function evidenceBlockers(files: CatalogEvidenceFile[], requireAllRoles: boolean) {
+export function evidenceBlockers(files: CatalogEvidenceFile[]) {
   const blockers: string[] = [];
   if (files.some((file) => file.status !== "uploaded" || !file.uploadHandle)) {
     blockers.push("Upload or remove every selected evidence image before saving.");
@@ -168,14 +174,6 @@ export function evidenceBlockers(files: CatalogEvidenceFile[], requireAllRoles: 
     return Number.isFinite(expiresAt) && expiresAt <= Date.now();
   })) {
     blockers.push("Remove and reselect expired pending evidence before saving.");
-  }
-  if (requireAllRoles) {
-    const roles: CatalogImageRole[] = ["front_label", "supplement_facts", "barcode"];
-    for (const role of roles) {
-      if (!files.some((file) => file.role === role && file.status === "uploaded" && file.uploadHandle)) {
-        blockers.push(`New web drafts require uploaded ${role.replaceAll("_", " ")} evidence.`);
-      }
-    }
   }
   return blockers;
 }

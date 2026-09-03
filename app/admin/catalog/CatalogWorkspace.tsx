@@ -115,9 +115,8 @@ function barcodeInput(draft: BarcodeDraft): CatalogBarcodeInput {
   };
 }
 
-function barcodeBlockers(draft: BarcodeDraft, required: boolean, lookup: CatalogBarcodeLookupResponse | null) {
+function barcodeBlockers(draft: BarcodeDraft, lookup: CatalogBarcodeLookupResponse | null) {
   const blockers: string[] = [];
-  if (required && !draft.value.trim()) blockers.push("A confirmed barcode is required for a new product.");
   if (draft.value.trim() && !draft.confirmed) blockers.push("Confirm the decoded or manually entered barcode digits.");
   if (draft.value.trim() && draft.confirmed && !lookup) blockers.push("Look up the confirmed barcode before saving.");
   const packageParts = [draft.packageLabel.trim(), draft.packageAmount.trim(), draft.packageUnit.trim()];
@@ -432,10 +431,13 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
   const blockers = useMemo(() => {
     const all = [
       ...catalogDraftBlockers(draft),
-      ...evidenceBlockers(evidence, selected === null),
-      ...barcodeBlockers(barcode, selected === null, barcodeLookup),
+      ...evidenceBlockers(evidence),
+      ...barcodeBlockers(barcode, barcodeLookup),
     ];
     const barcodeFiles = evidence.filter((file) => file.role === "barcode" && file.status === "uploaded");
+    if (!selected && barcodeFiles.length > 0 && !barcode.value.trim()) {
+      all.push("Add a barcode before saving barcode images, or remove those images.");
+    }
     if (selected && barcodeFiles.length > 0 && !barcode.value.trim() && !barcodeEvidenceId) {
       all.push("Choose an attached barcode for replacement barcode evidence.");
     }
@@ -461,7 +463,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
       if (!selected) {
         const created = await createCatalogProduct({
           product,
-          barcode: barcodeInput(barcode),
+          ...(barcode.value.trim() ? { barcode: barcodeInput(barcode) } : {}),
           templateProvenance: draft.templateProvenance,
           imageSets: evidenceImageSets(evidence, "append"),
         });
@@ -591,6 +593,9 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
           onFrontCandidate={setFrontCandidate}
           onFormulaCandidate={addOcrCandidate}
           onBarcodeCandidate={onBarcodeCandidate}
+          currentImageRoles={[...new Set(selected?.images
+            .filter((image) => image.isCurrent)
+            .map((image) => image.role) ?? [])]}
         />
 
         {frontCandidate ? (
@@ -604,7 +609,7 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
 
         <section className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Barcode identity</p><h2 className="mt-1 font-headline text-xl font-bold">Confirm, look up, and group</h2></div>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Barcode identity · Optional</p><h2 className="mt-1 font-headline text-xl font-bold">Add now or later</h2><p className="mt-1 text-xs text-text-muted">Leave this section blank for a manual-entry draft. A barcode can be attached later.</p></div>
             <button type="button" disabled={busy !== null || !barcode.value.trim()} onClick={() => void loadPublicCandidates()} className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold disabled:opacity-40">Load NIH & OFF candidates</button>
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -614,8 +619,8 @@ export default function CatalogWorkspace({ initialProductId }: { initialProductI
             <div className="grid grid-cols-2 gap-2"><label className="text-xs font-semibold text-text-muted">Amount<input value={barcode.packageAmount} onChange={(event) => changeBarcode({ packageAmount: event.target.value })} className={`${inputClass} mt-1`} /></label><label className="text-xs font-semibold text-text-muted">Unit<input value={barcode.packageUnit} onChange={(event) => changeBarcode({ packageUnit: event.target.value })} className={`${inputClass} mt-1`} /></label></div>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={barcode.confirmed} onChange={(event) => { setBarcode((current) => ({ ...current, confirmed: event.target.checked })); setBarcodeLookup(null); }} /> I confirmed the digits against the package</label>
-            <button type="button" disabled={!barcode.confirmed || busy !== null} onClick={() => void lookupBarcode()} className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E] disabled:opacity-40">{busy === "barcode-lookup" ? "Looking up…" : "Lookup barcode"}</button>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!barcode.value.trim()} checked={barcode.confirmed} onChange={(event) => { setBarcode((current) => ({ ...current, confirmed: event.target.checked })); setBarcodeLookup(null); }} /> I confirmed the digits against the package</label>
+            <button type="button" disabled={!barcode.value.trim() || !barcode.confirmed || busy !== null} onClick={() => void lookupBarcode()} className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E] disabled:opacity-40">{busy === "barcode-lookup" ? "Looking up…" : "Lookup barcode"}</button>
           </div>
           {selected && evidence.some((file) => file.role === "barcode") && !barcode.value.trim() ? <label className="mt-3 block text-xs font-semibold text-text-muted">Barcode receiving replacement evidence<select value={barcodeEvidenceId} onChange={(event) => setBarcodeEvidenceId(event.target.value)} className={`${inputClass} mt-1`}><option value="">Choose attached barcode</option>{selected.barcodes.map((entry) => <option key={entry.id} value={entry.id}>{entry.labelBarcode} ({entry.format})</option>)}</select></label> : null}
           {barcodeLookup?.found && selected && barcodeLookup.product.id !== selected.id ? <label className="mt-3 flex gap-2 rounded border border-warning/40 bg-warning/5 p-3 text-sm text-warning"><input type="checkbox" checked={confirmReassignment} onChange={(event) => setConfirmReassignment(event.target.checked)} /> Reassign this barcode from {barcodeLookup.product.brandName} {barcodeLookup.product.labelName} to the open product when Save draft is pressed.</label> : null}

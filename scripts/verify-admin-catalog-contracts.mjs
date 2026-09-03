@@ -8,7 +8,7 @@ const generated = readFileSync(generatedPath);
 const digest = createHash("sha256").update(generated).digest("hex");
 assert.equal(
   digest,
-  "bad5083e96b22adcd8cb578026df31c7a4c2a1359ef8cd3e267dc214a580c6ce",
+  "c25a14ae44826df20f0caecf6525102a90085c18c49995d895753a1b26e2c5e6",
   "The generated website catalog contract changed without regenerating its checked digest.",
 );
 

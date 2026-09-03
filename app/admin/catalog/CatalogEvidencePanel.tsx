@@ -11,6 +11,7 @@ import {
 } from "./catalog-api";
 import {
   addEvidenceFiles,
+  catalogRoleLimits,
   moveEvidenceFile,
   type CatalogEvidenceFile,
 } from "./catalog-evidence";
@@ -24,7 +25,7 @@ import type {
 const roleCopy: Record<CatalogImageRole, { title: string; detail: string }> = {
   front_label: {
     title: "Front label",
-    detail: "Product identity suggestions only. Values apply only when you choose Use source.",
+    detail: "One optional image for product identity suggestions. A new image replaces the current one.",
   },
   supplement_facts: {
     title: "Supplement Facts",
@@ -32,7 +33,7 @@ const roleCopy: Record<CatalogImageRole, { title: string; detail: string }> = {
   },
   barcode: {
     title: "Barcode",
-    detail: "Bars are decoded and validated. You must still confirm the digits.",
+    detail: "One optional image. Bars are decoded and validated; you must still confirm the digits.",
   },
 };
 
@@ -46,12 +47,14 @@ export default function CatalogEvidencePanel({
   onFrontCandidate,
   onFormulaCandidate,
   onBarcodeCandidate,
+  currentImageRoles = [],
 }: {
   files: CatalogEvidenceFile[];
   onChange: (files: CatalogEvidenceFile[]) => void;
   onFrontCandidate: (candidate: CatalogFrontLabelTemplateResponse) => void;
   onFormulaCandidate: (candidate: CatalogFormulaTemplateCandidate) => void;
   onBarcodeCandidate: (candidate: CatalogBarcodeDecodeResponse) => void;
+  currentImageRoles?: CatalogImageRole[];
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -60,8 +63,20 @@ export default function CatalogEvidencePanel({
   function selectFiles(role: CatalogImageRole, selected: FileList | null) {
     if (!selected?.length) return;
     try {
-      onChange(addEvidenceFiles(files, role, [...selected]));
-      setNotice(null);
+      const next = addEvidenceFiles(files, role, [...selected]);
+      const replacesPending = catalogRoleLimits[role] === 1
+        && files.some((file) => file.role === role);
+      const replacesCurrent = catalogRoleLimits[role] === 1
+        && currentImageRoles.includes(role);
+      if ((replacesPending || replacesCurrent) && !window.confirm(
+        `Only one current ${roleCopy[role].title.toLowerCase()} image is allowed. ${replacesCurrent ? "Saving this draft will supersede the current stored image." : "This will replace the image already selected."} Continue?`,
+      )) return;
+      onChange(next);
+      setNotice(replacesCurrent
+        ? `Warning: the new ${roleCopy[role].title.toLowerCase()} image will supersede the current stored image when you Save draft.`
+        : replacesPending
+          ? `Warning: the new ${roleCopy[role].title.toLowerCase()} image replaced the previous pending selection.`
+          : null);
     } catch (error) {
       setNotice(message(error));
     }
@@ -196,17 +211,20 @@ export default function CatalogEvidencePanel({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Private evidence</p>
           <h2 className="mt-1 font-headline text-xl font-bold">Role-specific source images</h2>
         </div>
-        <p className="max-w-xl text-xs leading-5 text-text-muted">Upload clear photos for each label section. Images remain private, and multiple images are saved in the order shown below.</p>
+        <p className="max-w-xl text-xs leading-5 text-text-muted">Images are optional. Front label and barcode accept one image each; Supplement Facts accepts up to four ordered images. Images remain private.</p>
       </div>
       {notice ? <p role="status" className="mt-3 rounded border border-white/10 bg-[#080D12] p-3 text-sm text-text-secondary">{notice}</p> : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {(Object.keys(roleCopy) as CatalogImageRole[]).map((role) => {
           const roleFiles = files.filter((file) => file.role === role);
           const handles = uploadedHandles(role);
+          const singleImageRole = catalogRoleLimits[role] === 1;
+          const replacesCurrent = singleImageRole && currentImageRoles.includes(role);
           return (
             <div key={role} className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
               <h3 className="font-semibold">{roleCopy[role].title}</h3>
               <p className="mt-1 min-h-10 text-xs leading-5 text-text-muted">{roleCopy[role].detail}</p>
+              {replacesCurrent ? <p className="mt-2 text-xs text-warning">Warning: adding a new image will supersede the current stored image when you Save draft.</p> : null}
               <label
                 onDragEnter={(event) => dragFiles(event, role)}
                 onDragOver={(event) => dragFiles(event, role)}
@@ -214,12 +232,12 @@ export default function CatalogEvidencePanel({
                 onDrop={(event) => dropFiles(event, role)}
                 className={`mt-3 block cursor-pointer rounded border border-dashed px-3 py-4 text-center text-xs font-semibold transition ${draggingRole === role ? "border-accent bg-accent/10 text-accent" : "border-white/20 text-text-secondary hover:border-accent/60 hover:text-accent"}`}
               >
-                <span className="block">Add image{role === "supplement_facts" ? "s (max 4)" : "s"}</span>
+                <span className="block">{singleImageRole && (roleFiles.length > 0 || replacesCurrent) ? "Replace image" : role === "supplement_facts" ? "Add images (max 4)" : "Add image"}</span>
                 <span className="mt-1 block font-normal text-text-muted">Drag and drop here, or click to browse</span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
-                  multiple
+                  multiple={!singleImageRole}
                   disabled={busy !== null}
                   className="sr-only"
                   onChange={(event) => {
@@ -240,8 +258,8 @@ export default function CatalogEvidencePanel({
                         {file.error ? <p className="mt-1 text-error">{file.error}</p> : null}
                       </div>
                       <div className="flex gap-1">
-                        <button type="button" disabled={busy !== null} aria-label="Move image earlier" onClick={() => onChange(moveEvidenceFile(files, file.clientId, -1))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-40">↑</button>
-                        <button type="button" disabled={busy !== null} aria-label="Move image later" onClick={() => onChange(moveEvidenceFile(files, file.clientId, 1))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-40">↓</button>
+                        {!singleImageRole ? <button type="button" disabled={busy !== null} aria-label="Move image earlier" onClick={() => onChange(moveEvidenceFile(files, file.clientId, -1))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-40">↑</button> : null}
+                        {!singleImageRole ? <button type="button" disabled={busy !== null} aria-label="Move image later" onClick={() => onChange(moveEvidenceFile(files, file.clientId, 1))} className="rounded border border-white/10 px-2 py-1 disabled:opacity-40">↓</button> : null}
                         <button type="button" disabled={busy !== null} aria-label="Remove image" onClick={() => onChange(files.filter((entry) => entry.clientId !== file.clientId))} className="rounded border border-white/10 px-2 py-1 text-error disabled:opacity-40">×</button>
                       </div>
                     </div>
@@ -259,14 +277,13 @@ export default function CatalogEvidencePanel({
                 </button>
                 <button
                   type="button"
-                  disabled={handles.length === 0 || busy !== null || (role === "barcode" && handles.length !== 1)}
+                  disabled={handles.length === 0 || busy !== null}
                   onClick={() => void analyze(role)}
                   className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E] disabled:opacity-40"
                 >
                   {busy === `analyze:${role}` ? "Analyzing…" : role === "barcode" ? "Decode bars" : "Analyze source"}
                 </button>
               </div>
-              {role === "barcode" && handles.length > 1 ? <p className="mt-2 text-xs text-warning">Keep exactly one uploaded barcode image for decoding.</p> : null}
             </div>
           );
         })}

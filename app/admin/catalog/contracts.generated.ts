@@ -150,7 +150,7 @@ export interface CatalogImageSetInput {
 
 export interface CreateCatalogProductRequest {
   product: CatalogProductWriteV2;
-  barcode: CatalogBarcodeInput;
+  barcode?: CatalogBarcodeInput | null;
   templateProvenance?: CatalogTemplateProvenanceInput;
   imageSets?: CatalogImageSetInput[];
 }

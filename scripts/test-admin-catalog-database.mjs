@@ -129,5 +129,7 @@ assert.match(evidenceSource, /onDrop=/);
 assert.match(evidenceSource, /event\.dataTransfer\.files/,
   "dropped image files must enter the same validated evidence-selection path as browsed files");
 assert.match(evidenceSource, /Drag and drop here, or click to browse/);
+assert.match(evidenceSource, /Saving this draft will supersede the current stored image/,
+  "single-image evidence replacement must require an explicit warning");
 
 console.log("Website admin catalog database view checks passed.");
