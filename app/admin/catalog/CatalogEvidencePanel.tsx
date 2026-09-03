@@ -60,7 +60,7 @@ export default function CatalogEvidencePanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [draggingRole, setDraggingRole] = useState<CatalogImageRole | null>(null);
 
-  function selectFiles(role: CatalogImageRole, selected: FileList | null) {
+  async function selectFiles(role: CatalogImageRole, selected: FileList | null) {
     if (!selected?.length) return;
     try {
       const next = addEvidenceFiles(files, role, [...selected]);
@@ -72,11 +72,7 @@ export default function CatalogEvidencePanel({
         `Only one current ${roleCopy[role].title.toLowerCase()} image is allowed. ${replacesCurrent ? "Saving this draft will supersede the current stored image." : "This will replace the image already selected."} Continue?`,
       )) return;
       onChange(next);
-      setNotice(replacesCurrent
-        ? `Warning: the new ${roleCopy[role].title.toLowerCase()} image will supersede the current stored image when you Save draft.`
-        : replacesPending
-          ? `Warning: the new ${roleCopy[role].title.toLowerCase()} image replaced the previous pending selection.`
-          : null);
+      await uploadRole(role, next, replacesCurrent || replacesPending);
     } catch (error) {
       setNotice(message(error));
     }
@@ -102,19 +98,19 @@ export default function CatalogEvidencePanel({
       setNotice("Wait for the current evidence action to finish before adding images.");
       return;
     }
-    selectFiles(role, event.dataTransfer.files);
+    void selectFiles(role, event.dataTransfer.files);
   }
 
-  async function uploadRole(role: CatalogImageRole) {
-    const pending = files.filter((file) => file.role === role && file.status !== "uploaded");
+  async function uploadRole(role: CatalogImageRole, initialFiles: CatalogEvidenceFile[], isReplacement: boolean) {
+    const pending = initialFiles.filter((file) => file.role === role && file.status !== "uploaded");
     if (pending.length === 0) return;
     if (pending.some((entry) => !entry.file)) {
       setNotice("A restored local file must be selected again before it can be uploaded.");
       return;
     }
     setBusy(`upload:${role}`);
-    setNotice(null);
-    let working = files;
+    setNotice(`${isReplacement ? "Replacement image selected. " : ""}${roleCopy[role].title} is uploading and will be analyzed automatically.`);
+    let working = initialFiles;
     try {
       const descriptors = [];
       for (const entry of pending) {
@@ -169,26 +165,31 @@ export default function CatalogEvidencePanel({
         }
         onChange(working);
       }
-      setNotice("Uploaded files remain pending and create no catalog records until Save draft.");
+      if (working.some((file) => file.role === role && file.status !== "uploaded")) {
+        setNotice(`The ${roleCopy[role].title.toLowerCase()} upload did not finish. Remove or replace the failed image to retry.`);
+      } else {
+        await analyze(role, working);
+      }
     } catch (error) {
       const pendingIds = new Set(pending.map((entry) => entry.clientId));
-      onChange(working.map((file) => pendingIds.has(file.clientId) && file.status !== "uploaded"
+      working = working.map((file) => pendingIds.has(file.clientId) && file.status !== "uploaded"
         ? { ...file, status: "failed", error: message(error) }
-        : file));
+        : file);
+      onChange(working);
       setNotice(message(error));
     } finally {
       setBusy(null);
     }
   }
 
-  function uploadedHandles(role: CatalogImageRole) {
-    return files
+  function uploadedHandles(role: CatalogImageRole, sourceFiles: CatalogEvidenceFile[] = files) {
+    return sourceFiles
       .filter((file) => file.role === role && file.status === "uploaded" && file.uploadHandle)
       .map((file) => file.uploadHandle!);
   }
 
-  async function analyze(role: CatalogImageRole) {
-    const handles = uploadedHandles(role);
+  async function analyze(role: CatalogImageRole, sourceFiles: CatalogEvidenceFile[]) {
+    const handles = uploadedHandles(role, sourceFiles);
     if (handles.length === 0) return;
     setBusy(`analyze:${role}`);
     setNotice(null);
@@ -196,7 +197,7 @@ export default function CatalogEvidencePanel({
       if (role === "front_label") onFrontCandidate(await getFrontLabelTemplate(handles));
       if (role === "supplement_facts") onFormulaCandidate((await getOcrTemplate(handles)).candidate);
       if (role === "barcode") onBarcodeCandidate(await decodeBarcodeImage(handles[0]));
-      setNotice(`${roleCopy[role].title} analysis is ready for review. No catalog data was written.`);
+      setNotice(`${roleCopy[role].title} uploaded and analyzed. Review the suggestions below; nothing is saved to the catalog until Save draft.`);
     } catch (error) {
       setNotice(message(error));
     } finally {
@@ -211,13 +212,12 @@ export default function CatalogEvidencePanel({
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Private evidence</p>
           <h2 className="mt-1 font-headline text-xl font-bold">Role-specific source images</h2>
         </div>
-        <p className="max-w-xl text-xs leading-5 text-text-muted">Images are optional. Front label and barcode accept one image each; Supplement Facts accepts up to four ordered images. Images remain private.</p>
+        <p className="max-w-xl text-xs leading-5 text-text-muted">Images are optional. Front label and barcode accept one image each; Supplement Facts accepts up to four ordered images. Upload and analysis start automatically, and images remain private.</p>
       </div>
       {notice ? <p role="status" className="mt-3 rounded border border-white/10 bg-[#080D12] p-3 text-sm text-text-secondary">{notice}</p> : null}
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {(Object.keys(roleCopy) as CatalogImageRole[]).map((role) => {
           const roleFiles = files.filter((file) => file.role === role);
-          const handles = uploadedHandles(role);
           const singleImageRole = catalogRoleLimits[role] === 1;
           const replacesCurrent = singleImageRole && currentImageRoles.includes(role);
           return (
@@ -241,7 +241,7 @@ export default function CatalogEvidencePanel({
                   disabled={busy !== null}
                   className="sr-only"
                   onChange={(event) => {
-                    selectFiles(role, event.target.files);
+                    void selectFiles(role, event.target.files);
                     event.currentTarget.value = "";
                   }}
                 />
@@ -266,24 +266,6 @@ export default function CatalogEvidencePanel({
                   </li>
                 ))}
               </ol>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={roleFiles.length === 0 || busy !== null}
-                  onClick={() => void uploadRole(role)}
-                  className="rounded-full border border-white/15 px-3 py-2 text-xs font-semibold disabled:opacity-40"
-                >
-                  {busy === `upload:${role}` ? "Uploading…" : "Upload pending"}
-                </button>
-                <button
-                  type="button"
-                  disabled={handles.length === 0 || busy !== null}
-                  onClick={() => void analyze(role)}
-                  className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E] disabled:opacity-40"
-                >
-                  {busy === `analyze:${role}` ? "Analyzing…" : role === "barcode" ? "Decode bars" : "Analyze source"}
-                </button>
-              </div>
             </div>
           );
         })}

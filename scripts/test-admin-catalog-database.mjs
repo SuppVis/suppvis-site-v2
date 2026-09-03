@@ -131,5 +131,11 @@ assert.match(evidenceSource, /event\.dataTransfer\.files/,
 assert.match(evidenceSource, /Drag and drop here, or click to browse/);
 assert.match(evidenceSource, /Saving this draft will supersede the current stored image/,
   "single-image evidence replacement must require an explicit warning");
+assert.match(evidenceSource, /await uploadRole\(role, next/,
+  "selecting or dropping evidence must start its private upload automatically");
+assert.match(evidenceSource, /await analyze\(role, working\)/,
+  "a successful private upload must trigger role-specific analysis automatically");
+assert.doesNotMatch(evidenceSource, /Upload pending|Decode bars|Analyze source/,
+  "automatic evidence processing must not expose redundant manual action buttons");
 
 console.log("Website admin catalog database view checks passed.");
