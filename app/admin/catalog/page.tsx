@@ -9,6 +9,7 @@ import {
   maskAdminEmail,
 } from "@/app/lib/server/admin-access";
 import CatalogWorkspace from "./CatalogWorkspace";
+import CatalogDatabase from "./CatalogDatabase";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -33,7 +34,11 @@ function Blocked() {
   );
 }
 
-export default async function CatalogAdminPage() {
+type CatalogAdminPageProps = {
+  searchParams?: { view?: string | string[]; product?: string | string[] };
+};
+
+export default async function CatalogAdminPage({ searchParams }: CatalogAdminPageProps) {
   if (!isMicrosoftAuthConfigured()) return <Blocked />;
   const access = getAdminAccess(await auth());
   if (!access.ok && access.reason === "not_authenticated") {
@@ -46,6 +51,12 @@ export default async function CatalogAdminPage() {
     await signOut({ redirectTo: "/admin" });
   }
 
+  const view = searchParams?.view === "database" ? "database" : "workspace";
+  const requestedProduct = typeof searchParams?.product === "string" ? searchParams.product : undefined;
+  const productId = requestedProduct && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedProduct)
+    ? requestedProduct
+    : undefined;
+
   return (
     <main className="admin-page min-h-screen bg-bg-primary px-4 py-6 text-text-primary lg:px-7">
       <div className="mx-auto max-w-[1680px]">
@@ -57,9 +68,9 @@ export default async function CatalogAdminPage() {
               <span aria-hidden="true">/</span>
               <span>Catalog</span>
             </div>
-            <h1 className="mt-3 font-headline text-4xl font-extrabold tracking-tight">Catalog workspace</h1>
+            <h1 className="mt-3 font-headline text-4xl font-extrabold tracking-tight">Admin catalog</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">
-              Curate one draft product at a time from retained label evidence. Templates and previews are read-only until Save draft.
+              Review and curate draft products, or inspect the complete catalog as a read-only database.
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-[8px] border border-white/10 bg-[#0D1117] p-3 text-sm">
@@ -69,7 +80,25 @@ export default async function CatalogAdminPage() {
             </form>
           </div>
         </header>
-        <CatalogWorkspace />
+        <nav aria-label="Catalog views" className="mb-5 flex gap-2 border-b border-white/10">
+          <Link
+            href="/admin/catalog?view=workspace"
+            aria-current={view === "workspace" ? "page" : undefined}
+            className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${view === "workspace" ? "border-accent text-accent" : "border-transparent text-text-secondary hover:text-text-primary"}`}
+          >
+            Add / edit catalog
+          </Link>
+          <Link
+            href="/admin/catalog?view=database"
+            aria-current={view === "database" ? "page" : undefined}
+            className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${view === "database" ? "border-accent text-accent" : "border-transparent text-text-secondary hover:text-text-primary"}`}
+          >
+            Catalog database
+          </Link>
+        </nav>
+        {view === "database"
+          ? <CatalogDatabase />
+          : <CatalogWorkspace key={productId ?? "new"} initialProductId={productId} />}
       </div>
     </main>
   );

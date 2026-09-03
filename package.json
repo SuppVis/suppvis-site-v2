@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:admin-catalog-contracts": "node scripts/verify-admin-catalog-contracts.mjs",
     "test:admin-catalog-bridge": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-bridge.mjs",
+    "test:admin-catalog-database": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-database.mjs",
     "test:admin-catalog-workspace": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-workspace.mjs"
   },
   "dependencies": {

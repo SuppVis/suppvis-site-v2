@@ -10,6 +10,7 @@ import type {
   CatalogImageRole,
   CatalogProductBrowserSummaryDto,
   CatalogProductDetailDto,
+  CatalogProductStatus,
   CatalogProductSearchResponse,
   CatalogPublicTemplateResponse,
   CatalogTemplateDiffResponse,
@@ -72,6 +73,7 @@ function queryString(values: Record<string, string | number | boolean | null | u
 
 export function searchCatalogProducts(input: {
   q?: string;
+  status?: CatalogProductStatus | "all";
   canonicalKey?: string;
   brandName?: string;
   needsFollowUp?: boolean;

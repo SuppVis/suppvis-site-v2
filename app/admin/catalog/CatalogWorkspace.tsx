@@ -69,7 +69,6 @@ type CatalogBrowserFilters = {
   canonicalKey?: string;
   brandName?: string;
   productType?: CatalogProductType;
-  needsFollowUp?: boolean;
   followUpReason?: string;
 };
 
@@ -161,7 +160,6 @@ function Browser({
   const [canonicalKey, setCanonicalKey] = useState("");
   const [brandName, setBrandName] = useState("");
   const [productType, setProductType] = useState("");
-  const [followUp, setFollowUp] = useState("");
   const [reason, setReason] = useState("");
   function submit() {
     onSearch({
@@ -169,14 +167,13 @@ function Browser({
       canonicalKey: canonicalKey || undefined,
       brandName: brandName || undefined,
       productType: productType ? productType as CatalogProductType : undefined,
-      needsFollowUp: followUp === "true" ? true : followUp === "false" ? false : undefined,
       followUpReason: reason || undefined,
     });
   }
   return (
     <aside className="self-start rounded-[8px] border border-white/10 bg-[#0D1117] p-4 xl:sticky xl:top-4">
       <div className="flex items-center justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Catalog browser</p><h2 className="mt-1 font-headline text-xl font-bold">Current drafts</h2></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Review queue</p><h2 className="mt-1 font-headline text-xl font-bold">Drafts needing review</h2></div>
         <button type="button" onClick={onNew} className="rounded-full bg-accent px-3 py-2 text-xs font-bold text-[#03100E]">New product</button>
       </div>
       <form className="mt-4 space-y-2" onSubmit={(event) => { event.preventDefault(); submit(); }}>
@@ -185,10 +182,7 @@ function Browser({
           <input value={canonicalKey} onChange={(event) => setCanonicalKey(event.target.value)} className={inputClass} placeholder="Exact canonical key" />
           <input value={brandName} onChange={(event) => setBrandName(event.target.value)} className={inputClass} placeholder="Exact brand name" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <select value={productType} onChange={(event) => setProductType(event.target.value)} className={inputClass}><option value="">All formula types</option><option value="supplement">Supplement</option><option value="blend">Blend</option></select>
-          <select value={followUp} onChange={(event) => setFollowUp(event.target.value)} className={inputClass}><option value="">Any follow-up</option><option value="true">Needs follow-up</option><option value="false">No follow-up</option></select>
-        </div>
+        <select value={productType} onChange={(event) => setProductType(event.target.value)} className={inputClass}><option value="">All formula types</option><option value="supplement">Supplement</option><option value="blend">Blend</option></select>
         <select value={reason} onChange={(event) => setReason(event.target.value)} className={inputClass}><option value="">Any review reason</option>{reasonOptions.map((entry) => <option value={entry} key={entry}>{entry.replaceAll("_", " ")}</option>)}</select>
         <button disabled={loading} className="w-full rounded-full border border-white/15 px-3 py-2 text-xs font-semibold disabled:opacity-40">{loading ? "Searching…" : "Search catalog"}</button>
       </form>
@@ -213,7 +207,7 @@ function Browser({
   );
 }
 
-export default function CatalogWorkspace() {
+export default function CatalogWorkspace({ initialProductId }: { initialProductId?: string }) {
   const [selected, setSelected] = useState<CatalogProductDetailDto | null>(null);
   const [draft, setDraft] = useState<CatalogEditorDraft>(() => createEmptyCatalogDraft());
   const [evidence, setEvidence] = useState<CatalogEvidenceFile[]>([]);
@@ -237,7 +231,12 @@ export default function CatalogWorkspace() {
   const runSearch = useCallback(async (nextFilters = filters, cursor?: string, append = false) => {
     setLoadingSearch(true);
     try {
-      const response = await searchCatalogProducts({ ...nextFilters, cursor });
+      const response = await searchCatalogProducts({
+        ...nextFilters,
+        status: "draft",
+        needsFollowUp: true,
+        cursor,
+      });
       setResults((current) => append ? [...current, ...response.results] : response.results);
       setNextCursor(response.nextCursor);
       setError(null);
@@ -340,6 +339,10 @@ export default function CatalogWorkspace() {
       setBusy(null);
     }
   }
+
+  useEffect(() => {
+    if (initialProductId) void loadProduct(initialProductId);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function changeBarcode(patch: Partial<BarcodeDraft>) {
     setBarcode((current) => ({ ...current, ...patch, confirmed: patch.confirmed ?? false }));
