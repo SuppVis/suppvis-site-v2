@@ -1,6 +1,8 @@
 import type {
   CatalogProductBrowserSummaryDto,
   CatalogProductDetailDto,
+  CatalogProductStatus,
+  CatalogProductType,
 } from "./contracts.generated";
 
 export type CatalogDatabaseSortKey =
@@ -20,10 +22,26 @@ export type CatalogDatabaseSort = {
   direction: "ascending" | "descending";
 } | null;
 
-const catalogSortCollator = new Intl.Collator(undefined, {
-  numeric: true,
-  sensitivity: "base",
-});
+export type CatalogDatabaseFilters = {
+  query: string;
+  status: CatalogProductStatus | "all";
+  productType: CatalogProductType | "all";
+  review: "all" | "needs-review" | "clear";
+  evidence: "all" | "present" | "missing";
+};
+
+export const defaultCatalogDatabaseFilters: CatalogDatabaseFilters = {
+  query: "",
+  status: "all",
+  productType: "all",
+  review: "all",
+  evidence: "all",
+};
+
+const sortKeys = new Set<CatalogDatabaseSortKey>([
+  "product", "brand", "type", "status", "identity", "barcodes",
+  "ingredients", "evidence", "followUp", "updated",
+]);
 
 export function catalogPrimaryIdentity(product: CatalogProductBrowserSummaryDto) {
   if (product.primaryCanonicalKey) return product.primaryCanonicalKey;
@@ -49,41 +67,59 @@ export function nextCatalogDatabaseSort(
   return null;
 }
 
-function catalogSortValue(
-  product: CatalogProductBrowserSummaryDto,
-  key: CatalogDatabaseSortKey,
-): string | number {
-  switch (key) {
-    case "product": return `${product.labelName}\u0000${product.variant ?? ""}`;
-    case "brand": return product.brandName;
-    case "type": return product.productType;
-    case "status": return product.status;
-    case "identity": return catalogPrimaryIdentity(product);
-    case "barcodes": return product.barcodeCount;
-    case "ingredients": return product.activeLeafCount;
-    case "evidence": return product.imageCount;
-    case "followUp": return product.needsFollowUp ? 1 : 0;
-    case "updated": return Date.parse(product.updatedAt);
-  }
+export function catalogDatabaseStateFromParams(params: Pick<URLSearchParams, "get">): {
+  filters: CatalogDatabaseFilters;
+  sort: CatalogDatabaseSort;
+} {
+  const status = params.get("status");
+  const productType = params.get("type");
+  const review = params.get("review");
+  const evidence = params.get("evidence");
+  const sortBy = params.get("sort");
+  const direction = params.get("direction");
+  return {
+    filters: {
+      query: params.get("q") ?? "",
+      status: status === "draft" || status === "published" || status === "retired" ? status : "all",
+      productType: productType === "supplement" || productType === "blend" ? productType : "all",
+      review: review === "needs-review" || review === "clear" ? review : "all",
+      evidence: evidence === "present" || evidence === "missing" ? evidence : "all",
+    },
+    sort: sortBy && sortKeys.has(sortBy as CatalogDatabaseSortKey)
+      && (direction === "ascending" || direction === "descending")
+      ? { key: sortBy as CatalogDatabaseSortKey, direction }
+      : null,
+  };
 }
 
-export function sortCatalogDatabaseProducts(
-  products: CatalogProductBrowserSummaryDto[],
+export function catalogDatabaseHasActiveFilters(filters: CatalogDatabaseFilters) {
+  return filters.query.trim().length > 0
+    || filters.status !== "all"
+    || filters.productType !== "all"
+    || filters.review !== "all"
+    || filters.evidence !== "all";
+}
+
+export function catalogDatabaseUrlParams(
+  current: URLSearchParams,
+  filters: CatalogDatabaseFilters,
   sort: CatalogDatabaseSort,
 ) {
-  if (!sort) return products;
-  const multiplier = sort.direction === "ascending" ? 1 : -1;
-  return products
-    .map((product, originalIndex) => ({ product, originalIndex }))
-    .sort((left, right) => {
-      const leftValue = catalogSortValue(left.product, sort.key);
-      const rightValue = catalogSortValue(right.product, sort.key);
-      const comparison = typeof leftValue === "number" && typeof rightValue === "number"
-        ? leftValue - rightValue
-        : catalogSortCollator.compare(String(leftValue), String(rightValue));
-      return comparison === 0
-        ? left.originalIndex - right.originalIndex
-        : comparison * multiplier;
-    })
-    .map(({ product }) => product);
+  const params = new URLSearchParams(current);
+  params.set("view", "database");
+  params.delete("product");
+  const values: Array<[string, string]> = [
+    ["q", filters.query.trim()],
+    ["status", filters.status === "all" ? "" : filters.status],
+    ["type", filters.productType === "all" ? "" : filters.productType],
+    ["review", filters.review === "all" ? "" : filters.review],
+    ["evidence", filters.evidence === "all" ? "" : filters.evidence],
+    ["sort", sort?.key ?? ""],
+    ["direction", sort?.direction ?? ""],
+  ];
+  values.forEach(([key, value]) => {
+    if (value) params.set(key, value);
+    else params.delete(key);
+  });
+  return params;
 }

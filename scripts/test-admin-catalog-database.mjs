@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   canOpenCatalogWorkspace,
+  catalogDatabaseHasActiveFilters,
+  catalogDatabaseStateFromParams,
+  catalogDatabaseUrlParams,
   catalogEvidenceSummary,
   catalogPrimaryIdentity,
+  defaultCatalogDatabaseFilters,
   nextCatalogDatabaseSort,
-  sortCatalogDatabaseProducts,
 } from "../app/admin/catalog/catalog-database.ts";
 
 const summary = {
@@ -38,36 +41,6 @@ assert.equal(canOpenCatalogWorkspace({ status: "draft" }), true);
 assert.equal(canOpenCatalogWorkspace({ status: "published" }), false);
 assert.equal(canOpenCatalogWorkspace({ status: "retired" }), false);
 
-const products = [
-  summary,
-  {
-    ...summary,
-    id: "22222222-2222-4222-8222-222222222222",
-    labelName: "Zinc",
-    brandName: "Alpha",
-    productType: "blend",
-    status: "retired",
-    primaryCanonicalKey: null,
-    barcodeCount: 1,
-    activeLeafCount: 3,
-    imageCount: 0,
-    needsFollowUp: true,
-    updatedAt: "2026-09-01T12:00:00.000Z",
-  },
-  {
-    ...summary,
-    id: "33333333-3333-4333-8333-333333333333",
-    labelName: "Ashwagandha",
-    brandName: "Zulu",
-    status: "published",
-    primaryCanonicalKey: null,
-    barcodeCount: 4,
-    activeLeafCount: 2,
-    imageCount: 1,
-    updatedAt: "2026-09-02T12:00:00.000Z",
-  },
-];
-
 let sort = nextCatalogDatabaseSort(null, "product");
 assert.deepEqual(sort, { key: "product", direction: "ascending" });
 sort = nextCatalogDatabaseSort(sort, "product");
@@ -79,31 +52,50 @@ assert.deepEqual(nextCatalogDatabaseSort({ key: "brand", direction: "descending"
   direction: "ascending",
 });
 
-function sortedIds(key, direction = "ascending") {
-  return sortCatalogDatabaseProducts(products, { key, direction }).map((product) => product.id);
-}
-
-const [creatineId, zincId, ashwagandhaId] = products.map((product) => product.id);
-assert.deepEqual(sortedIds("product"), [ashwagandhaId, creatineId, zincId]);
-assert.deepEqual(sortedIds("brand"), [zincId, creatineId, ashwagandhaId]);
-assert.deepEqual(sortedIds("type"), [zincId, creatineId, ashwagandhaId]);
-assert.deepEqual(sortedIds("status"), [creatineId, ashwagandhaId, zincId]);
-assert.deepEqual(sortedIds("identity"), [creatineId, zincId, ashwagandhaId]);
-assert.deepEqual(sortedIds("barcodes"), [zincId, creatineId, ashwagandhaId]);
-assert.deepEqual(sortedIds("ingredients"), [creatineId, ashwagandhaId, zincId]);
-assert.deepEqual(sortedIds("evidence"), [zincId, ashwagandhaId, creatineId]);
-assert.deepEqual(sortedIds("followUp"), [creatineId, ashwagandhaId, zincId]);
-assert.deepEqual(sortedIds("updated"), [zincId, ashwagandhaId, creatineId]);
-assert.deepEqual(sortedIds("product", "descending"), [zincId, creatineId, ashwagandhaId]);
-assert.strictEqual(sortCatalogDatabaseProducts(products, null), products,
-  "no sort must preserve the original array and order");
+const urlState = catalogDatabaseStateFromParams(new URLSearchParams(
+  "view=database&q=creatine&status=retired&type=blend&review=needs-review&evidence=missing&sort=updated&direction=descending",
+));
+assert.deepEqual(urlState, {
+  filters: {
+    query: "creatine",
+    status: "retired",
+    productType: "blend",
+    review: "needs-review",
+    evidence: "missing",
+  },
+  sort: { key: "updated", direction: "descending" },
+});
+assert.equal(catalogDatabaseHasActiveFilters(urlState.filters), true);
+assert.equal(catalogDatabaseHasActiveFilters(defaultCatalogDatabaseFilters), false);
+const serialized = catalogDatabaseUrlParams(
+  new URLSearchParams("view=database&product=old"),
+  urlState.filters,
+  urlState.sort,
+);
+assert.equal(serialized.get("product"), null);
+assert.equal(serialized.get("q"), "creatine");
+assert.equal(serialized.get("status"), "retired");
+assert.equal(serialized.get("sort"), "updated");
+assert.equal(serialized.get("direction"), "descending");
+assert.deepEqual(
+  catalogDatabaseStateFromParams(new URLSearchParams("status=bad&type=bad&sort=bad&direction=descending")),
+  { filters: defaultCatalogDatabaseFilters, sort: null },
+  "unsupported URL state must fail closed to the default database view",
+);
 
 const databaseSource = readFileSync("app/admin/catalog/CatalogDatabase.tsx", "utf8");
 const workspaceSource = readFileSync("app/admin/catalog/CatalogWorkspace.tsx", "utf8");
 const pageSource = readFileSync("app/admin/catalog/page.tsx", "utf8");
+const evidenceSource = readFileSync("app/admin/catalog/CatalogEvidencePanel.tsx", "utf8");
 
-assert.match(databaseSource, /searchCatalogProducts\(\{ status: "all", cursor, limit: 50 \}\)/,
-  "the database view must include every lifecycle status through the paginated read contract");
+assert.match(databaseSource, /status: filters\.status/,
+  "the database view must pass its lifecycle filter to the paginated read contract");
+assert.match(databaseSource, /q: debouncedQuery \|\| undefined/,
+  "global search must be debounced before reaching the read API");
+assert.match(databaseSource, /sortBy: sort\?\.key/,
+  "sorting must be sent to the backend so it applies before pagination");
+assert.match(databaseSource, /router\.replace\(/,
+  "search, filters, and sorting must be retained in the URL");
 assert.match(databaseSource, /if \(willExpand && !details\[productId\]\) void loadDetail\(productId\)/,
   "complete product records must load only after their row expands");
 assert.match(databaseSource, /onToggle=\{onImagesToggle\}/);
@@ -127,5 +119,15 @@ assert.match(databaseSource, /aria-sort=\{activeDirection \?\? "none"\}/,
 for (const column of ["product", "brand", "type", "status", "identity", "barcodes", "ingredients", "evidence", "followUp", "updated"]) {
   assert.match(databaseSource, new RegExp(`column="${column}"`), `${column} must have a sortable header`);
 }
+for (const filterLabel of ["Search catalog", "Status", "Type", "Review", "Evidence"]) {
+  assert.match(databaseSource, new RegExp(filterLabel), `${filterLabel} must be exposed in the database toolbar`);
+}
+assert.match(databaseSource, /No products match the current search and filters\./);
+assert.match(evidenceSource, /onDragEnter=/);
+assert.match(evidenceSource, /onDragOver=/);
+assert.match(evidenceSource, /onDrop=/);
+assert.match(evidenceSource, /event\.dataTransfer\.files/,
+  "dropped image files must enter the same validated evidence-selection path as browsed files");
+assert.match(evidenceSource, /Drag and drop here, or click to browse/);
 
 console.log("Website admin catalog database view checks passed.");

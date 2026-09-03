@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type DragEvent } from "react";
 import {
   decodeBarcodeImage,
   getFrontLabelTemplate,
@@ -55,6 +55,7 @@ export default function CatalogEvidencePanel({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [draggingRole, setDraggingRole] = useState<CatalogImageRole | null>(null);
 
   function selectFiles(role: CatalogImageRole, selected: FileList | null) {
     if (!selected?.length) return;
@@ -64,6 +65,29 @@ export default function CatalogEvidencePanel({
     } catch (error) {
       setNotice(message(error));
     }
+  }
+
+  function dragFiles(event: DragEvent<HTMLLabelElement>, role: CatalogImageRole) {
+    event.preventDefault();
+    if (busy === null && event.dataTransfer.types.includes("Files")) {
+      event.dataTransfer.dropEffect = "copy";
+      setDraggingRole(role);
+    }
+  }
+
+  function leaveDropZone(event: DragEvent<HTMLLabelElement>, role: CatalogImageRole) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDraggingRole((current) => current === role ? null : current);
+  }
+
+  function dropFiles(event: DragEvent<HTMLLabelElement>, role: CatalogImageRole) {
+    event.preventDefault();
+    setDraggingRole(null);
+    if (busy !== null) {
+      setNotice("Wait for the current evidence action to finish before adding images.");
+      return;
+    }
+    selectFiles(role, event.dataTransfer.files);
   }
 
   async function uploadRole(role: CatalogImageRole) {
@@ -183,8 +207,15 @@ export default function CatalogEvidencePanel({
             <div key={role} className="rounded-[8px] border border-white/10 bg-[#080D12] p-3">
               <h3 className="font-semibold">{roleCopy[role].title}</h3>
               <p className="mt-1 min-h-10 text-xs leading-5 text-text-muted">{roleCopy[role].detail}</p>
-              <label className="mt-3 block cursor-pointer rounded border border-dashed border-white/20 px-3 py-3 text-center text-xs font-semibold text-text-secondary hover:border-accent/60 hover:text-accent">
-                Add image{role === "supplement_facts" ? "s (max 4)" : "s"}
+              <label
+                onDragEnter={(event) => dragFiles(event, role)}
+                onDragOver={(event) => dragFiles(event, role)}
+                onDragLeave={(event) => leaveDropZone(event, role)}
+                onDrop={(event) => dropFiles(event, role)}
+                className={`mt-3 block cursor-pointer rounded border border-dashed px-3 py-4 text-center text-xs font-semibold transition ${draggingRole === role ? "border-accent bg-accent/10 text-accent" : "border-white/20 text-text-secondary hover:border-accent/60 hover:text-accent"}`}
+              >
+                <span className="block">Add image{role === "supplement_facts" ? "s (max 4)" : "s"}</span>
+                <span className="mt-1 block font-normal text-text-muted">Drag and drop here, or click to browse</span>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"

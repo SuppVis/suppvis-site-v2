@@ -3,11 +3,12 @@
 /* eslint-disable @next/next/no-img-element -- private presigned origins are runtime-only */
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Fragment,
   useCallback,
   useEffect,
-  useMemo,
+  useRef,
   useState,
   type ReactNode,
   type SyntheticEvent,
@@ -19,10 +20,14 @@ import {
 } from "./catalog-api";
 import {
   canOpenCatalogWorkspace,
+  catalogDatabaseHasActiveFilters,
+  catalogDatabaseStateFromParams,
+  catalogDatabaseUrlParams,
   catalogEvidenceSummary,
   catalogPrimaryIdentity,
+  defaultCatalogDatabaseFilters,
   nextCatalogDatabaseSort,
-  sortCatalogDatabaseProducts,
+  type CatalogDatabaseFilters,
   type CatalogDatabaseSort,
   type CatalogDatabaseSortKey,
 } from "./catalog-database";
@@ -128,6 +133,22 @@ function SortableHeader({
         <span className="sr-only">Activate to sort {nextState}</span>
       </button>
     </th>
+  );
+}
+
+const databaseFilterClass = "mt-1 w-full rounded border border-white/15 bg-[#080D12] px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent";
+
+function ActiveFilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRemove}
+      className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/5 px-3 py-1.5 text-xs font-semibold text-accent hover:border-accent/60"
+      aria-label={`Remove filter: ${label}`}
+    >
+      <span>{label}</span>
+      <span aria-hidden="true">×</span>
+    </button>
   );
 }
 
@@ -378,37 +399,75 @@ function CatalogDatabaseDetails({ product }: { product: CatalogProductDetailDto 
 }
 
 export default function CatalogDatabase() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [{ filters: initialFilters, sort: initialSort }] = useState(() => (
+    catalogDatabaseStateFromParams(new URLSearchParams(searchParams.toString()))
+  ));
   const [products, setProducts] = useState<CatalogProductBrowserSummaryDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [details, setDetails] = useState<Record<string, DetailLoadState>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sort, setSort] = useState<CatalogDatabaseSort>(null);
+  const [filters, setFilters] = useState<CatalogDatabaseFilters>(initialFilters);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialFilters.query);
+  const [sort, setSort] = useState<CatalogDatabaseSort>(initialSort);
+  const requestSerial = useRef(0);
 
-  const displayedProducts = useMemo(
-    () => sortCatalogDatabaseProducts(products, sort),
-    [products, sort],
-  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(filters.query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [filters.query]);
+
+  useEffect(() => {
+    const nextFilters = { ...filters, query: debouncedQuery };
+    const nextParams = catalogDatabaseUrlParams(
+      new URLSearchParams(searchParams.toString()),
+      nextFilters,
+      sort,
+    );
+    if (nextParams.toString() !== searchParams.toString()) {
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+    }
+  }, [debouncedQuery, filters, pathname, router, searchParams, sort]);
 
   const loadProducts = useCallback(async (cursor?: string, append = false) => {
+    const serial = ++requestSerial.current;
     setLoading(true);
     setError(null);
     try {
-      const response = await searchCatalogProducts({ status: "all", cursor, limit: 50 });
+      const response = await searchCatalogProducts({
+        q: debouncedQuery || undefined,
+        status: filters.status,
+        productType: filters.productType === "all" ? undefined : filters.productType,
+        needsFollowUp: filters.review === "all" ? undefined : filters.review === "needs-review",
+        evidence: filters.evidence === "all" ? undefined : filters.evidence,
+        sortBy: sort?.key,
+        sortDirection: sort?.direction,
+        cursor,
+        limit: 50,
+      });
+      if (serial !== requestSerial.current) return;
       setProducts((current) => {
         const combined = append ? [...current, ...response.results] : response.results;
         return [...new Map(combined.map((product) => [product.id, product])).values()];
       });
       setNextCursor(response.nextCursor);
     } catch (caught) {
+      if (serial !== requestSerial.current) return;
       setError(caught instanceof Error ? caught.message : "The catalog database could not be loaded.");
     } finally {
-      setLoading(false);
+      if (serial === requestSerial.current) setLoading(false);
     }
-  }, []);
+  }, [debouncedQuery, filters.evidence, filters.productType, filters.review, filters.status, sort]);
 
-  useEffect(() => { void loadProducts(); }, [loadProducts]);
+  useEffect(() => {
+    setExpanded(new Set());
+    setDetails({});
+    void loadProducts();
+  }, [loadProducts]);
 
   async function loadDetail(productId: string) {
     setDetails((current) => ({ ...current, [productId]: { state: "loading" } }));
@@ -441,12 +500,95 @@ export default function CatalogDatabase() {
     setSort((current) => nextCatalogDatabaseSort(current, column));
   }
 
+  function updateFilters(patch: Partial<CatalogDatabaseFilters>) {
+    setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  function clearQuery() {
+    updateFilters({ query: "" });
+    setDebouncedQuery("");
+  }
+
+  function clearFilters() {
+    setFilters({ ...defaultCatalogDatabaseFilters });
+    setDebouncedQuery("");
+  }
+
+  const hasActiveFilters = catalogDatabaseHasActiveFilters(filters);
+
   return (
     <section className="rounded-[8px] border border-white/10 bg-[#0D1117] shadow-2xl shadow-black/20">
       <div className="border-b border-white/10 p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">Ground truth</p>
         <h2 className="mt-1 font-headline text-2xl font-bold">Catalog database</h2>
         <p className="mt-2 text-sm text-text-secondary">Every lifecycle status is shown. Expand a product to inspect its complete read-only catalog record.</p>
+      </div>
+
+      <div className="border-b border-white/10 p-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(280px,2fr)_repeat(4,minmax(150px,1fr))_auto] xl:items-end">
+          <label className="text-xs font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Search catalog
+            <input
+              type="search"
+              value={filters.query}
+              maxLength={160}
+              onChange={(event) => updateFilters({ query: event.target.value })}
+              className={databaseFilterClass}
+              placeholder="Product, brand, identity, or barcode"
+            />
+          </label>
+          <label className="text-xs font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Status
+            <select value={filters.status} onChange={(event) => updateFilters({ status: event.target.value as CatalogDatabaseFilters["status"] })} className={databaseFilterClass}>
+              <option value="all">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+              <option value="retired">Retired</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Type
+            <select value={filters.productType} onChange={(event) => updateFilters({ productType: event.target.value as CatalogDatabaseFilters["productType"] })} className={databaseFilterClass}>
+              <option value="all">All types</option>
+              <option value="supplement">Supplement</option>
+              <option value="blend">Blend</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Review
+            <select value={filters.review} onChange={(event) => updateFilters({ review: event.target.value as CatalogDatabaseFilters["review"] })} className={databaseFilterClass}>
+              <option value="all">All review states</option>
+              <option value="needs-review">Needs review</option>
+              <option value="clear">Clear</option>
+            </select>
+          </label>
+          <label className="text-xs font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Evidence
+            <select value={filters.evidence} onChange={(event) => updateFilters({ evidence: event.target.value as CatalogDatabaseFilters["evidence"] })} className={databaseFilterClass}>
+              <option value="all">All evidence</option>
+              <option value="present">Has evidence</option>
+              <option value="missing">Missing evidence</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={!hasActiveFilters}
+            onClick={clearFilters}
+            className="rounded-full border border-white/15 px-4 py-2.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Clear filters
+          </button>
+        </div>
+        {hasActiveFilters ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="Active catalog filters">
+            <span className="text-xs text-text-muted">Active:</span>
+            {filters.query.trim() ? <ActiveFilterChip label={`Search: ${filters.query.trim()}`} onRemove={clearQuery} /> : null}
+            {filters.status !== "all" ? <ActiveFilterChip label={`Status: ${titleCase(filters.status)}`} onRemove={() => updateFilters({ status: "all" })} /> : null}
+            {filters.productType !== "all" ? <ActiveFilterChip label={`Type: ${titleCase(filters.productType)}`} onRemove={() => updateFilters({ productType: "all" })} /> : null}
+            {filters.review !== "all" ? <ActiveFilterChip label={filters.review === "needs-review" ? "Needs review" : "Review clear"} onRemove={() => updateFilters({ review: "all" })} /> : null}
+            {filters.evidence !== "all" ? <ActiveFilterChip label={filters.evidence === "present" ? "Has evidence" : "Missing evidence"} onRemove={() => updateFilters({ evidence: "all" })} /> : null}
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -473,7 +615,7 @@ export default function CatalogDatabase() {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
-            {displayedProducts.map((product) => {
+            {products.map((product) => {
               const isExpanded = expanded.has(product.id);
               const detail = details[product.id];
               return (
@@ -521,7 +663,11 @@ export default function CatalogDatabase() {
         </table>
       </div>
 
-      {!loading && products.length === 0 && !error ? <p className="p-8 text-center text-sm text-text-muted">The catalog is empty.</p> : null}
+      {!loading && products.length === 0 && !error ? (
+        <p className="p-8 text-center text-sm text-text-muted">
+          {hasActiveFilters ? "No products match the current search and filters." : "The catalog is empty."}
+        </p>
+      ) : null}
       <div className="flex items-center justify-between gap-3 border-t border-white/10 p-4">
         <p className="text-xs text-text-muted">{products.length} product{products.length === 1 ? "" : "s"} loaded</p>
         {nextCursor ? (

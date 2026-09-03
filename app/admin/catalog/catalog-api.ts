@@ -78,6 +78,9 @@ export function searchCatalogProducts(input: {
   brandName?: string;
   needsFollowUp?: boolean;
   followUpReason?: string;
+  evidence?: "present" | "missing";
+  sortBy?: "product" | "brand" | "type" | "status" | "identity" | "barcodes" | "ingredients" | "evidence" | "followUp" | "updated";
+  sortDirection?: "ascending" | "descending";
   productType?: string;
   cursor?: string;
   limit?: number;
