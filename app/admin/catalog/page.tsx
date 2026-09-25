@@ -10,6 +10,7 @@ import {
 } from "@/app/lib/server/admin-access";
 import CatalogWorkspace from "./CatalogWorkspace";
 import CatalogDatabase from "./CatalogDatabase";
+import CatalogGroup1Review from "./CatalogGroup1Review";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,7 +52,8 @@ export default async function CatalogAdminPage({ searchParams }: CatalogAdminPag
     await signOut({ redirectTo: "/admin" });
   }
 
-  const view = searchParams?.view === "database" ? "database" : "workspace";
+  const view = searchParams?.view === "database" ? "database"
+    : searchParams?.view === "group1-review" ? "group1-review" : "workspace";
   const requestedProduct = typeof searchParams?.product === "string" ? searchParams.product : undefined;
   const productId = requestedProduct && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedProduct)
     ? requestedProduct
@@ -95,9 +97,16 @@ export default async function CatalogAdminPage({ searchParams }: CatalogAdminPag
           >
             Catalog database
           </Link>
+          <Link
+            href="/admin/catalog?view=group1-review"
+            aria-current={view === "group1-review" ? "page" : undefined}
+            className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${view === "group1-review" ? "border-accent text-accent" : "border-transparent text-text-secondary hover:text-text-primary"}`}
+          >
+            Nutrition review
+          </Link>
         </nav>
-        {view === "database"
-          ? <CatalogDatabase />
+        {view === "database" ? <CatalogDatabase />
+          : view === "group1-review" ? <CatalogGroup1Review />
           : <CatalogWorkspace key={productId ?? "new"} initialProductId={productId} />}
       </div>
     </main>

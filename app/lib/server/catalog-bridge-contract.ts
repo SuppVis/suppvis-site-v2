@@ -11,6 +11,8 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/canonical-supplements$/,
     /^\/api\/admin\/catalog\/products\/search$/,
     /^\/api\/admin\/catalog\/products\/[0-9a-f-]+$/i,
+    /^\/api\/admin\/catalog\/group1-review$/,
+    /^\/api\/admin\/catalog\/group1-review\/tasks\/[0-9a-f-]+$/i,
   ],
   POST: [
     /^\/api\/admin\/catalog\/products$/,
@@ -19,6 +21,7 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/images\/uploads$/,
     /^\/api\/admin\/catalog\/images\/[0-9a-f-]+\/access$/i,
     /^\/api\/admin\/catalog\/templates\/(front-label|barcode|ocr|public)$/,
+    /^\/api\/admin\/catalog\/group1-review\/tasks\/[0-9a-f-]+\/decisions$/i,
   ],
   PATCH: [
     /^\/api\/admin\/catalog\/products\/[0-9a-f-]+$/i,
