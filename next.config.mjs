@@ -21,7 +21,9 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  "script-src 'self' 'unsafe-inline'",
+  // OCR compiles WebAssembly, but does not need JavaScript unsafe-eval or a CDN.
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   `img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://cdn.shopify.com https://m.media-amazon.com ${privateCatalogOrigins.join(" ")}`.trim(),
