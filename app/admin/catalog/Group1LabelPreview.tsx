@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, type LabelHighlight } from "./group1-label-highlight";
 import { abortable, cachedLabelOcr, createLabelOcrSession } from "./group1-label-ocr";
+import { labelPdfBytes } from "./group1-label-pdf";
 
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
 
-export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: {
+export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, prefetchOnly = false, onScanSettled }: {
   labelId: number; sourceName: string; suggestedFieldName: string;
+  prefetchOnly?: boolean; onScanSettled?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,6 +22,8 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
   const [highlightedPage, setHighlightedPage] = useState<{ page: number; boxes: LabelHighlight[] } | null>(null);
   const firstHighlightRef = useRef<HTMLSpanElement>(null);
   const manuallyChangedPage = useRef(false);
+  const onScanSettledRef = useRef(onScanSettled);
+  onScanSettledRef.current = onScanSettled;
 
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +35,10 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
     setLoading(true);
     void import("pdfjs-dist").then(async (pdfjs) => {
       pdfjs.GlobalWorkerOptions.workerSrc = "/ocr/pdfjs-6/pdf.worker.min.mjs";
-      loadingTask = pdfjs.getDocument({ url: `/api/admin/group1-label/${labelId}` });
+      const bytes = await labelPdfBytes(labelId);
+      if (cancelled) return;
+      // pdf.js transfers the supplied buffer to its worker. Preserve the cached copy.
+      loadingTask = pdfjs.getDocument({ data: bytes.slice() });
       const loaded = await loadingTask.promise;
       if (cancelled) return;
       setDocument(loaded);
@@ -41,6 +48,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
         setError(true);
         setLoading(false);
         setHint("Automatic highlighting is unavailable because the label could not be loaded.");
+        onScanSettledRef.current?.();
       }
     });
     return () => {
@@ -118,7 +126,11 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
         setHint(timedOut ? "Automatic text search timed out. Please inspect the label manually."
           : "Automatic highlighting is unavailable for this label. You can still review the image.");
       }
-    }).finally(() => { window.clearTimeout(timeout); session.dispose(); });
+    }).finally(() => {
+      window.clearTimeout(timeout);
+      session.dispose();
+      if (!signal.aborted) onScanSettledRef.current?.();
+    });
     return () => {
       window.clearTimeout(timeout);
       controller.abort();
@@ -128,7 +140,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
   }, [document, labelId, sourceName, suggestedFieldName]);
 
   useEffect(() => {
-    if (!document) return;
+    if (!document || prefetchOnly) return;
     let cancelled = false;
     let renderTask: ReturnType<import("pdfjs-dist").PDFPageProxy["render"]> | null = null;
     setLoading(true);
@@ -165,7 +177,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [document, pageNumber]);
+  }, [document, pageNumber, prefetchOnly]);
 
   useEffect(() => {
     if (loading || highlightedPage?.page !== pageNumber) return;
@@ -176,6 +188,8 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
 
   const visibleBox = highlightedPage?.page === pageNumber ? highlightedPage.boxes[0] : undefined;
   const spotlight = visibleBox ? spotlightForLabelHighlight(visibleBox) : null;
+
+  if (prefetchOnly) return null;
 
   return (
     <div className="rounded border border-white/15 bg-white text-slate-800">

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Group1LabelPreview } from "./Group1LabelPreview";
+import { labelPdfBytes } from "./group1-label-pdf";
+import { nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
 import {
   getReviewList,
   getReviewTask,
@@ -23,7 +25,6 @@ const decisions: Array<{ value: ReviewOutcome; title: string; explanation: strin
   { value: "escalated", title: "Escalate", explanation: "Leave unresolved for a different admin to decide." },
 ];
 
-type ReviewGroup = { key: string; field: ReviewField; name: string; tasks: ReviewTask[]; pending: number };
 type EditableQuantity = { amount: string; unit: string; dailyValuePercents: string[] };
 
 function numberOrNull(value: string): number | null {
@@ -64,10 +65,14 @@ export default function CatalogGroup1Review() {
   const [fields, setFields] = useState<ReviewField[]>([]);
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [batchKey, setBatchKey] = useState("");
-  const [selectedGroup, setSelectedGroup] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [range, setRange] = useState({ first: 0, last: -1 });
+  const [rangeStartInput, setRangeStartInput] = useState("1");
+  const [rangeEndInput, setRangeEndInput] = useState("345");
   const [detail, setDetail] = useState<ReviewTaskDetail | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"open" | "all">("open");
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(() => new Set());
+  const [scanReadyFor, setScanReadyFor] = useState("");
+  const [preloadStep, setPreloadStep] = useState(0);
   const [outcome, setOutcome] = useState<ReviewOutcome | "">("");
   const [fieldKey, setFieldKey] = useState("");
   const [reviewerNote, setReviewerNote] = useState("");
@@ -75,33 +80,26 @@ export default function CatalogGroup1Review() {
   const [editedQuantities, setEditedQuantities] = useState<EditableQuantity[]>([]);
   const [correctionReason, setCorrectionReason] = useState("");
   const [loading, setLoading] = useState(true);
+  const [rangeLoading, setRangeLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const groups = useMemo(() => {
-    const byKey = new Map<string, ReviewGroup>();
-    const byField = new Map(fields.map((field) => [field.fieldKey, field]));
-    for (const task of tasks) {
-      const field = byField.get(task.suggestedFieldKey);
-      if (!field) continue;
-      const key = `${field.fieldKey}\0${task.printedName}`;
-      let group = byKey.get(key);
-      if (!group) {
-        group = { key, field, name: task.printedName, tasks: [], pending: 0 };
-        byKey.set(key, group);
-      }
-      group.tasks.push(task);
-      if (task.status === "pending" || task.status === "escalated") group.pending++;
-    }
-    return [...byKey.values()].sort((a, b) =>
-      a.field.sortOrder - b.field.sortOrder || a.name.localeCompare(b.name)
-    );
-  }, [fields, tasks]);
-  const activeGroup = groups.find((group) => group.key === selectedGroup) ?? groups[0];
-  const visibleGroups = statusFilter === "open" ? groups.filter((group) => group.pending > 0) : groups;
-  const openCount = tasks.filter((task) => task.status === "pending" || task.status === "escalated").length;
+  const pendingCount = tasks.filter((task) => task.status === "pending").length;
+  const rangePendingCount = tasks.slice(range.first, range.last + 1).filter((task) => task.status === "pending").length;
+  const escalatedCount = tasks.filter((task) => task.status === "escalated").length;
+  const skippedCount = tasks.slice(range.first, range.last + 1).filter((task) => task.status === "pending" && skippedIds.has(task.id)).length;
+  const currentPosition = tasks.findIndex((task) => task.id === selectedTaskId) + 1;
+  const upcoming = useMemo(() => upcomingPendingTasks(tasks, selectedTaskId, skippedIds, range.first, range.last),
+    [tasks, selectedTaskId, skippedIds, range]);
+  const prefetchTask = detail?.id === selectedTaskId && scanReadyFor === selectedTaskId
+    ? upcoming[preloadStep] : undefined;
   const sourceQuantities = Array.isArray(detail?.sourceRow.quantity) ? detail.sourceRow.quantity : [];
+
+  useEffect(() => {
+    // Download the next two labels immediately; OCR them sequentially after the visible scan settles.
+    for (const task of upcoming) void labelPdfBytes(task.dsldLabelId).catch(() => {});
+  }, [upcoming]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +108,22 @@ export default function CatalogGroup1Review() {
       setFields(result.fields);
       setTasks(result.tasks);
       setBatchKey(result.batchKey);
-      const first = result.tasks.find((task) => task.status === "pending") ?? result.tasks[0];
+      const stored = window.localStorage.getItem(`group1-review-range:${result.batchKey}`);
+      let selectedRange = { first: 0, last: result.tasks.length - 1 };
+      if (stored) {
+        try {
+          const value = JSON.parse(stored) as { first: number; last: number };
+          if (Number.isSafeInteger(value.first) && Number.isSafeInteger(value.last)
+            && value.first >= 0 && value.first <= value.last && value.last < result.tasks.length) {
+            selectedRange = value;
+          }
+        } catch { /* Old or malformed local preference: use the full queue. */ }
+      }
+      setRange(selectedRange);
+      setRangeStartInput(String(selectedRange.first + 1));
+      setRangeEndInput(String(selectedRange.last + 1));
+      const first = nextPendingTask(result.tasks, "", new Set(), selectedRange.first, selectedRange.last);
       setSelectedTaskId(first?.id ?? "");
-      setSelectedGroup(first ? `${first.suggestedFieldKey}\0${first.printedName}` : "");
     }).catch((reason) => {
       if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load reviews.");
     }).finally(() => { if (!cancelled) setLoading(false); });
@@ -120,6 +131,8 @@ export default function CatalogGroup1Review() {
   }, []);
 
   useEffect(() => {
+    setScanReadyFor("");
+    setPreloadStep(0);
     if (!selectedTaskId) { setDetail(null); return; }
     let cancelled = false;
     setDetail(null);
@@ -155,13 +168,6 @@ export default function CatalogGroup1Review() {
     setCorrectionReason(last?.correctionReason ?? "");
   }, [detail]);
 
-  function chooseGroup(group: ReviewGroup) {
-    setSelectedGroup(group.key);
-    const next = group.tasks.find((task) => task.status === "pending" || task.status === "escalated") ?? group.tasks[0];
-    setSelectedTaskId(next.id);
-    setNotice("");
-  }
-
   function editQuantity(index: number, update: Partial<EditableQuantity>) {
     setEditedQuantities((current) => current.map((item, itemIndex) =>
       itemIndex === index ? { ...item, ...update } : item));
@@ -177,13 +183,47 @@ export default function CatalogGroup1Review() {
   }
 
   function skip() {
-    const next = activeGroup?.tasks.find((task) => task.id !== selectedTaskId && task.status === "pending")
-      ?? tasks.find((task) => task.id !== selectedTaskId && task.status === "pending");
-    if (next) {
-      setSelectedGroup(`${next.suggestedFieldKey}\0${next.printedName}`);
-      setSelectedTaskId(next.id);
-      setNotice("");
-    } else setNotice("No other pending occurrence is available. This one remains unchanged.");
+    if (!selectedTaskId || saving) return;
+    const skipped = new Set(skippedIds);
+    skipped.add(selectedTaskId);
+    setSkippedIds(skipped);
+    setSelectedTaskId(nextPendingTask(tasks, selectedTaskId, skipped, range.first, range.last)?.id ?? "");
+    setNotice("Skipped for this pass. The occurrence remains pending.");
+  }
+
+  function revisitSkipped() {
+    setSkippedIds(new Set());
+    setSelectedTaskId(nextPendingTask(tasks, "", new Set(), range.first, range.last)?.id ?? "");
+    setNotice("Returning to pending occurrences.");
+  }
+
+  async function applyRange() {
+    const first = Number(rangeStartInput);
+    const last = Number(rangeEndInput);
+    if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)
+      || first < 1 || last > tasks.length || first > last) {
+      setError(`Choose a range from 1 to ${tasks.length}, with the start before the end.`);
+      return;
+    }
+    setRangeLoading(true);
+    setError("");
+    try {
+      const refreshed = await getReviewList();
+      if (refreshed.batchKey !== batchKey || refreshed.tasks.length !== tasks.length) {
+        throw new Error("The review batch changed. Reload the page before choosing a range.");
+      }
+      const selectedRange = { first: first - 1, last: last - 1 };
+      setTasks(refreshed.tasks);
+      setNotice(`Showing assigned occurrences ${first}–${last}.`);
+      setRange(selectedRange);
+      window.localStorage.setItem(`group1-review-range:${batchKey}`, JSON.stringify(selectedRange));
+      setSkippedIds(new Set());
+      setSelectedTaskId(nextPendingTask(refreshed.tasks, "", new Set(), selectedRange.first, selectedRange.last)?.id ?? "");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to refresh the review queue.");
+    } finally {
+      setRangeLoading(false);
+    }
   }
 
   async function save() {
@@ -206,9 +246,10 @@ export default function CatalogGroup1Review() {
         correctionReason: correction ? correctionReason.trim() : null,
         reviewerNote: reviewerNote.trim() || null,
       });
-      setDetail(updated);
-      setTasks((current) => current.map((task) => task.id === updated.id ? updated : task));
-      setNotice("Decision saved for this label occurrence.");
+      const nextTasks = tasks.map((task) => task.id === updated.id ? updated : task);
+      setTasks(nextTasks);
+      setSelectedTaskId(nextPendingTask(nextTasks, updated.id, skippedIds, range.first, range.last)?.id ?? "");
+      setNotice("Decision saved. Moved to the next occurrence.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save this decision.");
     } finally {
@@ -225,44 +266,33 @@ export default function CatalogGroup1Review() {
         <p className="mt-2 text-sm text-text-secondary">
           Review one DSLD label occurrence at a time. These decisions do not approve a name globally or write catalog nutrition facts yet.
         </p>
-        <p className="mt-2 text-xs text-text-muted">{openCount} open of {tasks.length} occurrences · {groups.length} extracted names · batch {batchKey}</p>
+        <p className="mt-2 text-xs text-text-muted">{pendingCount} pending of {tasks.length} occurrences · {escalatedCount} escalated · batch {batchKey}</p>
+        <div className="mt-4 flex flex-wrap items-end gap-3 rounded border border-white/10 bg-[#080D12] p-3">
+          <label className="text-xs font-semibold">Start at occurrence
+            <input type="number" min="1" max={tasks.length} value={rangeStartInput} onChange={(event) => setRangeStartInput(event.target.value)}
+              className={`${inputClass} mt-1 w-28`} />
+          </label>
+          <label className="text-xs font-semibold">End at occurrence
+            <input type="number" min="1" max={tasks.length} value={rangeEndInput} onChange={(event) => setRangeEndInput(event.target.value)}
+              className={`${inputClass} mt-1 w-28`} />
+          </label>
+          <button type="button" onClick={applyRange} disabled={rangeLoading || saving}
+            className="rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent disabled:opacity-40">
+            {rangeLoading ? "Refreshing…" : "Start / refresh range"}
+          </button>
+          <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your range is saved only in this browser and stops at the end number; this button refreshes completed tasks. An overlapping decision is blocked at save.</p>
+        </div>
       </div>
       {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
       {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
-      <div className="grid gap-4 xl:grid-cols-[20rem_20rem_minmax(0,1fr)]">
-        <aside className="max-h-[75vh] overflow-y-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="font-semibold">Suggested fields & extracted names</h3>
-            <select aria-label="Review group filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "open" | "all")}
-              className="rounded border border-white/15 bg-[#080D12] px-2 py-1 text-xs">
-              <option value="open">Open</option><option value="all">All</option>
-            </select>
-          </div>
-          {fields.map((field) => {
-            const fieldGroups = visibleGroups.filter((group) => group.field.fieldKey === field.fieldKey);
-            if (!fieldGroups.length) return null;
-            return <div key={field.fieldKey} className="mb-4">
-              <p className="mb-1 border-b border-white/10 pb-1 text-xs font-bold uppercase tracking-wide text-accent">{field.displayName}</p>
-              {fieldGroups.map((group) => <button key={group.key} type="button" onClick={() => chooseGroup(group)}
-                aria-current={activeGroup?.key === group.key ? "true" : undefined}
-                className={`mb-1 flex w-full justify-between gap-2 rounded px-2 py-2 text-left text-sm ${activeGroup?.key === group.key ? "bg-accent/15 text-accent" : "hover:bg-white/5"}`}>
-                <span className="break-words">{group.name}</span><span className="shrink-0 text-xs text-text-muted">{group.pending}/{group.tasks.length}</span>
-              </button>)}
-            </div>;
-          })}
-        </aside>
-        <aside className="max-h-[75vh] overflow-y-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
-          <p className="mb-1 text-xs uppercase tracking-wide text-text-muted">Name extracted by DSLD</p>
-          <h3 className="mb-3 font-semibold">{activeGroup ? `“${activeGroup.name}”` : "Occurrences"}</h3>
-          {activeGroup?.tasks.map((task) => <button key={task.id} type="button" onClick={() => { setSelectedTaskId(task.id); setNotice(""); }}
-            className={`mb-2 w-full rounded border p-3 text-left text-sm ${selectedTaskId === task.id ? "border-accent bg-accent/5" : "border-white/10 hover:border-white/25"}`}>
-            <span className="block font-semibold">{task.labelName || `DSLD ${task.dsldLabelId}`}</span>
-            <span className="mt-1 block text-xs text-text-muted">{task.brandName} · DSLD {task.dsldLabelId}</span>
-            <span className="mt-1 block text-xs capitalize text-text-secondary">{statusLabel(task.status)}</span>
-          </button>)}
-        </aside>
-        <div className="min-w-0 rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
-          {!detail ? <p className="text-sm text-text-muted">Select an occurrence to review its label.</p> : <div className="space-y-5">
+      <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
+        {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">Occurrence {currentPosition} of {tasks.length} · assigned range {range.first + 1}–{range.last + 1} · {skippedCount} skipped this pass</p> : null}
+          {!detail || detail.id !== selectedTaskId ? <div className="space-y-3 text-sm text-text-secondary">
+            <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No pending occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
+            {rangePendingCount > 0 && skippedCount > 0 ? <button type="button" onClick={revisitSkipped}
+              className="rounded-full border border-accent px-5 py-2 font-semibold text-accent">Revisit skipped occurrences ({skippedCount})</button> : null}
+            {escalatedCount ? <p>{escalatedCount} escalated occurrence{escalatedCount === 1 ? "" : "s"} still need a different admin’s decision.</p> : null}
+          </div> : <div className="space-y-5">
             <div>
               <h3 className="font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
               <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}</p>
@@ -287,8 +317,9 @@ export default function CatalogGroup1Review() {
                 <h4 className="font-semibold">Original label</h4>
                 <a href={detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a>
               </div>
-              <Group1LabelPreview key={detail.dsldLabelId} labelId={detail.dsldLabelId}
-                sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName} />
+              <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
+                sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName}
+                onScanSettled={() => setScanReadyFor(detail.id)} />
             </div>
             <div className="rounded border border-white/10 bg-[#080D12] p-3 text-sm">
               <h4 className="font-semibold">DSLD source values</h4>
@@ -342,7 +373,7 @@ export default function CatalogGroup1Review() {
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={save} disabled={!outcome || saving}
                 className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">{saving ? "Saving…" : "Save decision"}</button>
-              <button type="button" onClick={skip} className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold">Skip for now</button>
+              <button type="button" onClick={skip} disabled={saving} className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button>
             </div>
             {detail.decisions.length ? <div className="border-t border-white/10 pt-4">
               <h4 className="mb-2 font-semibold">Decision history</h4>
@@ -352,7 +383,9 @@ export default function CatalogGroup1Review() {
               </p>)}
             </div> : null}
           </div>}
-        </div>
+        {prefetchTask ? <Group1LabelPreview key={`preload-${prefetchTask.id}`} prefetchOnly
+          labelId={prefetchTask.dsldLabelId} sourceName={prefetchTask.printedName}
+          suggestedFieldName={prefetchTask.suggestedFieldName} onScanSettled={() => setPreloadStep((current) => current + 1)} /> : null}
       </div>
     </section>
   );
