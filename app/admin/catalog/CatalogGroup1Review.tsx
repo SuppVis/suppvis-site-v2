@@ -184,6 +184,11 @@ export default function CatalogGroup1Review() {
 
   function skip() {
     if (!selectedTaskId || saving) return;
+    if (detail?.status === "escalated") {
+      setSelectedTaskId(nextPendingTask(tasks, "", skippedIds, range.first, range.last)?.id ?? "");
+      setNotice("Escalation left unresolved. Returned to your pending range.");
+      return;
+    }
     const skipped = new Set(skippedIds);
     skipped.add(selectedTaskId);
     setSkippedIds(skipped);
@@ -248,7 +253,8 @@ export default function CatalogGroup1Review() {
       });
       const nextTasks = tasks.map((task) => task.id === updated.id ? updated : task);
       setTasks(nextTasks);
-      setSelectedTaskId(nextPendingTask(nextTasks, updated.id, skippedIds, range.first, range.last)?.id ?? "");
+      setSelectedTaskId(nextPendingTask(nextTasks, detail.status === "escalated" ? "" : updated.id,
+        skippedIds, range.first, range.last)?.id ?? "");
       setNotice("Decision saved. Moved to the next occurrence.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save this decision.");
@@ -282,11 +288,25 @@ export default function CatalogGroup1Review() {
           </button>
           <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your range is saved only in this browser and stops at the end number; this button refreshes completed tasks. An overlapping decision is blocked at save.</p>
         </div>
+        {escalatedCount ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
+          <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalatedCount})</summary>
+          <p className="mt-2 text-xs text-text-secondary">These remain outside the automatic pending queue. An admin other than the one who escalated each row can open it here.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {tasks.filter((task) => task.status === "escalated").map((task) => <button key={task.id} type="button"
+              onClick={() => { setSelectedTaskId(task.id); setNotice(""); }}
+              className="rounded border border-white/15 px-3 py-2 text-left text-xs hover:border-accent">
+              #{tasks.indexOf(task) + 1} · {task.suggestedFieldName} · {task.printedName}
+            </button>)}
+          </div>
+        </details> : null}
       </div>
       {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
       {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
-        {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">Occurrence {currentPosition} of {tasks.length} · assigned range {range.first + 1}–{range.last + 1} · {skippedCount} skipped this pass</p> : null}
+        {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
+          {detail?.status === "escalated" ? "Escalation" : "Occurrence"} {currentPosition} of {tasks.length}
+          {detail?.status !== "escalated" ? ` · assigned range ${range.first + 1}–${range.last + 1} · ${skippedCount} skipped this pass` : " · a different admin must resolve this"}
+        </p> : null}
           {!detail || detail.id !== selectedTaskId ? <div className="space-y-3 text-sm text-text-secondary">
             <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No pending occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
             {rangePendingCount > 0 && skippedCount > 0 ? <button type="button" onClick={revisitSkipped}
