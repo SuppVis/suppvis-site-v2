@@ -225,14 +225,14 @@ export default function CatalogGroup1Review() {
         <p className="mt-2 text-sm text-text-secondary">
           Review one DSLD label occurrence at a time. These decisions do not approve a name globally or write catalog nutrition facts yet.
         </p>
-        <p className="mt-2 text-xs text-text-muted">{openCount} open of {tasks.length} occurrences · {groups.length} printed names · batch {batchKey}</p>
+        <p className="mt-2 text-xs text-text-muted">{openCount} open of {tasks.length} occurrences · {groups.length} extracted names · batch {batchKey}</p>
       </div>
       {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
       {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
       <div className="grid gap-4 xl:grid-cols-[20rem_20rem_minmax(0,1fr)]">
         <aside className="max-h-[75vh] overflow-y-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="font-semibold">Fields and names</h3>
+            <h3 className="font-semibold">Suggested fields & extracted names</h3>
             <select aria-label="Review group filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "open" | "all")}
               className="rounded border border-white/15 bg-[#080D12] px-2 py-1 text-xs">
               <option value="open">Open</option><option value="all">All</option>
@@ -252,7 +252,8 @@ export default function CatalogGroup1Review() {
           })}
         </aside>
         <aside className="max-h-[75vh] overflow-y-auto rounded-[8px] border border-white/10 bg-[#0D1117] p-3">
-          <h3 className="mb-3 font-semibold">{activeGroup?.name ?? "Occurrences"}</h3>
+          <p className="mb-1 text-xs uppercase tracking-wide text-text-muted">Name extracted by DSLD</p>
+          <h3 className="mb-3 font-semibold">{activeGroup ? `“${activeGroup.name}”` : "Occurrences"}</h3>
           {activeGroup?.tasks.map((task) => <button key={task.id} type="button" onClick={() => { setSelectedTaskId(task.id); setNotice(""); }}
             className={`mb-2 w-full rounded border p-3 text-left text-sm ${selectedTaskId === task.id ? "border-accent bg-accent/5" : "border-white/10 hover:border-white/25"}`}>
             <span className="block font-semibold">{task.labelName || `DSLD ${task.dsldLabelId}`}</span>
@@ -264,8 +265,21 @@ export default function CatalogGroup1Review() {
           {!detail ? <p className="text-sm text-text-muted">Select an occurrence to review its label.</p> : <div className="space-y-5">
             <div>
               <h3 className="font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
-              <p className="text-sm text-text-secondary">{detail.brandName} · Printed row: <span className="font-semibold text-text-primary">{detail.printedName}</span></p>
-              <p className="mt-1 text-xs text-text-muted">Suggested: {detail.suggestedFieldName} · {detail.sourceJsonPath} · revision {detail.revision}</p>
+              <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}</p>
+              <div className="mt-4 grid items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
+                <div className="rounded border border-amber-400/35 bg-amber-400/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Name extracted by DSLD</p>
+                  <p className="mt-2 break-words text-xl font-bold text-text-primary">“{detail.printedName}”</p>
+                  <p className="mt-2 text-xs text-text-secondary">Source wording to check against the label image.</p>
+                </div>
+                <span aria-hidden="true" className="self-center text-center text-xl text-text-muted">→</span>
+                <div className="rounded border border-accent/40 bg-accent/5 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-accent">Our suggested field</p>
+                  <p className="mt-2 break-words text-xl font-bold text-text-primary">{detail.suggestedFieldName}</p>
+                  <p className="mt-2 text-xs text-text-secondary">Canonical nutrition field proposed for this row.</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-text-muted">DSLD wording may differ from the printed image. Source: {detail.sourceJsonPath} · revision {detail.revision}</p>
               {detail.sourceAncestorNames.length ? <p className="mt-1 text-xs text-text-muted">Source parents: {detail.sourceAncestorNames.join(" → ")}</p> : null}
             </div>
             <div>

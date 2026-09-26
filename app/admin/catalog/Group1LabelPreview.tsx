@@ -60,8 +60,8 @@ export function Group1LabelPreview({ labelId }: { labelId: number }) {
       const outputScale = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.floor(viewport.width * outputScale);
       canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = `${Math.floor(viewport.width)}px`;
-      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      canvas.style.width = "100%";
+      canvas.style.height = "auto";
       renderTask = page.render({
         canvas,
         canvasContext: context,
