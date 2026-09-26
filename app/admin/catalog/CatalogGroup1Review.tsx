@@ -279,7 +279,7 @@ export default function CatalogGroup1Review() {
                   <p className="mt-2 text-xs text-text-secondary">Canonical nutrition field proposed for this row.</p>
                 </div>
               </div>
-              <p className="mt-2 text-xs text-text-muted">DSLD wording may differ from the printed image. Source: {detail.sourceJsonPath} · revision {detail.revision}</p>
+              <p className="mt-2 text-xs text-text-muted">DSLD wording may differ from the printed image.</p>
               {detail.sourceAncestorNames.length ? <p className="mt-1 text-xs text-text-muted">Source parents: {detail.sourceAncestorNames.join(" → ")}</p> : null}
             </div>
             <div>
