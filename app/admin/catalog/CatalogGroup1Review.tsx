@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Group1LabelPreview } from "./Group1LabelPreview";
 import {
   getReviewList,
   getReviewTask,
@@ -272,8 +273,7 @@ export default function CatalogGroup1Review() {
                 <h4 className="font-semibold">Original label</h4>
                 <a href={detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a>
               </div>
-              <iframe key={detail.labelPdfUrl} title={`DSLD label ${detail.dsldLabelId}`} src={detail.labelPdfUrl}
-                className="h-[420px] w-full rounded border border-white/15 bg-white" />
+              <Group1LabelPreview key={detail.dsldLabelId} labelId={detail.dsldLabelId} />
             </div>
             <div className="rounded border border-white/10 bg-[#080D12] p-3 text-sm">
               <h4 className="font-semibold">DSLD source values</h4>
