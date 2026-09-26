@@ -335,68 +335,79 @@ export default function CatalogGroup1Review() {
               <p className="mt-2 text-xs text-text-muted">DSLD wording may differ from the printed image.</p>
               {detail.sourceAncestorNames.length ? <p className="mt-1 text-xs text-text-muted">Source parents: {detail.sourceAncestorNames.join(" → ")}</p> : null}
             </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <h4 className="font-semibold">Original label</h4>
-                <a href={detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a>
+            <div className="grid items-start gap-4 md:grid-cols-[minmax(0,3fr)_minmax(300px,2fr)]">
+              <div className="min-w-0">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h4 className="font-semibold">Original label</h4>
+                  <a href={detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a>
+                </div>
+                <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
+                  sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName}
+                  onScanSettled={() => setScanReadyFor(detail.id)} />
               </div>
-              <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
-                sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName}
-                onScanSettled={() => setScanReadyFor(detail.id)} />
-            </div>
-            <div className="rounded border border-white/10 bg-[#080D12] p-3 text-sm">
-              <h4 className="font-semibold">DSLD source values</h4>
-              {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
-                <p key={index} className="mt-1 text-text-secondary">{index + 1}. {quantitySummary(quantity)}</p>
-              ) : <p className="mt-1 text-text-muted">No source quantity or Daily Value.</p>}
-              {detail.sourceRow.notes ? <p className="mt-2 text-xs text-text-muted">Source note: {detail.sourceRow.notes}</p> : null}
-            </div>
-            <fieldset className="space-y-2">
-              <legend className="mb-2 font-semibold">Decision for this occurrence</legend>
-              {decisions.map((choice) => <label key={choice.value} className={choiceClass}>
-                <input type="radio" name="group1-outcome" value={choice.value} checked={outcome === choice.value}
-                  onChange={() => setOutcome(choice.value)} className="mt-1 accent-emerald-400" />
-                <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
-              </label>)}
-            </fieldset>
-            {outcome === "accepted" ? <div className="space-y-3 rounded border border-accent/25 p-3">
-              <label className="block text-sm font-semibold">Group 1 field
-                <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)} className={`${inputClass} mt-1`}>
-                  {fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.displayName}</option>)}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={correctQuantity} onChange={(event) => {
-                  setCorrectQuantity(event.target.checked);
-                }} className="accent-emerald-400" /> Correct amount, unit, or % Daily Value from the label
-              </label>
-              {correctQuantity ? <div className="space-y-2">
-                {editedQuantities.map((item, index) => <div key={index} className="rounded border border-white/10 p-2">
-                  <p className="mb-2 text-xs text-text-secondary">Quantity {index + 1}{sourceQuantities[index]?.servingSizeQuantity != null
-                    ? ` · serving ${sourceQuantities[index].servingSizeQuantity} ${sourceQuantities[index].servingSizeUnit ?? ""}` : ""}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs">Amount<input className={`${inputClass} mt-1`} type="number" min="0" step="any" value={item.amount}
-                      onChange={(event) => editQuantity(index, { amount: event.target.value })} /></label>
-                    <label className="text-xs">Unit<input className={`${inputClass} mt-1`} value={item.unit}
-                      onChange={(event) => editQuantity(index, { unit: event.target.value })} /></label>
-                  </div>
-                  {item.dailyValuePercents.map((percent, targetIndex) => <label key={targetIndex} className="mt-2 block text-xs">
-                    % DV · {sourceQuantities[index]?.dailyValueTargetGroup?.[targetIndex]?.name ?? "label target group unspecified"}
-                    <input className={`${inputClass} mt-1`} type="number" min="0" step="any" value={percent}
-                      onChange={(event) => editDailyValue(index, targetIndex, event.target.value)} />
+              <div className="space-y-4 md:max-h-[650px] md:overflow-y-auto md:pr-1">
+                <div className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-sm">
+                  <h4 className="font-semibold text-amber-200">Verify amount, unit, and % Daily Value</h4>
+                  <p className="mt-1 text-xs text-text-secondary">Compare these DSLD-extracted values with the original label at left. A blank % DV means none was recorded; it is not zero.</p>
+                  {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
+                    <div key={index} className="mt-3 rounded border border-white/10 bg-[#080D12] p-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">DSLD value {index + 1}</p>
+                      <p className="mt-1 break-words font-semibold text-text-primary">{quantitySummary(quantity)}</p>
+                    </div>
+                  ) : <p className="mt-2 text-text-muted">No source quantity or Daily Value.</p>}
+                  {detail.sourceRow.notes ? <p className="mt-2 text-xs text-text-muted">Source note: {detail.sourceRow.notes}</p> : null}
+                </div>
+                <fieldset className="space-y-2">
+                  <legend className="mb-2 font-semibold">Decision for this occurrence</legend>
+                  {decisions.map((choice) => <label key={choice.value} className={choiceClass}>
+                    <input type="radio" name="group1-outcome" value={choice.value} checked={outcome === choice.value}
+                      onChange={() => setOutcome(choice.value)} className="mt-1 accent-emerald-400" />
+                    <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
                   </label>)}
-                </div>)}
-                <label className="block text-xs">Reason for correction<input className={`${inputClass} mt-1`} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} /></label>
-              </div> : null}
-            </div> : null}
-            <label className="block text-sm font-semibold">Reviewer note {outcome === "escalated" || outcome === "not_real_data_row"
-              || (outcome === "accepted" && fieldKey !== detail.suggestedFieldKey) ? "(required)" : "(optional)"}
-              <textarea className={`${inputClass} mt-1 min-h-20`} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={save} disabled={!outcome || saving}
-                className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">{saving ? "Saving…" : "Save decision"}</button>
-              <button type="button" onClick={skip} disabled={saving} className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button>
+                </fieldset>
+                {outcome === "accepted" ? <div className="space-y-3 rounded border border-accent/25 p-3">
+                  <label className="block text-sm font-semibold">Group 1 field
+                    <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)} className={`${inputClass} mt-1`}>
+                      {fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.displayName}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 rounded border border-white/15 bg-[#080D12] p-3 text-sm font-semibold">
+                    <input type="checkbox" checked={correctQuantity} onChange={(event) => setCorrectQuantity(event.target.checked)}
+                      className="accent-emerald-400" /> The printed amount, unit, or % DV differs from DSLD — edit it
+                  </label>
+                  {correctQuantity ? <div className="space-y-3">
+                    <p className="text-xs text-text-secondary">Enter the values to save for this occurrence. Leave % DV blank if the label does not state one; enter 0 only when it says 0%.</p>
+                    {editedQuantities.map((item, index) => <div key={index} className="rounded border border-accent/25 bg-accent/5 p-3">
+                      <p className="mb-2 text-xs font-semibold text-accent">Corrected value {index + 1}{sourceQuantities[index]?.servingSizeQuantity != null
+                        ? ` · per ${sourceQuantities[index].servingSizeQuantity} ${sourceQuantities[index].servingSizeUnit ?? ""}` : ""}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="text-xs">Amount<input className={`${inputClass} mt-1`} type="number" min="0" step="any" value={item.amount}
+                          onChange={(event) => editQuantity(index, { amount: event.target.value })} /></label>
+                        <label className="text-xs">Unit<input className={`${inputClass} mt-1`} value={item.unit}
+                          onChange={(event) => editQuantity(index, { unit: event.target.value })} /></label>
+                      </div>
+                      {item.dailyValuePercents.map((percent, targetIndex) => <label key={targetIndex} className="mt-2 block text-xs">
+                        % Daily Value · {sourceQuantities[index]?.dailyValueTargetGroup?.[targetIndex]?.name ?? "label target group unspecified"}
+                        <input className={`${inputClass} mt-1`} type="number" min="0" step="any" value={percent}
+                          onChange={(event) => editDailyValue(index, targetIndex, event.target.value)} />
+                      </label>)}
+                    </div>)}
+                    <label className="block text-xs font-semibold">Reason for correction (required)
+                      <input className={`${inputClass} mt-1`} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)}
+                        placeholder="What differs on the printed label?" />
+                    </label>
+                  </div> : null}
+                </div> : null}
+                <label className="block text-sm font-semibold">Reviewer note {outcome === "escalated" || outcome === "not_real_data_row"
+                  || (outcome === "accepted" && fieldKey !== detail.suggestedFieldKey) ? "(required)" : "(optional)"}
+                  <textarea className={`${inputClass} mt-1 min-h-20`} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={save} disabled={!outcome || saving}
+                    className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">{saving ? "Saving…" : "Save decision"}</button>
+                  <button type="button" onClick={skip} disabled={saving} className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button>
+                </div>
+              </div>
             </div>
             {detail.decisions.length ? <div className="border-t border-white/10 pt-4">
               <h4 className="mb-2 font-semibold">Decision history</h4>

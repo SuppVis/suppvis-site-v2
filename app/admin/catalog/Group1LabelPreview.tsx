@@ -183,7 +183,10 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
     if (loading || highlightedPage?.page !== pageNumber) return;
     const container = containerRef.current;
     const marker = firstHighlightRef.current;
-    if (container && marker) container.scrollTop = Math.max(0, marker.offsetTop - 120);
+    if (container && marker) {
+      container.scrollTop = Math.max(0, marker.offsetTop - 120);
+      container.scrollLeft = Math.max(0, marker.offsetLeft - container.clientWidth / 2);
+    }
   }, [loading, highlightedPage, pageNumber]);
 
   const visibleBox = highlightedPage?.page === pageNumber ? highlightedPage.boxes[0] : undefined;
