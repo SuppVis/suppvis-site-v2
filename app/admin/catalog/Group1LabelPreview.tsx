@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, type LabelHighlight } from "./group1-label-highlight";
+import { findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, type LabelHighlight } from "./group1-label-highlight";
 import { abortable, cachedLabelOcr, createLabelOcrSession } from "./group1-label-ocr";
 
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
@@ -109,7 +109,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
         const qualifier = best.boxes[0].mode === "source" ? "extracted wording"
           : best.boxes[0].mode === "suggested" ? "suggested-field wording, not the extracted name"
             : "approximate wording";
-        setHint(`Highlighted ${best.boxes.length > 1 ? `${best.boxes.length} possible locations` : "a possible location"} for “${best.boxes[0].text}” (${qualifier}). Verify it against the label; this is not an approval.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
+        setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${best.boxes[0].text}” (${qualifier}). Verify it against the label; this is not an approval.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
       } else {
         setHint(`Couldn’t confidently locate this text. Please inspect the label manually.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
       }
@@ -174,7 +174,8 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
     if (container && marker) container.scrollTop = Math.max(0, marker.offsetTop - 120);
   }, [loading, highlightedPage, pageNumber]);
 
-  const visibleBoxes = highlightedPage?.page === pageNumber ? highlightedPage.boxes : [];
+  const visibleBox = highlightedPage?.page === pageNumber ? highlightedPage.boxes[0] : undefined;
+  const spotlight = visibleBox ? spotlightForLabelHighlight(visibleBox) : null;
 
   return (
     <div className="rounded border border-white/15 bg-white text-slate-800">
@@ -191,16 +192,14 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
       <div ref={containerRef} className="relative max-h-[520px] min-h-[420px] overflow-auto text-center">
         {loading ? <p className="p-6 text-sm">Loading label image…</p> : null}
         {error ? <p className="p-6 text-sm">Preview unavailable. Use “Open label PDF” above.</p> : null}
-        <div className={`relative w-full ${loading || error ? "hidden" : "block"}`}>
+        <div className={`relative w-full overflow-hidden ${loading || error ? "hidden" : "block"}`}>
           <canvas ref={canvasRef} aria-label={`DSLD label ${labelId}, page ${pageNumber}`} className="block" />
-          {visibleBoxes.map((box, index) => (
-            <span key={`${box.left}:${box.top}:${index}`} ref={index === 0 ? firstHighlightRef : undefined}
-              role="img" aria-label={`Possible text location: ${box.text}`}
-              className="pointer-events-none absolute rounded-sm border-2 border-orange-500 bg-yellow-300/45 ring-2 ring-orange-300"
-              style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${box.width}%`, height: `${box.height}%` }}>
-              {index === 0 ? <span className="absolute bottom-full left-0 whitespace-nowrap rounded-t bg-orange-500 px-1 py-0.5 text-[10px] font-bold text-white shadow">Possible match ↓</span> : null}
-            </span>
-          ))}
+          {spotlight ? <span aria-hidden="true" className="pointer-events-none absolute z-10 rounded-md border border-white/85"
+            style={{ left: `${spotlight.left}%`, top: `${spotlight.top}%`, width: `${spotlight.width}%`, height: `${spotlight.height}%`,
+              boxShadow: "0 0 0 9999px rgba(7, 12, 20, 0.68)" }} /> : null}
+          {visibleBox ? <span ref={firstHighlightRef} role="img" aria-label={`Possible text location: ${visibleBox.text}`}
+            className="pointer-events-none absolute z-20 rounded-sm border-2 border-amber-500 bg-yellow-300/25 ring-2 ring-amber-200/90"
+            style={{ left: `${visibleBox.left}%`, top: `${visibleBox.top}%`, width: `${visibleBox.width}%`, height: `${visibleBox.height}%` }} /> : null}
         </div>
       </div>
     </div>

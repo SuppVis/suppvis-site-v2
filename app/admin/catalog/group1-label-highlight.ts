@@ -7,6 +7,15 @@ export type LabelHighlight = {
   left: number; top: number; width: number; height: number;
 };
 
+/** Give a matched phrase substantial surrounding label context, even at page edges. */
+export function spotlightForLabelHighlight(box: LabelHighlight) {
+  const width = Math.min(100, Math.max(30, box.width + 24));
+  const height = Math.min(100, Math.max(52, box.height + 32));
+  const left = Math.max(0, Math.min(100 - width, box.left + box.width / 2 - width / 2));
+  const top = Math.max(0, Math.min(100 - height, box.top + box.height / 2 - height / 2));
+  return { left, top, width, height };
+}
+
 export type LabelOcrRegion = { left: number; top: number; width: number; height: number };
 
 /** Whole-page first, then overlapping high-resolution strips on the long axis. */

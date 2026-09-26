@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeLabelText, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion } from '../app/admin/catalog/group1-label-highlight.ts';
+import { normalizeLabelText, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight } from '../app/admin/catalog/group1-label-highlight.ts';
 import { abortable, cachedLabelOcr, createLabelOcrSession } from '../app/admin/catalog/group1-label-ocr.ts';
 
 const word = (text, x, confidence = 95) => ({ text, confidence, box: { x0: x, y0: 100, x1: x + 50, y1: 120 } });
@@ -10,6 +10,14 @@ let matches = findLabelHighlights(page([[word('Total', 10), word('Fat', 70)]]), 
 assert.equal(matches.length, 1); assert.equal(matches[0].mode, 'source');
 assert.deepEqual({ left: matches[0].left, top: matches[0].top, width: matches[0].width, height: matches[0].height },
   { left: 1, top: 20, width: 11, height: 4 }, 'boxes scale with the preview using percentages');
+const spot = spotlightForLabelHighlight(matches[0]);
+assert.ok(spot.width >= 30 && spot.height >= 52, 'spotlight leaves broad label context');
+assert.ok(spot.left <= matches[0].left && spot.top <= matches[0].top);
+assert.ok(spot.left + spot.width >= matches[0].left + matches[0].width);
+assert.ok(spot.top + spot.height >= matches[0].top + matches[0].height);
+const edgeSpot = spotlightForLabelHighlight({ ...matches[0], left: 98, top: 97, width: 2, height: 3 });
+assert.equal(edgeSpot.left + edgeSpot.width, 100);
+assert.equal(edgeSpot.top + edgeSpot.height, 100);
 matches = findLabelHighlights(page([[word('Calories', 20)]]), 'kCals', 'Calories');
 assert.equal(matches[0].mode, 'suggested', 'fallback wording must never masquerade as the source name');
 matches = findLabelHighlights(page([[word('Proteins', 50)], [word('Protein', 60)]]), 'Proteins', 'Protein');
@@ -87,5 +95,7 @@ assert.ok(!ocrSource.includes('https://'), 'OCR assets do not use an external se
 const preview = readFileSync('app/admin/catalog/Group1LabelPreview.tsx', 'utf8');
 assert.ok(preview.includes('createLabelOcrSession(signal)'));
 assert.ok(!preview.includes('Find on label'), 'OCR starts automatically, with no button');
+assert.ok(preview.includes('spotlightForLabelHighlight(visibleBox)'), 'located text receives a broad spotlight');
+assert.ok(!preview.includes('Possible match ↓'), 'the old orange badge must not obscure the label');
 assert.ok(!preview.includes('saveReviewDecision'), 'location hints never save or approve decisions');
 console.log('Group 1 OCR highlight tests passed (matching, confidence, coordinates, caching and cancellation).');
