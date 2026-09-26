@@ -198,8 +198,9 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName }: 
             style={{ left: `${spotlight.left}%`, top: `${spotlight.top}%`, width: `${spotlight.width}%`, height: `${spotlight.height}%`,
               boxShadow: "0 0 0 9999px rgba(7, 12, 20, 0.68)" }} /> : null}
           {visibleBox ? <span ref={firstHighlightRef} role="img" aria-label={`Possible text location: ${visibleBox.text}`}
-            className="pointer-events-none absolute z-20 rounded-sm border-2 border-amber-500 bg-yellow-300/25 ring-2 ring-amber-200/90"
-            style={{ left: `${visibleBox.left}%`, top: `${visibleBox.top}%`, width: `${visibleBox.width}%`, height: `${visibleBox.height}%` }} /> : null}
+            className="pointer-events-none absolute z-20 rounded-sm"
+            style={{ left: `${visibleBox.left}%`, top: `${visibleBox.top}%`, width: `${visibleBox.width}%`, height: `${visibleBox.height}%`,
+              outline: "2px solid #f59e0b", outlineOffset: "7px" }} /> : null}
         </div>
       </div>
     </div>

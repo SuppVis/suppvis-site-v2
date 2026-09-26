@@ -97,5 +97,6 @@ assert.ok(preview.includes('createLabelOcrSession(signal)'));
 assert.ok(!preview.includes('Find on label'), 'OCR starts automatically, with no button');
 assert.ok(preview.includes('spotlightForLabelHighlight(visibleBox)'), 'located text receives a broad spotlight');
 assert.ok(!preview.includes('Possible match ↓'), 'the old orange badge must not obscure the label');
+assert.ok(preview.includes('outlineOffset: "7px"'), 'the text outline must sit outside OCR word boxes');
 assert.ok(!preview.includes('saveReviewDecision'), 'location hints never save or approve decisions');
 console.log('Group 1 OCR highlight tests passed (matching, confidence, coordinates, caching and cancellation).');
