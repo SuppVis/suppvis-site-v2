@@ -108,7 +108,9 @@ export default function CatalogGroup1Review() {
       setFields(result.fields);
       setTasks(result.tasks);
       setBatchKey(result.batchKey);
-      const stored = window.localStorage.getItem(`group1-review-range:${result.batchKey}`);
+      const rangeKey = `group1-review-range:${result.batchKey}`;
+      // Migrate the previous browser-wide choice once, then keep each review tab independent.
+      const stored = window.sessionStorage.getItem(rangeKey) ?? window.localStorage.getItem(rangeKey);
       let selectedRange = { first: 0, last: result.tasks.length - 1 };
       if (stored) {
         try {
@@ -120,6 +122,7 @@ export default function CatalogGroup1Review() {
         } catch { /* Old or malformed local preference: use the full queue. */ }
       }
       setRange(selectedRange);
+      window.sessionStorage.setItem(rangeKey, JSON.stringify(selectedRange));
       setRangeStartInput(String(selectedRange.first + 1));
       setRangeEndInput(String(selectedRange.last + 1));
       const first = nextPendingTask(result.tasks, "", new Set(), selectedRange.first, selectedRange.last);
@@ -221,7 +224,7 @@ export default function CatalogGroup1Review() {
       setTasks(refreshed.tasks);
       setNotice(`Showing assigned occurrences ${first}–${last}.`);
       setRange(selectedRange);
-      window.localStorage.setItem(`group1-review-range:${batchKey}`, JSON.stringify(selectedRange));
+      window.sessionStorage.setItem(`group1-review-range:${batchKey}`, JSON.stringify(selectedRange));
       setSkippedIds(new Set());
       setSelectedTaskId(nextPendingTask(refreshed.tasks, "", new Set(), selectedRange.first, selectedRange.last)?.id ?? "");
     } catch (reason) {
@@ -286,7 +289,7 @@ export default function CatalogGroup1Review() {
             className="rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent disabled:opacity-40">
             {rangeLoading ? "Refreshing…" : "Start / refresh range"}
           </button>
-          <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your range is saved only in this browser and stops at the end number; this button refreshes completed tasks. An overlapping decision is blocked at save.</p>
+          <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your range is remembered in this tab and stops at the end number; this button refreshes completed tasks. An overlapping decision is blocked at save.</p>
         </div>
         {escalatedCount ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
           <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalatedCount})</summary>
