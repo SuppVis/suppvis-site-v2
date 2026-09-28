@@ -37,8 +37,8 @@ export default function ResearchFoundation() {
         {/* Stats bar */}
         <div className="rounded-[18px] bg-bg-secondary border border-white/[0.06] py-12 md:py-16 px-8 mb-14 md:mb-16">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-6">
-            <StatBlock delay={0} value="25,000+" label="peer-reviewed articles" />
-            <StatBlock delay={0.1} value="457" label="supplements profiled" />
+            <StatBlock delay={0} value="33,000+" label="peer-reviewed studies" />
+            <StatBlock delay={0.1} value="433" label="supplements profiled" />
             <StatBlock delay={0.15} value="22" label="health dimensions" />
             <StatBlock delay={0.2} value="14,000+" label="drug interactions checked" />
           </div>

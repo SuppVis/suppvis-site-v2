@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
-import ResearchHero from "./sections/ResearchHero";
+import ResearchContent from "./sections/ResearchContent";
 import ResearchMethodology from "./sections/ResearchMethodology";
 import ResearchSources from "./sections/ResearchSources";
-import ResearchBrowser from "./sections/ResearchBrowser";
 
 export const metadata: Metadata = {
   title: "Research - SuppVis",
   description:
-    "SuppVis is built on peer-reviewed research. Browse the studies behind every recommendation. Curated from PubMed and Semantic Scholar, classified for quality, linked to specific supplements and outcomes.",
+    "SuppVis is built on peer-reviewed research. Browse the studies behind every recommendation. Curated from PubMed and Semantic Scholar, classified for quality, linked to specific supplements, habits, and outcomes.",
 };
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://suppvis-platform.vercel.app";
 
-interface Stats {
+interface SupplementStats {
   total_articles: number;
   high_quality_articles: number;
   supplements_covered: number;
@@ -35,7 +35,29 @@ interface SupplementSummary {
   };
 }
 
-async function fetchStats(): Promise<Stats | null> {
+interface HabitStats {
+  totalFindings: number;
+  distinctArticles: number;
+  distinctHabits: number;
+  highQualityArticleShare: number;
+  lastUpdated: string | null;
+}
+
+interface HabitSummary {
+  habitKey: string;
+  name: string;
+  category: string | null;
+  findingsCount: number;
+  articleCount: number;
+  studyTypeBreakdown: {
+    rct: number;
+    meta_analysis: number;
+    systematic_review: number;
+    observational: number;
+  };
+}
+
+async function fetchSupplementStats(): Promise<SupplementStats | null> {
   try {
     const res = await fetch(`${API_BASE}/api/public/research/stats`, {
       next: { revalidate: 3600 },
@@ -61,20 +83,54 @@ async function fetchSupplements(): Promise<SupplementSummary[]> {
   }
 }
 
+async function fetchHabitStats(): Promise<HabitStats | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/public/research/habits/stats`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchHabits(): Promise<HabitSummary[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/public/research/habits?limit=500`,
+      { next: { revalidate: 3600 } },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.habits ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function ResearchPage() {
-  const [stats, supplements] = await Promise.all([
-    fetchStats(),
+  const [supplementStats, supplements, habitStats, habits] = await Promise.all([
+    fetchSupplementStats(),
     fetchSupplements(),
+    fetchHabitStats(),
+    fetchHabits(),
   ]);
 
   return (
     <>
       <Nav />
       <main>
-        <ResearchHero stats={stats} />
+        <Suspense>
+          <ResearchContent
+            supplementStats={supplementStats}
+            supplements={supplements}
+            habitStats={habitStats}
+            habits={habits}
+          />
+        </Suspense>
         <ResearchMethodology />
         <ResearchSources />
-        <ResearchBrowser supplements={supplements} />
       </main>
       <Footer />
     </>

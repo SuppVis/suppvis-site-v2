@@ -42,8 +42,8 @@ export default function Origin() {
           </p>
           <p>So we built one.</p>
           <p>
-            SuppVis tracks your supplements daily, correlates them against how
-            you feel, and grounds every insight in 24,500+{" "}
+            SuppVis tracks your supplements and habits daily, correlates them
+            against how you feel, and grounds every insight in 33,000+{" "}
             <a href="/sources" className="text-accent underline decoration-accent/40 hover:decoration-accent underline-offset-4 transition-colors">peer-reviewed
             studies</a>. It&rsquo;s an iOS app, brand-agnostic, and built for
             skeptics.

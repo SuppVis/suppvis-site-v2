@@ -9,6 +9,9 @@
   --color-text-muted: #5A7089;
   --color-accent: #14B8A6;
   --color-accent-hover: #0EA593;
+  --color-habit-gold: #F5B946;
+  --color-habit-gold-light: rgba(245, 185, 70, 0.15);
+  --color-habit-gold-strong: rgba(245, 185, 70, 0.25);
   --color-warning: #FF8C42;
   --color-error: #FF6B6B;
 

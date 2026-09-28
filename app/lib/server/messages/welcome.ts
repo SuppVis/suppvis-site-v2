@@ -630,7 +630,7 @@ function foundingWelcomeEmailHtmlLegacyStandalone({
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F2F9F8; border-radius:12px;">
             <tr>
               <td class="stat-cell" width="50%" align="center" style="padding:20px 12px;">
-                <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif; font-size:28px; font-weight:800; color:#0E2A28;">24,500+</div>
+                <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif; font-size:28px; font-weight:800; color:#0E2A28;">33,000+</div>
                 <div style="font-family:'DM Sans',Helvetica,Arial,sans-serif; font-size:12px; font-weight:500; letter-spacing:0.5px; color:#5C7370; padding-top:4px;">peer-reviewed studies behind every insight</div>
               </td>
               <td class="stat-cell" width="50%" align="center" style="padding:20px 12px; border-left:1px solid #DCEBE9;">

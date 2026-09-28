@@ -21,8 +21,8 @@ const contentSecurityPolicy = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  // OCR compiles WebAssembly, but does not need JavaScript unsafe-eval or a CDN.
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  // OCR compiles WebAssembly; dev mode needs unsafe-eval for webpack HMR.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
   "worker-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
