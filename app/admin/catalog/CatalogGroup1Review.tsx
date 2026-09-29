@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Group1LabelPreview } from "./Group1LabelPreview";
 import { labelPdfBytes } from "./group1-label-pdf";
-import { nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
+import { isActionableReview, nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
 import {
   getReviewList,
   getReviewTask,
@@ -19,7 +19,7 @@ const inputClass = "w-full rounded border border-white/15 bg-[#080D12] px-3 py-2
 const choiceClass = "flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm hover:border-accent/50";
 
 const decisions: Array<{ value: ReviewOutcome; title: string; explanation: string }> = [
-  { value: "accepted", title: "Group 1 field", explanation: "Accept the proposed field or choose another of the 19 fields." },
+  { value: "accepted", title: "Group 1 field", explanation: "Accept the proposed field or choose another available field." },
   { value: "not_group1", title: "Not Group 1", explanation: "Keep this row for the later Group 2/3 pass." },
   { value: "not_real_data_row", title: "Not a real data row", explanation: "Exclude this occurrence from all later candidate passes." },
   { value: "escalated", title: "Escalate", explanation: "Leave unresolved for a different admin to decide." },
@@ -68,7 +68,7 @@ export default function CatalogGroup1Review() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [range, setRange] = useState({ first: 0, last: -1 });
   const [rangeStartInput, setRangeStartInput] = useState("1");
-  const [rangeEndInput, setRangeEndInput] = useState("345");
+  const [rangeEndInput, setRangeEndInput] = useState("346");
   const [detail, setDetail] = useState<ReviewTaskDetail | null>(null);
   const [skippedIds, setSkippedIds] = useState<Set<string>>(() => new Set());
   const [scanReadyFor, setScanReadyFor] = useState("");
@@ -85,10 +85,11 @@ export default function CatalogGroup1Review() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const pendingCount = tasks.filter((task) => task.status === "pending").length;
-  const rangePendingCount = tasks.slice(range.first, range.last + 1).filter((task) => task.status === "pending").length;
+  const pendingCount = tasks.filter(isActionableReview).length;
+  const rangePendingCount = tasks.slice(range.first, range.last + 1).filter(isActionableReview).length;
+  const recheckCount = tasks.filter((task) => task.needsRecheck).length;
   const escalatedCount = tasks.filter((task) => task.status === "escalated").length;
-  const skippedCount = tasks.slice(range.first, range.last + 1).filter((task) => task.status === "pending" && skippedIds.has(task.id)).length;
+  const skippedCount = tasks.slice(range.first, range.last + 1).filter((task) => isActionableReview(task) && skippedIds.has(task.id)).length;
   const currentPosition = tasks.findIndex((task) => task.id === selectedTaskId) + 1;
   const upcoming = useMemo(() => upcomingPendingTasks(tasks, selectedTaskId, skippedIds, range.first, range.last),
     [tasks, selectedTaskId, skippedIds, range]);
@@ -151,14 +152,14 @@ export default function CatalogGroup1Review() {
   useEffect(() => {
     if (!detail) return;
     const last = detail.decisions[0];
-    setOutcome(detail.status === "pending" ? "" : detail.status);
-    setFieldKey(detail.selectedFieldKey ?? detail.suggestedFieldKey);
+    setOutcome(detail.status === "pending" || detail.needsRecheck ? "" : detail.status);
+    setFieldKey(detail.needsRecheck ? detail.suggestedFieldKey : (detail.selectedFieldKey ?? detail.suggestedFieldKey));
     // A new revision needs its own explanation; never copy an earlier reviewer's note.
     setReviewerNote("");
-    setCorrectQuantity(Boolean(last?.correctedValues));
+    setCorrectQuantity(!detail.needsRecheck && Boolean(last?.correctedValues));
     const quantities = Array.isArray(detail.sourceRow.quantity) ? detail.sourceRow.quantity : [];
     const edited = editableSourceQuantities(quantities);
-    for (const correction of last?.correctedValues ?? []) {
+    for (const correction of detail.needsRecheck ? [] : (last?.correctedValues ?? [])) {
       if (!edited[correction.quantityIndex]) continue;
       edited[correction.quantityIndex] = {
         amount: correction.amount == null ? "" : String(correction.amount),
@@ -168,7 +169,7 @@ export default function CatalogGroup1Review() {
       };
     }
     setEditedQuantities(edited);
-    setCorrectionReason(last?.correctionReason ?? "");
+    setCorrectionReason(detail.needsRecheck ? "" : (last?.correctionReason ?? ""));
   }, [detail]);
 
   function editQuantity(index: number, update: Partial<EditableQuantity>) {
@@ -275,7 +276,7 @@ export default function CatalogGroup1Review() {
         <p className="mt-2 text-sm text-text-secondary">
           Review one DSLD label occurrence at a time. These decisions do not approve a name globally or write catalog nutrition facts yet.
         </p>
-        <p className="mt-2 text-xs text-text-muted">{pendingCount} pending of {tasks.length} occurrences · {escalatedCount} escalated · batch {batchKey}</p>
+        <p className="mt-2 text-xs text-text-muted">{pendingCount} to review of {tasks.length} occurrences · {recheckCount} rechecks · {escalatedCount} escalated · queue {batchKey}</p>
         <div className="mt-4 flex flex-wrap items-end gap-3 rounded border border-white/10 bg-[#080D12] p-3">
           <label className="text-xs font-semibold">Start at occurrence
             <input type="number" min="1" max={tasks.length} value={rangeStartInput} onChange={(event) => setRangeStartInput(event.target.value)}
@@ -311,11 +312,16 @@ export default function CatalogGroup1Review() {
           {detail?.status !== "escalated" ? ` · assigned range ${range.first + 1}–${range.last + 1} · ${skippedCount} skipped this pass` : " · a different admin must resolve this"}
         </p> : null}
           {!detail || detail.id !== selectedTaskId ? <div className="space-y-3 text-sm text-text-secondary">
-            <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No pending occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
+            <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No review occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
             {rangePendingCount > 0 && skippedCount > 0 ? <button type="button" onClick={revisitSkipped}
               className="rounded-full border border-accent px-5 py-2 font-semibold text-accent">Revisit skipped occurrences ({skippedCount})</button> : null}
             {escalatedCount ? <p>{escalatedCount} escalated occurrence{escalatedCount === 1 ? "" : "s"} still need a different admin’s decision.</p> : null}
           </div> : <div className="space-y-5">
+            {detail.needsRecheck ? <div className="rounded border border-amber-400/45 bg-amber-400/10 p-3 text-sm">
+              <p className="font-semibold text-amber-200">Recheck requested — previous decision remains in history</p>
+              <p className="mt-1 text-text-secondary">{detail.recheckReason}</p>
+              <p className="mt-1 text-xs text-text-secondary">Choose a new outcome and explain it in a reviewer note. Amount edits were reset to the DSLD source for safety; compare any previous correction with this exact label before re-entering it.</p>
+            </div> : null}
             <div>
               <h3 className="font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
               <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}</p>
@@ -398,7 +404,7 @@ export default function CatalogGroup1Review() {
                     </label>
                   </div> : null}
                 </div> : null}
-                <label className="block text-sm font-semibold">Reviewer note {outcome === "escalated" || outcome === "not_real_data_row"
+                <label className="block text-sm font-semibold">Reviewer note {detail.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
                   || (outcome === "accepted" && fieldKey !== detail.suggestedFieldKey) ? "(required)" : "(optional)"}
                   <textarea className={`${inputClass} mt-1 min-h-20`} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
                 </label>
@@ -413,7 +419,10 @@ export default function CatalogGroup1Review() {
               <h4 className="mb-2 font-semibold">Decision history</h4>
               {detail.decisions.map((decision) => <p key={decision.taskRevision} className="mb-2 text-xs text-text-secondary">
                 Rev {decision.taskRevision}: {statusLabel(decision.outcome)} by {decision.reviewerEmail} · {new Date(decision.decidedAt).toLocaleString()}
+                {decision.selectedFieldKey ? ` · field ${fields.find((field) => field.fieldKey === decision.selectedFieldKey)?.displayName ?? decision.selectedFieldKey}` : ""}
                 {decision.reviewerNote ? ` — ${decision.reviewerNote}` : ""}
+                {decision.correctedValues ? ` · corrected values: ${decision.correctedValues.map((value) => `${value.amount ?? "blank"} ${value.unit ?? ""}; DV ${value.dailyValuePercents.map((percent) => percent == null ? "blank" : `${percent}%`).join("/")}`).join(" | ")}` : ""}
+                {decision.correctionReason ? ` · correction reason: ${decision.correctionReason}` : ""}
               </p>)}
             </div> : null}
           </div>}

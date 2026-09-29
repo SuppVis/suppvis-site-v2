@@ -14,6 +14,8 @@ export type ReviewTask = {
   brandName: string;
   status: ReviewStatus;
   revision: number;
+  needsRecheck: boolean;
+  recheckReason: string | null;
 };
 export type SourceQuantity = {
   operator?: string;
