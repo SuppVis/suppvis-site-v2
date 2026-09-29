@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, type LabelHighlight } from "./group1-label-highlight";
 import { abortable, cachedLabelOcr, createLabelOcrSession } from "./group1-label-ocr";
 import { labelPdfBytes } from "./group1-label-pdf";
+import { LABEL_ZOOM_LEVELS, labelRenderGeometry } from "./group1-label-render";
 
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
 
@@ -13,17 +14,41 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const activeRenderRef = useRef<ReturnType<import("pdfjs-dist").PDFPageProxy["render"]> | null>(null);
   const [document, setDocument] = useState<PdfDocument | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [viewWidth, setViewWidth] = useState(0);
+  const [zoomIndex, setZoomIndex] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   const [hint, setHint] = useState("Finding text on the label automatically…");
   const [highlightedPage, setHighlightedPage] = useState<{ page: number; boxes: LabelHighlight[] } | null>(null);
   const firstHighlightRef = useRef<HTMLSpanElement>(null);
   const manuallyChangedPage = useRef(false);
   const onScanSettledRef = useRef(onScanSettled);
   onScanSettledRef.current = onScanSettled;
+
+  useEffect(() => {
+    if (prefetchOnly) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => setViewWidth(container.clientWidth));
+    observer.observe(container);
+    setViewWidth(container.clientWidth);
+    return () => observer.disconnect();
+  }, [prefetchOnly]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,31 +165,41 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   }, [document, labelId, sourceName, suggestedFieldName]);
 
   useEffect(() => {
-    if (!document || prefetchOnly) return;
+    if (!document || prefetchOnly || !viewWidth) return;
     let cancelled = false;
     let renderTask: ReturnType<import("pdfjs-dist").PDFPageProxy["render"]> | null = null;
     setLoading(true);
     setError(false);
     void (async () => {
+      // pdf.js cannot render onto a canvas until the previous task has stopped.
+      const previous = activeRenderRef.current;
+      if (previous) {
+        previous.cancel();
+        await previous.promise.catch(() => undefined);
+      }
+      if (cancelled) return;
       const page = await document.getPage(pageNumber);
       if (cancelled) return;
       const canvas = canvasRef.current;
-      const container = containerRef.current;
+      const pageElement = pageRef.current;
       const context = canvas?.getContext("2d");
-      if (!canvas || !context || !container) throw new Error("Label canvas is unavailable");
+      if (!canvas || !context || !pageElement) throw new Error("Label canvas is unavailable");
       const base = page.getViewport({ scale: 1 });
-      const viewport = page.getViewport({ scale: Math.max(1, container.clientWidth - 2) / base.width });
-      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(viewport.width * outputScale);
-      canvas.height = Math.floor(viewport.height * outputScale);
-      canvas.style.width = "100%";
-      canvas.style.height = "auto";
+      const geometry = labelRenderGeometry(base.width, base.height, viewWidth, LABEL_ZOOM_LEVELS[zoomIndex], window.devicePixelRatio || 1);
+      const viewport = page.getViewport({ scale: geometry.scale });
+      canvas.width = geometry.bitmapWidth;
+      canvas.height = geometry.bitmapHeight;
+      canvas.style.width = `${geometry.width}px`;
+      canvas.style.height = `${geometry.height}px`;
+      pageElement.style.width = `${geometry.width}px`;
+      pageElement.style.height = `${geometry.height}px`;
       renderTask = page.render({
         canvas,
         canvasContext: context,
         viewport,
-        transform: [outputScale, 0, 0, outputScale, 0, 0],
+        transform: [geometry.outputScale, 0, 0, geometry.outputScale, 0, 0],
       });
+      activeRenderRef.current = renderTask;
       await renderTask.promise;
       if (!cancelled) setLoading(false);
     })().catch(() => {
@@ -172,12 +207,14 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
         setError(true);
         setLoading(false);
       }
+    }).finally(() => {
+      if (activeRenderRef.current === renderTask) activeRenderRef.current = null;
     });
     return () => {
       cancelled = true;
       renderTask?.cancel();
     };
-  }, [document, pageNumber, prefetchOnly]);
+  }, [document, pageNumber, prefetchOnly, viewWidth, zoomIndex]);
 
   useEffect(() => {
     if (loading || highlightedPage?.page !== pageNumber) return;
@@ -187,7 +224,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       container.scrollTop = Math.max(0, marker.offsetTop - 120);
       container.scrollLeft = Math.max(0, marker.offsetLeft - container.clientWidth / 2);
     }
-  }, [loading, highlightedPage, pageNumber]);
+  }, [loading, highlightedPage, pageNumber, zoomIndex, viewWidth]);
 
   const visibleBox = highlightedPage?.page === pageNumber ? highlightedPage.boxes[0] : undefined;
   const spotlight = visibleBox ? spotlightForLabelHighlight(visibleBox) : null;
@@ -195,21 +232,33 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   if (prefetchOnly) return null;
 
   return (
-    <div className="rounded border border-white/15 bg-white text-slate-800">
+    <div className={expanded
+      ? "fixed inset-2 z-[100] flex flex-col overflow-hidden rounded-lg border border-slate-300 bg-white text-slate-800 shadow-2xl md:inset-5"
+      : "rounded border border-white/15 bg-white text-slate-800"}>
       <p role="status" className="border-b border-slate-200 bg-amber-50 px-3 py-2 text-left text-xs text-slate-700">{hint}</p>
-      {pageCount > 1 ? (
-        <div className="flex items-center justify-center gap-3 border-b border-slate-200 bg-slate-100 p-2 text-sm">
+      <div className="flex flex-wrap items-center justify-center gap-2 border-b border-slate-200 bg-slate-100 p-2 text-sm">
+        {pageCount > 1 ? <>
           <button type="button" disabled={pageNumber === 1} onClick={() => { manuallyChangedPage.current = true; setPageNumber(pageNumber - 1); }}
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Previous</button>
           <span>Page {pageNumber} of {pageCount}</span>
           <button type="button" disabled={pageNumber === pageCount} onClick={() => { manuallyChangedPage.current = true; setPageNumber(pageNumber + 1); }}
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Next</button>
-        </div>
-      ) : null}
-      <div ref={containerRef} className="relative max-h-[520px] min-h-[420px] overflow-auto text-center">
+        </> : null}
+        <button type="button" aria-label="Zoom out" disabled={zoomIndex === 0} onClick={() => setZoomIndex((index) => index - 1)}
+          className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40">−</button>
+        <button type="button" onClick={() => setZoomIndex(0)}
+          className="min-w-28 rounded border border-slate-300 px-2 py-1">{Math.round(LABEL_ZOOM_LEVELS[zoomIndex] * 100)}% · {zoomIndex ? "Reset" : "Fit"}</button>
+        <button type="button" aria-label="Zoom in" disabled={zoomIndex === LABEL_ZOOM_LEVELS.length - 1} onClick={() => setZoomIndex((index) => index + 1)}
+          className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40">+</button>
+        <button type="button" onClick={() => setExpanded((value) => !value)}
+          className="rounded border border-slate-300 px-2 py-1">{expanded ? "Close expanded view" : "Expand label"}</button>
+      </div>
+      <div ref={containerRef} className={expanded
+        ? "relative min-h-0 flex-1 overflow-auto text-center"
+        : "relative max-h-[520px] min-h-[420px] overflow-auto text-center"}>
         {loading ? <p className="p-6 text-sm">Loading label image…</p> : null}
         {error ? <p className="p-6 text-sm">Preview unavailable. Use “Open label PDF” above.</p> : null}
-        <div className={`relative w-full overflow-hidden ${loading || error ? "hidden" : "block"}`}>
+        <div ref={pageRef} className={`relative mx-auto ${loading || error ? "hidden" : "block"}`}>
           <canvas ref={canvasRef} aria-label={`DSLD label ${labelId}, page ${pageNumber}`} className="block" />
           {spotlight ? <span aria-hidden="true" className="pointer-events-none absolute z-10 rounded-md border border-white/85"
             style={{ left: `${spotlight.left}%`, top: `${spotlight.top}%`, width: `${spotlight.width}%`, height: `${spotlight.height}%`,

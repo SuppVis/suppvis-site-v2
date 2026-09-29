@@ -15,6 +15,7 @@
     "test:group1-label-highlight": "node --no-warnings --experimental-strip-types scripts/test-group1-label-highlight.mjs",
     "test:group1-review-queue": "node --no-warnings --experimental-strip-types scripts/test-group1-review-queue.mjs",
     "test:group1-label-pdf-cache": "node --no-warnings --experimental-strip-types scripts/test-group1-label-pdf-cache.mjs",
+    "test:group1-label-render": "node --no-warnings --experimental-strip-types scripts/test-group1-label-render.mjs",
     "test:admin-catalog-bridge": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-bridge.mjs",
     "test:admin-catalog-database": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-database.mjs",
     "test:admin-catalog-workspace": "node --no-warnings --experimental-strip-types scripts/test-admin-catalog-workspace.mjs",
