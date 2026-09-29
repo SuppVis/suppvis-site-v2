@@ -50,7 +50,7 @@ export default function Hero() {
           <span className="text-text-muted/40">&middot;</span>
           <a href="/sources" className="whitespace-nowrap hover:text-accent hover:underline underline-offset-4 transition-colors">Evidence-Based</a>
           <span className="text-text-muted/40">&middot;</span>
-          <span className="whitespace-nowrap">24,500+ Studies on Supplements</span>
+          <span className="whitespace-nowrap">33,000+ Peer-Reviewed Studies</span>
           <span className="text-text-muted/40">&middot;</span>
           <span className="whitespace-nowrap">2,300+ Drug-Supplement Interactions</span>
         </div>

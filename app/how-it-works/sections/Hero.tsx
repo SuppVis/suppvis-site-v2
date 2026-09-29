@@ -54,8 +54,8 @@ export default function Hero() {
               className="scroll-reveal mt-4 text-base text-accent/80 leading-relaxed max-w-[480px]"
             >
               One check-in a day. SuppVis runs your scores against everything in
-              your routine and shows you what&apos;s helping, backed by 24,500+
-              peer-reviewed supplement studies.
+              your routine and shows you what&apos;s helping, backed by 33,000+
+              peer-reviewed studies on supplements and habits.
             </p>
           </div>
 

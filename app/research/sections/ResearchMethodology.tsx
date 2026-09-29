@@ -3,7 +3,7 @@ export default function ResearchMethodology() {
     {
       number: "01",
       title: "Curate",
-      body: "We pull articles from peer-reviewed sources, prioritizing randomized controlled trials, meta-analyses, and systematic reviews.",
+      body: "We pull articles on supplements and habits from peer-reviewed sources, prioritizing randomized controlled trials, meta-analyses, and systematic reviews.",
       icon: (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -13,7 +13,7 @@ export default function ResearchMethodology() {
     {
       number: "02",
       title: "Classify",
-      body: "Every article is read and classified by its subject substance, study quality, and findings. Off-topic and ambiguous papers are filtered out.",
+      body: "Every article is read and classified by subject, study quality, and findings. Off-topic and ambiguous papers are filtered out.",
       icon: (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3 7h18M3 12h18M3 17h12" />
@@ -23,7 +23,7 @@ export default function ResearchMethodology() {
     {
       number: "03",
       title: "Link",
-      body: "Findings are mapped to specific supplements and outcomes, so when we recommend something, the evidence is one click away.",
+      body: "Findings are mapped to specific supplements, habits, and outcomes, so when we surface an insight, the evidence is one click away.",
       icon: (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
