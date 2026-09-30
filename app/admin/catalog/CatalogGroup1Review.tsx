@@ -21,8 +21,8 @@ const inputClass = "w-full rounded border border-white/15 bg-[#080D12] px-3 py-2
 const choiceClass = "flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm hover:border-accent/50";
 
 const decisions: Array<{ value: ReviewOutcome; title: string; explanation: string }> = [
-  { value: "accepted", title: "Group 1 field", explanation: "Accept the proposed field or choose another available field." },
-  { value: "not_group1", title: "Not Group 1", explanation: "Keep this row for the later Group 2/3 pass." },
+  { value: "accepted", title: "Nutrition fact", explanation: "Accept the proposed field or choose another available field." },
+  { value: "not_group1", title: "Not a nutrition fact, other type of ingredient", explanation: "Keep this row for the later Group 2/3 pass." },
   { value: "not_real_data_row", title: "Not a real data row", explanation: "Exclude this occurrence from all later candidate passes." },
   { value: "escalated", title: "Escalate", explanation: "Leave unresolved for a different admin to decide." },
 ];
@@ -96,6 +96,8 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   const prefetchTask = detail?.id === selectedTaskId && scanReadyFor === selectedTaskId
     ? upcoming[preloadStep] : undefined;
   const sourceQuantities = Array.isArray(detail?.sourceRow.quantity) ? detail.sourceRow.quantity : [];
+  const selectedFieldName = fields.find((field) => field.fieldKey === fieldKey)?.displayName
+    ?? (fieldKey === detail?.suggestedFieldKey ? detail.suggestedFieldName : fieldKey);
   const reviewerNoteRequired = Boolean(detail?.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
     || (outcome === "accepted" && detail && fieldKey !== detail.suggestedFieldKey));
 
@@ -391,7 +393,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
                         {fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.displayName}</option>)}
                       </select>
                     </label>
-                    <p className="mt-2 text-xs text-text-secondary">Choosing a field selects “Group 1 field” as the decision below.</p>
+                    <p className="mt-2 text-xs text-text-secondary">Choosing a field selects the nutrition-fact decision below.</p>
                   </div> : null}
                 </div>
               </div>
@@ -463,7 +465,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
                     {correctQuantity ? "Hide value corrections" : "Edit printed amount, unit, or % DV"}
                   </button>
                   {correctQuantity ? <div id="group1-quantity-editor" className="mt-3 space-y-3">
-                    <p className="text-xs text-text-secondary">Editing values selects “Group 1 field” as the decision below. Leave % DV blank if the label does not state one; enter 0 only when it says 0%.</p>
+                    <p className="text-xs text-text-secondary">Editing values selects the nutrition-fact decision below. Leave % DV blank if the label does not state one; enter 0 only when it says 0%.</p>
                     {editedQuantities.map((item, index) => <div key={index} className="rounded border border-amber-400/25 bg-[#080D12] p-3">
                       <p className="mb-2 text-xs font-semibold text-amber-200">Corrected value {index + 1}{sourceQuantities[index]?.servingSizeQuantity != null
                         ? ` · per ${sourceQuantities[index].servingSizeQuantity} ${sourceQuantities[index].servingSizeUnit ?? ""}` : ""}</p>
@@ -493,7 +495,9 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
                         setOutcome(choice.value);
                         if (choice.value !== "accepted") { setFieldEditorOpen(false); setCorrectQuantity(false); }
                       }} className="mt-1 accent-emerald-400" />
-                    <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
+                    <span><span className={choice.value === "accepted" ? "block" : "block font-semibold"}>
+                      {choice.value === "accepted" ? <>Yes, this is <strong className="font-bold">{selectedFieldName}</strong> as a nutrition fact</> : choice.title}
+                    </span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
                   </label>)}
                 </fieldset>
                 <div>
