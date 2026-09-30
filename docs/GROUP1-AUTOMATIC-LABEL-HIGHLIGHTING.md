@@ -6,6 +6,6 @@ The label remains available for inspection. A confident text location gets a thi
 
 The browser loads only PDF.js for display and zoom; no browser OCR worker is started. The separate worker uses local Poppler and Tesseract binaries, not an external OCR service. It scans at most 12 PDF pages per label and stores grouped word coordinates for subsequent reviews. The former Tesseract browser assets and module remain in the repository for now but are not imported by the active preview.
 
-Verification: the matching, PDF-hash, prefetch, bridge, queue, and TypeScript checks pass; the site builds. The offline worker's rasterization and OCR path passed a local-PDF smoke test. A production DSLD-label smoke check and bucket-policy verification remain before rollout. OCR coverage is intentionally not expected to be 100%.
+Verification: the matching, PDF-hash, prefetch, bridge, queue, and TypeScript checks pass; the site builds. The offline worker's rasterization and OCR path passed a local-PDF smoke test. On 2026-09-30, all 15 then-actionable production labels were cached and read back with matching hashes against fresh NIH PDFs; 13 had a usable highlighted text region, and two remain manual-inspection cases. The live admin page showed the new range span, compact value card, and a saved-scan spotlight on DSLD 626. OCR coverage is intentionally not expected to be 100%.
 
-This new cache-backed path has not been deployed or populated in production. No production registry or catalog data was changed.
+The cache-backed path is deployed. No production registry, catalog nutrition facts, or review decisions were changed by the rollout. New or reopened label IDs need precomputation for automatic highlighting; without it, reviewers can still inspect the NIH PDF manually.
