@@ -1,18 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fallbackRegionScore, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, withLabelRowValues, type LabelHighlight, type LabelOcrPage, type LabelOcrRegion } from "./group1-label-highlight";
-import { abortable, cachedLabelOcr, createLabelOcrSession, type LabelOcrMode } from "./group1-label-ocr";
+import { findLabelHighlights, spotlightForLabelHighlight, withLabelRowValues, type LabelHighlight } from "./group1-label-highlight";
+import { labelOcrPages } from "./group1-label-ocr-cache";
 import { labelPdfBytes } from "./group1-label-pdf";
 import { MAX_LABEL_ZOOM, MIN_LABEL_ZOOM, clampLabelZoom, labelRenderGeometry, labelSpotlightScroll, labelZoomForSpotlight, nextLabelZoom } from "./group1-label-render";
 
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
-type PdfPage = import("pdfjs-dist").PDFPageProxy;
 type ZoomAnchor = { pageX: number; pageY: number; viewportX: number; viewportY: number };
 
-export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, expectDailyValue = false, prefetchOnly = false, onScanSettled }: {
+export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, prefetchOnly = false, onScanSettled }: {
   labelId: number; sourceName: string; suggestedFieldName: string;
-  expectDailyValue?: boolean; prefetchOnly?: boolean; onScanSettled?: () => void;
+  prefetchOnly?: boolean; onScanSettled?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -186,150 +185,60 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, ex
 
   useEffect(() => {
     if (!document) return;
-    const controller = new AbortController();
-    const { signal } = controller;
-    const session = createLabelOcrSession(signal);
-    let renderTask: ReturnType<import("pdfjs-dist").PDFPageProxy["render"]> | null = null;
-    let timedOut = false;
-    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 90_000);
+    let cancelled = false;
     manuallyChangedPage.current = false;
     manuallyAdjustedViewRef.current = false;
     autoFocusPendingRef.current = false;
     setHighlightedPage(null);
-    setHint("Finding text on the label automatically…");
+    setHint("Loading saved text positions…");
     void (async () => {
+      const bytes = await labelPdfBytes(labelId);
+      const pages = await labelOcrPages(labelId, bytes);
+      if (cancelled) return;
+      if (!pages) {
+        setHint("No saved text positions match this PDF yet. Please inspect the label manually.");
+        return;
+      }
       let best: { page: number; boxes: LabelHighlight[] } | null = null;
-      let foundViaFallback = false;
-      const scansByPage = new Map<number, LabelOcrPage[]>();
-      const fallbackCandidates: Array<{ page: number; regionIndex: number; region: LabelOcrRegion; score: number }> = [];
-      const scanRegion = async (page: PdfPage, number: number, region: LabelOcrRegion,
-        regionIndex: number, mode: LabelOcrMode) => {
-        const base = page.getViewport({ scale: 1 });
-        const cacheKey = `${labelId}:${number}:${regionIndex}:ocr-v3:${mode}`;
-        let raw = cachedLabelOcr(cacheKey);
-        const maxEdge = regionIndex ? 2000 : 2800;
-        const maxPixels = regionIndex ? 3_500_000 : 6_000_000;
-        const scale = Math.min(maxEdge / Math.max(region.width, region.height),
-          Math.sqrt(maxPixels / (region.width * region.height)));
-        if (!raw) {
-          const viewport = page.getViewport({ scale, offsetX: -region.left * scale, offsetY: -region.top * scale });
-          const image = window.document.createElement("canvas");
-          image.width = Math.ceil(region.width * scale); image.height = Math.ceil(region.height * scale);
-          const context = image.getContext("2d");
-          if (!context) throw new Error("OCR canvas unavailable");
-          try {
-            renderTask = page.render({ canvas: image, canvasContext: context, viewport });
-            await abortable(renderTask.promise, signal);
-            raw = await session.recognize(image, cacheKey, mode);
-          } finally {
-            image.width = 0; image.height = 0;
-          }
-        }
-        if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
-        const placed = placeLabelOcrRegion(raw, region, scale, base.width * scale, base.height * scale);
-        scansByPage.set(number, [...(scansByPage.get(number) ?? []), placed]);
-        return placed;
-      };
-      const pageLimit = Math.min(document.numPages, 12);
-      for (let number = 1; number <= pageLimit; number += 1) {
-        const page = await abortable(document.getPage(number), signal);
-        const base = page.getViewport({ scale: 1 });
-        const regions = labelOcrRegions(base.width, base.height);
-        for (let regionIndex = 0; regionIndex < regions.length; regionIndex += 1) {
-          const region = regions[regionIndex];
-          setHint(`Finding text on the label automatically… page ${number} of ${document.numPages}${regionIndex ? ", detail scan" : ""}`);
-          const result = await scanRegion(page, number, region, regionIndex, "sparse");
-          if (regionIndex) fallbackCandidates.push({ page: number, regionIndex, region,
-            score: fallbackRegionScore(result, sourceName, suggestedFieldName) });
-          const boxes = findLabelHighlights(result, sourceName, suggestedFieldName);
-          const priority = { source: 3, suggested: 2, approximate: 1 };
-          if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
-            best = { page: number, boxes };
-          }
-          // A source match is stronger than any hint based on the proposed field.
-          if (best?.boxes[0].mode === "source") break;
+      const priority = { source: 3, suggested: 2, approximate: 1 };
+      for (let index = 0; index < pages.length; index += 1) {
+        const boxes = findLabelHighlights(pages[index], sourceName, suggestedFieldName);
+        if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
+          best = { page: index + 1, boxes };
         }
         if (best?.boxes[0].mode === "source") break;
       }
-      // The sparse-text layout can skip an entire printed row. Retry only the two most
-      // promising zoomed regions as a single text block; never slow successful source matches.
-      if (best?.boxes[0].mode !== "source") {
-        fallbackCandidates.sort((left, right) => right.score - left.score);
-        for (const candidate of fallbackCandidates.slice(0, 2)) {
-          setHint(`Refining text search on page ${candidate.page} of ${document.numPages}…`);
-          const page = await abortable(document.getPage(candidate.page), signal);
-          const result = await scanRegion(page, candidate.page, candidate.region, candidate.regionIndex, "singleBlock");
-          const boxes = findLabelHighlights(result, sourceName, suggestedFieldName);
-          const priority = { source: 3, suggested: 2, approximate: 1 };
-          if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
-            best = { page: candidate.page, boxes };
-            foundViaFallback = true;
-          }
-          if (best?.boxes[0].mode === "source") break;
-        }
+      if (!best) {
+        setHint("Couldn’t confidently locate this text in the saved scan. Please inspect the label manually.");
+        return;
       }
-      if (best) {
-        let outlined = withLabelRowValues(best.boxes[0], scansByPage.get(best.page) ?? []);
-        const needed = expectDailyValue ? 2 : 1;
-        if ((outlined.relatedBoxes?.length ?? 0) < needed) {
-          const page = await abortable(document.getPage(best.page), signal);
-          const base = page.getViewport({ scale: 1 });
-          const nameLeft = outlined.left;
-          const regions = labelOcrRegions(base.width, base.height).slice(1)
-            .map((region, index) => ({ region, index: index + 1 }))
-            .filter(({ region }) => (region.left + region.width) / base.width * 100 > outlined.left + outlined.width)
-            .sort((a, b) => Math.abs(a.region.left / base.width * 100 - nameLeft)
-              - Math.abs(b.region.left / base.width * 100 - nameLeft));
-          // One or two high-resolution strips may contain columns omitted by the
-          // whole-page OCR. Keep this bounded, and reuse the worker/cache.
-          for (const { region, index } of regions.slice(0, 2)) {
-            setHint(`Checking printed values on page ${best.page} of ${document.numPages}…`);
-            await scanRegion(page, best.page, region, index, "singleBlock");
-            outlined = withLabelRowValues(outlined, scansByPage.get(best.page) ?? []);
-            if ((outlined.relatedBoxes?.length ?? 0) >= needed) break;
-          }
-        }
-        best = { ...best, boxes: [outlined, ...best.boxes.slice(1)] };
+      const outlined = withLabelRowValues(best.boxes[0], [pages[best.page - 1]]);
+      best = { ...best, boxes: [outlined, ...best.boxes.slice(1)] };
+      const spotlight = spotlightForLabelHighlight(outlined);
+      if (!prefetchOnly && !manuallyAdjustedViewRef.current && containerRef.current) {
+        const container = containerRef.current;
+        const page = await document.getPage(best.page);
+        if (cancelled) return;
+        const base = page.getViewport({ scale: 1 });
+        const focusedZoom = labelZoomForSpotlight(base.width, base.height,
+          container.clientWidth, container.clientHeight, spotlight);
+        autoFocusPendingRef.current = true;
+        zoomRef.current = focusedZoom;
+        setZoom(focusedZoom);
       }
-      if (signal.aborted) return;
-      if (best) {
-        const spotlight = spotlightForLabelHighlight(best.boxes[0]);
-        if (!prefetchOnly && !manuallyAdjustedViewRef.current && containerRef.current) {
-          const container = containerRef.current;
-          const page = await abortable(document.getPage(best.page), signal);
-          const base = page.getViewport({ scale: 1 });
-          const focusedZoom = labelZoomForSpotlight(base.width, base.height,
-            container.clientWidth, container.clientHeight, spotlight);
-          autoFocusPendingRef.current = true;
-          zoomRef.current = focusedZoom;
-          setZoom(focusedZoom);
-        }
-        setHighlightedPage(best);
-        if (!manuallyChangedPage.current) setPageNumber(best.page);
-        const qualifier = best.boxes[0].mode === "source" ? "extracted wording"
-          : best.boxes[0].mode === "suggested" ? "suggested-field wording, not the extracted name"
-            : "approximate wording";
-        setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${best.boxes[0].text}” (${qualifier}${foundViaFallback ? ", refined scan" : ""}). Verify it against the label; this is not an approval.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
-      } else {
-        setHint(`Couldn’t confidently locate this text. Please inspect the label manually.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
-      }
+      setHighlightedPage(best);
+      if (!manuallyChangedPage.current) setPageNumber(best.page);
+      const qualifier = outlined.mode === "source" ? "extracted wording"
+        : outlined.mode === "suggested" ? "suggested-field wording, not the extracted name"
+          : "approximate wording";
+      setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${outlined.text}” (${qualifier}, saved scan). Verify it against the label; this is not an approval.`);
     })().catch(() => {
-      if (!signal.aborted || timedOut) {
-        setHint(timedOut ? "Automatic text search timed out. Please inspect the label manually."
-          : "Automatic highlighting is unavailable for this label. You can still review the image.");
-      }
+      if (!cancelled) setHint("Saved text positions are unavailable. Please inspect the label manually.");
     }).finally(() => {
-      window.clearTimeout(timeout);
-      session.dispose();
-      if (!signal.aborted) onScanSettledRef.current?.();
+      if (!cancelled) onScanSettledRef.current?.();
     });
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-      renderTask?.cancel();
-      session.dispose();
-    };
-  }, [document, labelId, sourceName, suggestedFieldName, expectDailyValue, prefetchOnly]);
+    return () => { cancelled = true; };
+  }, [document, labelId, sourceName, suggestedFieldName, prefetchOnly]);
 
   useEffect(() => {
     if (!document || prefetchOnly || !viewSize.width || !viewSize.height) return;

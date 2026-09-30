@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isActionableReview, nextPendingTask, upcomingPendingTasks } from '../app/admin/catalog/group1-review-queue.ts';
+import { actionableReviewSpan, isActionableReview, nextPendingTask, upcomingPendingTasks } from '../app/admin/catalog/group1-review-queue.ts';
 
 const tasks = [
   { id: 'a', status: 'pending' },
@@ -28,4 +28,20 @@ assert.equal(isActionableReview(rechecks[2]), false, 'escalation needs a differe
 assert.deepEqual(upcomingPendingTasks(rechecks, '', new Set(), 0, 3).map((task) => task.id), ['old', 'new']);
 assert.equal(nextPendingTask(rechecks, 'old', new Set())?.id, 'new');
 assert.equal(nextPendingTask(rechecks, '', new Set(['old']))?.id, 'new');
+assert.deepEqual(actionableReviewSpan(rechecks), { first: 0, last: 1, count: 2 }, 'rechecks count as actionable');
+const sparse = [
+  { id: 'done-first', status: 'accepted' },
+  { id: 'open-first', status: 'pending' },
+  { id: 'done-middle', status: 'not_group1' },
+  { id: 'escalated-middle', status: 'escalated', needsRecheck: true },
+  { id: 'open-last', status: 'accepted', needsRecheck: true },
+  { id: 'done-last', status: 'accepted' },
+];
+assert.deepEqual(actionableReviewSpan(sparse), { first: 1, last: 4, count: 2 }, 'span preserves stable batch positions');
+assert.equal(nextPendingTask(sparse, 'open-first', new Set(), 1, 4)?.id, 'open-last', 'completed rows inside the range are skipped');
+sparse[1].status = 'accepted';
+assert.deepEqual(actionableReviewSpan(sparse), { first: 4, last: 4, count: 1 }, 'suggestion shrinks after refresh');
+assert.equal(nextPendingTask(sparse, '', new Set(), 1, 4)?.id, 'open-last', 'the assigned range still works unchanged');
+sparse[4].needsRecheck = false;
+assert.equal(actionableReviewSpan(sparse), null, 'no pending span when all work is complete');
 console.log('Group 1 range and queue tests passed.');

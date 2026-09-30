@@ -13,6 +13,8 @@ try {
   assert.deepEqual(first, second);
   await labelPdfBytes(902001);
   assert.equal(requests, 1, 'opening a preloaded label should use its memory cache');
+  await labelPdfBytes(902002);
+  assert.equal(requests, 2, 'a new label loads from the existing NIH PDF proxy');
 } finally {
   globalThis.fetch = originalFetch;
 }

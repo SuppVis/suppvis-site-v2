@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Group1LabelPreview } from "./Group1LabelPreview";
 import { labelPdfBytes } from "./group1-label-pdf";
-import { isActionableReview, nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
+import { actionableReviewSpan, isActionableReview, nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
 import {
   getReviewList,
   getReviewTask,
@@ -64,8 +64,8 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   const [batchKey, setBatchKey] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [range, setRange] = useState({ first: 0, last: -1 });
-  const [rangeStartInput, setRangeStartInput] = useState("1");
-  const [rangeEndInput, setRangeEndInput] = useState("346");
+  const [rangeStartInput, setRangeStartInput] = useState("");
+  const [rangeEndInput, setRangeEndInput] = useState("");
   const [detail, setDetail] = useState<ReviewTaskDetail | null>(null);
   const [skippedIds, setSkippedIds] = useState<Set<string>>(() => new Set());
   const [scanReadyFor, setScanReadyFor] = useState("");
@@ -84,7 +84,8 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const pendingCount = tasks.filter(isActionableReview).length;
+  const actionableSpan = actionableReviewSpan(tasks);
+  const pendingCount = actionableSpan?.count ?? 0;
   const rangePendingCount = tasks.slice(range.first, range.last + 1).filter(isActionableReview).length;
   const recheckCount = tasks.filter((task) => task.needsRecheck).length;
   const escalatedCount = tasks.filter((task) => task.status === "escalated").length;
@@ -100,7 +101,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
 
   useEffect(() => {
     if (mode !== "queue") return;
-    // Download the next two labels immediately; OCR them sequentially after the visible scan settles.
+    // Download the next two labels immediately; fetch their saved OCR positions after the visible label settles.
     for (const task of upcoming) void labelPdfBytes(task.dsldLabelId).catch(() => {});
   }, [mode, upcoming]);
 
@@ -126,8 +127,12 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
       }
       setRange(selectedRange);
       window.sessionStorage.setItem(rangeKey, JSON.stringify(selectedRange));
-      setRangeStartInput(String(selectedRange.first + 1));
-      setRangeEndInput(String(selectedRange.last + 1));
+      // Suggest the remaining span on each selector load without changing an active tab's assigned range.
+      const suggestedSpan = actionableReviewSpan(result.tasks);
+      setRangeStartInput(mode === "selector" ? (suggestedSpan ? String(suggestedSpan.first + 1) : "")
+        : String(selectedRange.first + 1));
+      setRangeEndInput(mode === "selector" ? (suggestedSpan ? String(suggestedSpan.last + 1) : "")
+        : String(selectedRange.last + 1));
       if (mode === "queue") {
         const openTaskKey = `group1-review-open-task:${result.batchKey}`;
         const requestedTaskId = window.sessionStorage.getItem(openTaskKey);
@@ -225,9 +230,13 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   async function applyRange() {
     const first = Number(rangeStartInput);
     const last = Number(rangeEndInput);
+    if (!actionableSpan) {
+      setError("No review occurrences remain. Refresh the selector if another admin has added work.");
+      return;
+    }
     if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)
-      || first < 1 || last > tasks.length || first > last) {
-      setError(`Choose a range from 1 to ${tasks.length}, with the start before the end.`);
+      || first < actionableSpan.first + 1 || last > actionableSpan.last + 1 || first > last) {
+      setError(`Choose a range from ${actionableSpan.first + 1} to ${actionableSpan.last + 1}, with the start before the end.`);
       return;
     }
     setRangeLoading(true);
@@ -293,21 +302,25 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
         <p className="mt-2 text-sm text-text-secondary">
           Review one DSLD label occurrence at a time. These decisions do not approve a name globally or write catalog nutrition facts yet.
         </p>
-        <p className="mt-2 text-xs text-text-muted">{pendingCount} to review of {tasks.length} occurrences · {recheckCount} rechecks · {escalatedCount} escalated · queue {batchKey}</p>
+        <p className="mt-2 text-xs text-text-muted">{actionableSpan
+          ? `${pendingCount} to review, spanning occurrences #${actionableSpan.first + 1}–#${actionableSpan.last + 1} of ${tasks.length}`
+          : `0 to review of ${tasks.length} occurrences`} · {recheckCount} rechecks · {escalatedCount} escalated · queue {batchKey}</p>
         <div className="mt-4 flex flex-wrap items-end gap-3 rounded border border-white/10 bg-[#080D12] p-3">
           <label className="text-xs font-semibold">Start at occurrence
-            <input type="number" min="1" max={tasks.length} value={rangeStartInput} onChange={(event) => setRangeStartInput(event.target.value)}
+            <input type="number" min={actionableSpan ? actionableSpan.first + 1 : undefined} max={actionableSpan ? actionableSpan.last + 1 : undefined}
+              value={rangeStartInput} onChange={(event) => setRangeStartInput(event.target.value)}
               className={`${inputClass} mt-1 w-28`} />
           </label>
           <label className="text-xs font-semibold">End at occurrence
-            <input type="number" min="1" max={tasks.length} value={rangeEndInput} onChange={(event) => setRangeEndInput(event.target.value)}
+            <input type="number" min={actionableSpan ? actionableSpan.first + 1 : undefined} max={actionableSpan ? actionableSpan.last + 1 : undefined}
+              value={rangeEndInput} onChange={(event) => setRangeEndInput(event.target.value)}
               className={`${inputClass} mt-1 w-28`} />
           </label>
-          <button type="button" onClick={applyRange} disabled={rangeLoading || saving}
+          <button type="button" onClick={applyRange} disabled={rangeLoading || saving || !actionableSpan}
             className="rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent disabled:opacity-40">
             {rangeLoading ? "Refreshing…" : "Start / refresh range"}
           </button>
-          <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your range is remembered in this tab and stops at the end number; this button refreshes completed tasks. An overlapping decision is blocked at save.</p>
+          <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your chosen range stays fixed during review; returning here refreshes the suggested remaining span. Completed rows within your range are skipped, and overlapping decisions are blocked at save.</p>
         </div>
         {escalatedCount ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
           <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalatedCount})</summary>
@@ -393,45 +406,53 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
                 </div>
                 <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
                   sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName}
-                  expectDailyValue={sourceQuantities.some((quantity) => quantity.dailyValueTargetGroup?.some(
-                    (target) => target.percent != null || Boolean(target.footnote?.trim())))}
                   onScanSettled={() => setScanReadyFor(detail.id)} />
               </div>
               <div className="space-y-4">
                 <div className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-sm">
-                  <h4 className="font-semibold text-amber-200">Verify amount, unit, and % Daily Value</h4>
-                  <p className="mt-1 text-xs text-text-secondary">Check the label. “Not recorded” is not zero.</p>
-                  {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
-                    <div key={index} className="mt-3 rounded border border-white/10 bg-[#080D12] p-3">
-                      <p className="font-semibold text-text-primary">{quantity.servingSizeQuantity == null
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-amber-200">Verify amount, unit &amp; % DV</h4>
+                      <p className="mt-0.5 text-xs text-text-secondary">Check the label. “Not recorded” is not zero.</p>
+                    </div>
+                    {sourceQuantities.length === 1 ? <p className="shrink-0 text-right text-xs font-medium text-text-primary">
+                      {sourceQuantities[0].servingSizeQuantity == null
                         ? "Serving size not recorded"
-                        : `Based on serving size of ${quantity.servingSizeQuantity} ${quantity.servingSizeUnit ?? ""}`.trim()}</p>
-                      {sourceQuantities.length > 1 ? <p className="mt-1 text-xs text-text-muted">DSLD value {index + 1} of {sourceQuantities.length}</p> : null}
-                      <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)] gap-2">
-                        <div className="rounded border border-white/10 p-2">
+                        : `Based on serving size of ${sourceQuantities[0].servingSizeQuantity} ${sourceQuantities[0].servingSizeUnit ?? ""}`.trim()}
+                    </p> : null}
+                  </div>
+                  {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
+                    <div key={index} className="mt-3">
+                      {sourceQuantities.length > 1 ? <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
+                        <span className="text-text-muted">DSLD value {index + 1} of {sourceQuantities.length}</span>
+                        <span className="text-right font-medium text-text-primary">{quantity.servingSizeQuantity == null
+                          ? "Serving size not recorded"
+                          : `Based on serving size of ${quantity.servingSizeQuantity} ${quantity.servingSizeUnit ?? ""}`.trim()}</span>
+                      </div> : null}
+                      <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)] divide-x divide-white/10 rounded border border-white/10 bg-[#080D12]">
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 px-2 py-2">
                           <dt className="text-xs text-text-muted">Amount</dt>
-                          <dd className="mt-1 font-semibold text-text-primary">{quantity.quantity == null ? "Not recorded" : quantity.quantity}</dd>
+                          <dd className="break-words font-semibold text-text-primary">
+                            {nonEqualityOperator(quantity.operator) ? <span aria-label="Amount operator" className="mr-1">{nonEqualityOperator(quantity.operator)}</span> : null}
+                            {quantity.quantity == null ? "Not recorded" : quantity.quantity}
+                          </dd>
                         </div>
-                        <div className="rounded border border-white/10 p-2">
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 px-2 py-2">
                           <dt className="text-xs text-text-muted">Unit</dt>
-                          <dd className="mt-1 font-semibold text-text-primary">{quantity.unit?.trim() || "Not recorded"}</dd>
+                          <dd className="break-words font-semibold text-text-primary">{quantity.unit?.trim() || "Not recorded"}</dd>
                         </div>
-                        <div className="min-w-0 rounded border border-white/10 p-2">
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 px-2 py-2">
                           <dt className="text-xs text-text-muted">% DV</dt>
-                          <dd className="mt-1 space-y-2 break-words font-semibold text-text-primary">
+                          <dd className="min-w-0 break-words font-semibold text-text-primary">
                             {quantity.dailyValueTargetGroup?.length ? quantity.dailyValueTargetGroup.map((target, targetIndex) =>
                               <div key={targetIndex}>
-                                {target.name ? <span className="block text-xs font-normal text-text-secondary">{target.name}</span> : null}
+                                {target.name ? <span className="mr-1 text-xs font-normal text-text-secondary">{target.name}:</span> : null}
                                 <span>{target.percent == null ? target.footnote?.trim() || "Not recorded" : `${target.percent}%`}</span>
                                 {nonEqualityOperator(target.operator) ? <span className="ml-2 text-xs font-normal text-text-secondary">DV operator: {nonEqualityOperator(target.operator)}</span> : null}
                               </div>
                             ) : "Not recorded"}
                           </dd>
                         </div>
-                        {nonEqualityOperator(quantity.operator) ? <div className="col-span-3 rounded border border-white/10 p-2">
-                          <dt className="text-xs text-text-muted">Amount operator</dt>
-                          <dd className="mt-1 font-semibold text-text-primary">{nonEqualityOperator(quantity.operator)}</dd>
-                        </div> : null}
                       </dl>
                     </div>
                   ) : <p className="mt-2 text-text-muted">No source quantity or Daily Value.</p>}

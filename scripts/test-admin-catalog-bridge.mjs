@@ -48,6 +48,9 @@ assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/products/sea
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/templates/ocr"), true);
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review"), true);
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review/tasks/123e4567-e89b-42d3-a456-426614174000"), true);
+assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review/labels/258886/ocr"), true);
+assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review/labels/0/ocr"), false);
+assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review/labels/258886/pdf"), false);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/group1-review/tasks/123e4567-e89b-42d3-a456-426614174000/decisions"), true);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/group1-review"), false);
 assert.equal(isCatalogBridgeRouteAllowed("DELETE", "/api/admin/catalog/group1-review/tasks/123e4567-e89b-42d3-a456-426614174000"), false);

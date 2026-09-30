@@ -4,6 +4,20 @@ export function isActionableReview(task: ReviewTask): boolean {
   return task.status === "pending" || (task.needsRecheck && task.status !== "escalated");
 }
 
+/** Stable batch positions bounding the currently actionable rows; completed rows may lie between them. */
+export function actionableReviewSpan(tasks: ReviewTask[]): { first: number; last: number; count: number } | null {
+  let first = -1;
+  let last = -1;
+  let count = 0;
+  tasks.forEach((task, index) => {
+    if (!isActionableReview(task)) return;
+    if (first < 0) first = index;
+    last = index;
+    count += 1;
+  });
+  return first < 0 ? null : { first, last, count };
+}
+
 /** The review batch is already ordered by proposed field, then printed name. */
 export function nextPendingTask(tasks: ReviewTask[], afterId: string, skipped: ReadonlySet<string>,
   first = 0, last = tasks.length - 1): ReviewTask | undefined {
