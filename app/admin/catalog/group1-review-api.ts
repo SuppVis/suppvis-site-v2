@@ -23,7 +23,7 @@ export type SourceQuantity = {
   unit?: string | null;
   servingSizeQuantity?: number | null;
   servingSizeUnit?: string | null;
-  dailyValueTargetGroup?: Array<{ name?: string; percent?: number | null; operator?: string }>;
+  dailyValueTargetGroup?: Array<{ name?: string; percent?: number | null; operator?: string; footnote?: string | null }>;
 };
 export type ReviewDecision = {
   taskRevision: number;

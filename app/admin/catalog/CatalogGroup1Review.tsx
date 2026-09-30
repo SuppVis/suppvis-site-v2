@@ -36,15 +36,9 @@ function numberOrNull(value: string): number | null {
   return number;
 }
 
-function quantitySummary(quantity: SourceQuantity) {
-  const amount = quantity.quantity;
-  const value = amount === null || amount === undefined ? "No amount" : `${quantity.operator ?? ""}${amount}`;
-  const serving = quantity.servingSizeQuantity != null
-    ? ` per ${quantity.servingSizeQuantity} ${quantity.servingSizeUnit ?? ""}` : "";
-  const dv = quantity.dailyValueTargetGroup?.map((target) =>
-    target.percent == null ? null : `${target.percent}% DV (${target.name ?? "target group"})`
-  ).filter(Boolean).join(", ");
-  return `${value} ${quantity.unit ?? ""}${serving}${dv ? ` · ${dv}` : ""}`;
+function nonEqualityOperator(operator?: string | null) {
+  const value = operator?.trim();
+  return value && value !== "=" ? value : null;
 }
 
 function statusLabel(status: ReviewTask["status"]) {
@@ -75,6 +69,7 @@ export default function CatalogGroup1Review() {
   const [preloadStep, setPreloadStep] = useState(0);
   const [outcome, setOutcome] = useState<ReviewOutcome | "">("");
   const [fieldKey, setFieldKey] = useState("");
+  const [fieldEditorOpen, setFieldEditorOpen] = useState(false);
   const [reviewerNote, setReviewerNote] = useState("");
   const [correctQuantity, setCorrectQuantity] = useState(false);
   const [editedQuantities, setEditedQuantities] = useState<EditableQuantity[]>([]);
@@ -154,6 +149,7 @@ export default function CatalogGroup1Review() {
     const last = detail.decisions[0];
     setOutcome(detail.status === "pending" || detail.needsRecheck ? "" : detail.status);
     setFieldKey(detail.needsRecheck ? detail.suggestedFieldKey : (detail.selectedFieldKey ?? detail.suggestedFieldKey));
+    setFieldEditorOpen(!detail.needsRecheck && Boolean(detail.selectedFieldKey && detail.selectedFieldKey !== detail.suggestedFieldKey));
     // A new revision needs its own explanation; never copy an earlier reviewer's note.
     setReviewerNote("");
     setCorrectQuantity(!detail.needsRecheck && Boolean(last?.correctedValues));
@@ -336,6 +332,22 @@ export default function CatalogGroup1Review() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-accent">Our suggested field</p>
                   <p className="mt-2 break-words text-xl font-bold text-text-primary">{detail.suggestedFieldName}</p>
                   <p className="mt-2 text-xs text-text-secondary">Canonical nutrition field proposed for this row.</p>
+                  {outcome === "accepted" && fieldKey !== detail.suggestedFieldKey ? <p className="mt-2 text-sm text-text-primary">
+                    Selected instead: <span className="font-semibold">{fields.find((field) => field.fieldKey === fieldKey)?.displayName ?? fieldKey}</span>
+                  </p> : null}
+                  <button type="button" aria-expanded={fieldEditorOpen} aria-controls="group1-field-editor"
+                    onClick={() => setFieldEditorOpen((open) => !open)}
+                    className="mt-3 text-left text-sm font-semibold text-accent underline underline-offset-2 hover:text-accent/80">
+                    {fieldEditorOpen ? "Hide field choices" : "Change to a different Group 1 field"}
+                  </button>
+                  {fieldEditorOpen ? <div id="group1-field-editor" className="mt-3">
+                    <label className="block text-sm font-semibold">Group 1 field
+                      <select value={fieldKey} onChange={(event) => { setFieldKey(event.target.value); setOutcome("accepted"); }} className={`${inputClass} mt-1`}>
+                        {fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.displayName}</option>)}
+                      </select>
+                    </label>
+                    <p className="mt-2 text-xs text-text-secondary">Choosing a field selects “Group 1 field” as the decision below.</p>
+                  </div> : null}
                 </div>
               </div>
               <p className="mt-2 text-xs text-text-muted">DSLD wording may differ from the printed image.</p>
@@ -354,37 +366,51 @@ export default function CatalogGroup1Review() {
               <div className="space-y-4 md:max-h-[650px] md:overflow-y-auto md:pr-1">
                 <div className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-sm">
                   <h4 className="font-semibold text-amber-200">Verify amount, unit, and % Daily Value</h4>
-                  <p className="mt-1 text-xs text-text-secondary">Compare these DSLD-extracted values with the original label at left. A blank % DV means none was recorded; it is not zero.</p>
+                  <p className="mt-1 text-xs text-text-secondary">Compare these DSLD-extracted values with the original label at left. “Not recorded” is different from zero.</p>
                   {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
-                    <div key={index} className="mt-3 rounded border border-white/10 bg-[#080D12] p-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">DSLD value {index + 1}</p>
-                      <p className="mt-1 break-words font-semibold text-text-primary">{quantitySummary(quantity)}</p>
+                    <div key={index} className="mt-3 rounded border border-white/10 bg-[#080D12] p-3">
+                      <p className="font-semibold text-text-primary">{quantity.servingSizeQuantity == null
+                        ? "Serving size not recorded"
+                        : `Based on serving size of ${quantity.servingSizeQuantity} ${quantity.servingSizeUnit ?? ""}`.trim()}</p>
+                      {sourceQuantities.length > 1 ? <p className="mt-1 text-xs text-text-muted">DSLD value {index + 1} of {sourceQuantities.length}</p> : null}
+                      <dl className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">Amount</dt>
+                          <dd className="mt-1 font-semibold text-text-primary">{quantity.quantity == null ? "Not recorded" : quantity.quantity}</dd>
+                        </div>
+                        <div className="rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">Unit</dt>
+                          <dd className="mt-1 font-semibold text-text-primary">{quantity.unit?.trim() || "Not recorded"}</dd>
+                        </div>
+                        {nonEqualityOperator(quantity.operator) ? <div className="col-span-2 rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">Amount operator</dt>
+                          <dd className="mt-1 font-semibold text-text-primary">{nonEqualityOperator(quantity.operator)}</dd>
+                        </div> : null}
+                        <div className="col-span-2 rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">% Daily Value</dt>
+                          <dd className="mt-1 space-y-2 font-semibold text-text-primary">
+                            {quantity.dailyValueTargetGroup?.length ? quantity.dailyValueTargetGroup.map((target, targetIndex) =>
+                              <div key={targetIndex}>
+                                {target.name ? <span className="block text-xs font-normal text-text-secondary">{target.name}</span> : null}
+                                <span>{target.percent == null ? target.footnote?.trim() || "Not recorded" : `${target.percent}%`}</span>
+                                {nonEqualityOperator(target.operator) ? <span className="ml-2 text-xs font-normal text-text-secondary">DV operator: {nonEqualityOperator(target.operator)}</span> : null}
+                              </div>
+                            ) : "Not recorded"}
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
                   ) : <p className="mt-2 text-text-muted">No source quantity or Daily Value.</p>}
                   {detail.sourceRow.notes ? <p className="mt-2 text-xs text-text-muted">Source note: {detail.sourceRow.notes}</p> : null}
-                </div>
-                <fieldset className="space-y-2">
-                  <legend className="mb-2 font-semibold">Decision for this occurrence</legend>
-                  {decisions.map((choice) => <label key={choice.value} className={choiceClass}>
-                    <input type="radio" name="group1-outcome" value={choice.value} checked={outcome === choice.value}
-                      onChange={() => setOutcome(choice.value)} className="mt-1 accent-emerald-400" />
-                    <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
-                  </label>)}
-                </fieldset>
-                {outcome === "accepted" ? <div className="space-y-3 rounded border border-accent/25 p-3">
-                  <label className="block text-sm font-semibold">Group 1 field
-                    <select value={fieldKey} onChange={(event) => setFieldKey(event.target.value)} className={`${inputClass} mt-1`}>
-                      {fields.map((field) => <option key={field.fieldKey} value={field.fieldKey}>{field.displayName}</option>)}
-                    </select>
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2 rounded border border-white/15 bg-[#080D12] p-3 text-sm font-semibold">
-                    <input type="checkbox" checked={correctQuantity} onChange={(event) => setCorrectQuantity(event.target.checked)}
-                      className="accent-emerald-400" /> The printed amount, unit, or % DV differs from DSLD — edit it
-                  </label>
-                  {correctQuantity ? <div className="space-y-3">
-                    <p className="text-xs text-text-secondary">Enter the values to save for this occurrence. Leave % DV blank if the label does not state one; enter 0 only when it says 0%.</p>
-                    {editedQuantities.map((item, index) => <div key={index} className="rounded border border-accent/25 bg-accent/5 p-3">
-                      <p className="mb-2 text-xs font-semibold text-accent">Corrected value {index + 1}{sourceQuantities[index]?.servingSizeQuantity != null
+                  <button type="button" aria-expanded={correctQuantity} aria-controls="group1-quantity-editor"
+                    onClick={() => { setCorrectQuantity((open) => !open); if (!correctQuantity) setOutcome("accepted"); }}
+                    className="mt-3 text-left text-sm font-semibold text-amber-200 underline underline-offset-2 hover:text-amber-100">
+                    {correctQuantity ? "Hide value corrections" : "Edit printed amount, unit, or % DV"}
+                  </button>
+                  {correctQuantity ? <div id="group1-quantity-editor" className="mt-3 space-y-3">
+                    <p className="text-xs text-text-secondary">Editing values selects “Group 1 field” as the decision below. Leave % DV blank if the label does not state one; enter 0 only when it says 0%.</p>
+                    {editedQuantities.map((item, index) => <div key={index} className="rounded border border-amber-400/25 bg-[#080D12] p-3">
+                      <p className="mb-2 text-xs font-semibold text-amber-200">Corrected value {index + 1}{sourceQuantities[index]?.servingSizeQuantity != null
                         ? ` · per ${sourceQuantities[index].servingSizeQuantity} ${sourceQuantities[index].servingSizeUnit ?? ""}` : ""}</p>
                       <div className="grid grid-cols-2 gap-2">
                         <label className="text-xs">Amount<input className={`${inputClass} mt-1`} type="number" min="0" step="any" value={item.amount}
@@ -403,7 +429,18 @@ export default function CatalogGroup1Review() {
                         placeholder="What differs on the printed label?" />
                     </label>
                   </div> : null}
-                </div> : null}
+                </div>
+                <fieldset className="space-y-2">
+                  <legend className="mb-2 font-semibold">Decision for this occurrence</legend>
+                  {decisions.map((choice) => <label key={choice.value} className={choiceClass}>
+                    <input type="radio" name="group1-outcome" value={choice.value} checked={outcome === choice.value}
+                      onChange={() => {
+                        setOutcome(choice.value);
+                        if (choice.value !== "accepted") { setFieldEditorOpen(false); setCorrectQuantity(false); }
+                      }} className="mt-1 accent-emerald-400" />
+                    <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
+                  </label>)}
+                </fieldset>
                 <label className="block text-sm font-semibold">Reviewer note {detail.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
                   || (outcome === "accepted" && fieldKey !== detail.suggestedFieldKey) ? "(required)" : "(optional)"}
                   <textarea className={`${inputClass} mt-1 min-h-20`} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
