@@ -91,7 +91,12 @@ function sameRowValueBoxes(page: LabelOcrPage, name: LabelWord["box"]): LabelPer
     && Math.min(word.box.y1, name.y1) - Math.max(word.box.y0, name.y0)
       >= Math.min(rowHeight, word.box.y1 - word.box.y0) * 0.5)
     .sort((a, b) => a.box.x0 - b.box.x0);
-  const isNumber = (text: string) => /\d/.test(text) && /^[<>≈~≤≥]?\s*[\d.,]+(?:\s*(?:mg|g|mcg|µg|ug|iu|kcal|cal|%))?[%*]?$/i.test(text.trim());
+  const isNumber = (text: string) => {
+    // On small facts-panel type, Tesseract sometimes reads a printed zero as O
+    // (for example "0 g" becomes "Og"). Only correct it before a known unit.
+    const amount = text.trim().replace(/^o(?=\s*(?:mg|g|mcg|µg|ug|iu|kcal|cal|%))/i, "0");
+    return /\d/.test(amount) && /^[<>≈~≤≥]?\s*[\d.,]+(?:\s*(?:mg|g|mcg|µg|ug|iu|kcal|cal|%))?[%*]?$/i.test(amount);
+  };
   const isUnit = (text: string) => /^(?:mg|g|mcg|µg|ug|iu|kcal|cal|%)$/i.test(text.trim());
   const numeric: LabelWord[] = [];
   for (const word of sameRow.filter((item) => isNumber(item.text))) {

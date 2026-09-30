@@ -30,6 +30,15 @@ const rowSpot = spotlightForLabelHighlight(rowMatch);
 assert.ok(rowSpot.left <= rowMatch.left && rowSpot.left + rowSpot.width >= rowMatch.relatedBoxes[1].left + rowMatch.relatedBoxes[1].width,
   'spotlight covers the name and the printed values');
 assert.ok(rowMatch.relatedBoxes.every((box) => box.left < 90), 'a numeric word on the next row is excluded');
+const misreadZero = page([
+  [valueWord('Net', 100), valueWord('Carbohydrates', 145)],
+  [valueWord('Og', 500), valueWord('0%', 800)],
+]);
+assert.equal(findLabelHighlights(misreadZero, 'Net Carbohydrates', 'Net Carbohydrates')[0].relatedBoxes.length, 2,
+  'OCR reading a printed 0 g as Og still outlines the amount and %DV');
+assert.equal(findLabelHighlights(page([[valueWord('Net', 100), valueWord('Carbohydrates', 145), valueWord('Organic', 500)]]),
+  'Net Carbohydrates', 'Net Carbohydrates')[0].relatedBoxes.length, 0,
+  'the zero correction must not treat words beginning with O as amounts');
 assert.equal(findLabelHighlights(page([[word('Calories', 20)], [valueWord('50', 700, 135)]]), 'Calories', 'Calories')[0].relatedBoxes.length, 0,
   'do not outline a value when it cannot be aligned to the printed row');
 const nameAndAmount = page([[valueWord('Net', 100), valueWord('Carbohydrates', 145), valueWord('0', 500)]]);

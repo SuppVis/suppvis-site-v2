@@ -32,6 +32,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   const [zoom, setZoom] = useState(1);
   const [renderRevision, setRenderRevision] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [showSpotlight, setShowSpotlight] = useState(true);
   const [hint, setHint] = useState("Finding text on the label automatically…");
   const [highlightedPage, setHighlightedPage] = useState<{ page: number; boxes: LabelHighlight[] } | null>(null);
   const firstHighlightRef = useRef<HTMLSpanElement>(null);
@@ -364,6 +365,11 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
           className="min-w-32 rounded border border-slate-300 px-2 py-1">{Math.round(zoom * 100)}% · {zoom > 1.01 ? "Fit page" : "Whole page"}</button>
         <button type="button" aria-label="Zoom in" disabled={zoom >= MAX_LABEL_ZOOM - 0.01} onClick={() => zoomFromCenter(nextLabelZoom(zoom, 1))}
           className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40">+</button>
+        <button type="button" aria-pressed={showSpotlight} disabled={!spotlight}
+          onClick={() => setShowSpotlight((value) => !value)}
+          className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">
+          {showSpotlight ? "Hide spotlight" : "Show spotlight"}
+        </button>
         <button type="button" onClick={() => setExpanded((value) => !value)}
           className="rounded border border-slate-300 px-2 py-1">{expanded ? "Close expanded view" : "Expand label"}</button>
         <span className="text-xs text-slate-500">Pinch to zoom</span>
@@ -376,7 +382,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
         {error ? <p className="p-6 text-sm">Preview unavailable. Use “Open label PDF” above.</p> : null}
         <div ref={pageRef} className={`relative mx-auto ${loading || error ? "hidden" : "block"}`}>
           <canvas ref={canvasRef} aria-label={`DSLD label ${labelId}, page ${pageNumber}`} className="block" />
-          {spotlight ? <span aria-hidden="true" className="pointer-events-none absolute z-10 rounded-md border border-white/85"
+          {showSpotlight && spotlight ? <span aria-hidden="true" className="pointer-events-none absolute z-10 rounded-md border border-white/85"
             style={{ left: `${spotlight.left}%`, top: `${spotlight.top}%`, width: `${spotlight.width}%`, height: `${spotlight.height}%`,
               boxShadow: "0 0 0 9999px rgba(7, 12, 20, 0.68)" }} /> : null}
           {visibleBox ? <span ref={firstHighlightRef} role="img" aria-label={`Possible text location: ${visibleBox.text}`}
