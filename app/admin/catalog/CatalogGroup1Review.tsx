@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Group1LabelPreview } from "./Group1LabelPreview";
@@ -59,6 +59,7 @@ function editableSourceQuantities(quantities: SourceQuantity[]): EditableQuantit
 
 export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "selector" | "queue" }) {
   const router = useRouter();
+  const productNameRef = useRef<HTMLHeadingElement>(null);
   const [fields, setFields] = useState<ReviewField[]>([]);
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [batchKey, setBatchKey] = useState("");
@@ -98,6 +99,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   const sourceQuantities = Array.isArray(detail?.sourceRow.quantity) ? detail.sourceRow.quantity : [];
   const selectedFieldName = fields.find((field) => field.fieldKey === fieldKey)?.displayName
     ?? (fieldKey === detail?.suggestedFieldKey ? detail.suggestedFieldName : fieldKey);
+  const loadedTaskId = detail?.id;
   const reviewerNoteRequired = Boolean(detail?.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
     || (outcome === "accepted" && detail && fieldKey !== detail.suggestedFieldKey));
 
@@ -167,8 +169,9 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   }, [mode, selectedTaskId]);
 
   useEffect(() => {
-    if (mode === "queue" && selectedTaskId) window.scrollTo({ top: 0, behavior: "auto" });
-  }, [mode, selectedTaskId]);
+    if (mode !== "queue" || !loadedTaskId || loadedTaskId !== selectedTaskId) return;
+    productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [mode, selectedTaskId, loadedTaskId]);
 
   useEffect(() => {
     if (!detail) return;
@@ -363,7 +366,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
               <p className="mt-1 text-xs text-text-secondary">Choose a new outcome and explain it in a reviewer note. Amount edits were reset to the DSLD source for safety; compare any previous correction with this exact label before re-entering it.</p>
             </div> : null}
             <div>
-              <h3 className="font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
+              <h3 ref={productNameRef} className="scroll-mt-4 font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
               <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}</p>
               <div className="mt-4 grid items-start gap-3 sm:grid-cols-[1fr_auto_1fr]">
                 <div className="rounded border border-amber-400/35 bg-amber-400/5 p-3">
@@ -448,9 +451,8 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
                           <dd className="min-w-0 break-words font-semibold text-text-primary">
                             {quantity.dailyValueTargetGroup?.length ? quantity.dailyValueTargetGroup.map((target, targetIndex) =>
                               <div key={targetIndex}>
-                                {target.name ? <span className="mr-1 text-xs font-normal text-text-secondary">{target.name}:</span> : null}
-                                <span>{target.percent == null ? target.footnote?.trim() || "Not recorded" : `${target.percent}%`}</span>
-                                {nonEqualityOperator(target.operator) ? <span className="ml-2 text-xs font-normal text-text-secondary">DV operator: {nonEqualityOperator(target.operator)}</span> : null}
+                                {target.percent == null ? target.footnote?.trim() || "Not recorded"
+                                  : `${nonEqualityOperator(target.operator) ?? ""}${target.percent}%`}
                               </div>
                             ) : "Not recorded"}
                           </dd>
