@@ -39,3 +39,26 @@ export function labelRenderGeometry(baseWidth: number, baseHeight: number, avail
     bitmapHeight: Math.max(1, Math.floor(height * outputScale)),
   };
 }
+
+type PercentBox = { left: number; top: number; width: number; height: number };
+
+/** Fit the broad spotlight inside the preview with visible page context around it. */
+export function labelZoomForSpotlight(baseWidth: number, baseHeight: number,
+  availableWidth: number, availableHeight: number, spotlight: PercentBox, padding = 32) {
+  if (!(baseWidth > 0 && baseHeight > 0 && availableWidth > 0 && availableHeight > 0
+    && spotlight.width > 0 && spotlight.height > 0)) return MIN_LABEL_ZOOM;
+  const fit = labelRenderGeometry(baseWidth, baseHeight, availableWidth, availableHeight, 1, 1);
+  const width = fit.width * spotlight.width / 100;
+  const height = fit.height * spotlight.height / 100;
+  return clampLabelZoom(Math.min((availableWidth - 2 * padding) / width,
+    (availableHeight - 2 * padding) / height));
+}
+
+/** Center the spotlight after the zoomed PDF canvas finishes rendering. */
+export function labelSpotlightScroll(pageWidth: number, pageHeight: number,
+  availableWidth: number, availableHeight: number, spotlight: PercentBox) {
+  return {
+    left: Math.max(0, pageWidth * (spotlight.left + spotlight.width / 2) / 100 - availableWidth / 2),
+    top: Math.max(0, pageHeight * (spotlight.top + spotlight.height / 2) / 100 - availableHeight / 2),
+  };
+}

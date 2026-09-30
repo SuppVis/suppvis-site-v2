@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { LABEL_ZOOM_LEVELS, clampLabelZoom, labelRenderGeometry, nextLabelZoom } from '../app/admin/catalog/group1-label-render.ts';
+import { LABEL_ZOOM_LEVELS, clampLabelZoom, labelRenderGeometry, labelSpotlightScroll, labelZoomForSpotlight, nextLabelZoom } from '../app/admin/catalog/group1-label-render.ts';
 
 assert.deepEqual(LABEL_ZOOM_LEVELS, [1, 1.5, 2, 3, 4]);
 assert.equal(clampLabelZoom(0.2), 1);
@@ -21,6 +21,16 @@ assert.ok(panorama.width <= 684 && panorama.height < 520, 'a wide label fits wit
 const huge = labelRenderGeometry(600, 800, 1400, 1000, 4, 3);
 assert.ok(huge.bitmapWidth * huge.bitmapHeight <= 24_000_000, 'large pages stay within the canvas budget');
 assert.ok(Math.max(huge.bitmapWidth, huge.bitmapHeight) <= 8192);
+const spotlight = { left: 60, top: 20, width: 30, height: 52 };
+const focusedZoom = labelZoomForSpotlight(459, 342, 444, 520, spotlight);
+assert.ok(focusedZoom > 1 && focusedZoom < 4, 'a located row opens closer than whole-page view');
+const focused = labelRenderGeometry(459, 342, 444, 520, focusedZoom, 1);
+assert.ok(focused.width * spotlight.width / 100 + 64 <= 444.01, 'spotlight keeps horizontal context');
+assert.ok(focused.height * spotlight.height / 100 + 64 <= 520.01, 'spotlight keeps vertical context');
+const centered = labelSpotlightScroll(focused.width, focused.height, 444, 520, spotlight);
+assert.ok(centered.left > 0 && centered.top > 0, 'the preview pans toward the spotlight');
+assert.equal(labelZoomForSpotlight(0, 342, 444, 520, spotlight), 1);
+assert.ok(nextLabelZoom(focusedZoom, -1) < focusedZoom, 'the reviewer can still zoom out');
 
 const preview = readFileSync('app/admin/catalog/Group1LabelPreview.tsx', 'utf8');
 assert.ok(preview.includes('labelRenderGeometry('));
@@ -28,6 +38,7 @@ assert.ok(preview.includes('ResizeObserver('), 'expanded previews rerender at th
 assert.ok(preview.includes('if (!event.ctrlKey) return'), 'ordinary wheel scroll is not hijacked');
 assert.ok(preview.includes('"gesturechange"') && preview.includes('"touchmove"'), 'trackpad and touchscreen pinch are supported');
 assert.ok(preview.includes('pendingAnchorRef.current'), 'zoom retains the gesture focus');
+assert.ok(preview.includes('autoFocusPendingRef.current'), 'initial spotlight focus waits for the zoomed render');
 assert.ok(preview.includes('canvas.style.width = `${geometry.width}px`'), 'the visible page uses its true zoomed width');
 assert.ok(preview.includes('pageElement.style.width = `${geometry.width}px`'), 'highlight percentages track the zoomed page');
 assert.ok(preview.includes('activeRenderRef.current'), 'successive renders do not compete for the same canvas');

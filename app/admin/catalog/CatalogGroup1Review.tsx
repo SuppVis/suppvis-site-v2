@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Group1LabelPreview } from "./Group1LabelPreview";
 import { labelPdfBytes } from "./group1-label-pdf";
 import { isActionableReview, nextPendingTask, upcomingPendingTasks } from "./group1-review-queue";
@@ -55,7 +57,8 @@ function editableSourceQuantities(quantities: SourceQuantity[]): EditableQuantit
   }));
 }
 
-export default function CatalogGroup1Review() {
+export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "selector" | "queue" }) {
+  const router = useRouter();
   const [fields, setFields] = useState<ReviewField[]>([]);
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [batchKey, setBatchKey] = useState("");
@@ -71,6 +74,7 @@ export default function CatalogGroup1Review() {
   const [fieldKey, setFieldKey] = useState("");
   const [fieldEditorOpen, setFieldEditorOpen] = useState(false);
   const [reviewerNote, setReviewerNote] = useState("");
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
   const [correctQuantity, setCorrectQuantity] = useState(false);
   const [editedQuantities, setEditedQuantities] = useState<EditableQuantity[]>([]);
   const [correctionReason, setCorrectionReason] = useState("");
@@ -91,11 +95,14 @@ export default function CatalogGroup1Review() {
   const prefetchTask = detail?.id === selectedTaskId && scanReadyFor === selectedTaskId
     ? upcoming[preloadStep] : undefined;
   const sourceQuantities = Array.isArray(detail?.sourceRow.quantity) ? detail.sourceRow.quantity : [];
+  const reviewerNoteRequired = Boolean(detail?.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
+    || (outcome === "accepted" && detail && fieldKey !== detail.suggestedFieldKey));
 
   useEffect(() => {
+    if (mode !== "queue") return;
     // Download the next two labels immediately; OCR them sequentially after the visible scan settles.
     for (const task of upcoming) void labelPdfBytes(task.dsldLabelId).catch(() => {});
-  }, [upcoming]);
+  }, [mode, upcoming]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,15 +128,23 @@ export default function CatalogGroup1Review() {
       window.sessionStorage.setItem(rangeKey, JSON.stringify(selectedRange));
       setRangeStartInput(String(selectedRange.first + 1));
       setRangeEndInput(String(selectedRange.last + 1));
-      const first = nextPendingTask(result.tasks, "", new Set(), selectedRange.first, selectedRange.last);
-      setSelectedTaskId(first?.id ?? "");
+      if (mode === "queue") {
+        const openTaskKey = `group1-review-open-task:${result.batchKey}`;
+        const requestedTaskId = window.sessionStorage.getItem(openTaskKey);
+        window.sessionStorage.removeItem(openTaskKey);
+        const first = requestedTaskId && result.tasks.some((task) => task.id === requestedTaskId)
+          ? result.tasks.find((task) => task.id === requestedTaskId)
+          : nextPendingTask(result.tasks, "", new Set(), selectedRange.first, selectedRange.last);
+        setSelectedTaskId(first?.id ?? "");
+      }
     }).catch((reason) => {
       if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load reviews.");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
+    if (mode !== "queue") return;
     setScanReadyFor("");
     setPreloadStep(0);
     if (!selectedTaskId) { setDetail(null); return; }
@@ -142,7 +157,11 @@ export default function CatalogGroup1Review() {
       if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load this label.");
     });
     return () => { cancelled = true; };
-  }, [selectedTaskId]);
+  }, [mode, selectedTaskId]);
+
+  useEffect(() => {
+    if (mode === "queue" && selectedTaskId) window.scrollTo({ top: 0, behavior: "auto" });
+  }, [mode, selectedTaskId]);
 
   useEffect(() => {
     if (!detail) return;
@@ -152,6 +171,7 @@ export default function CatalogGroup1Review() {
     setFieldEditorOpen(!detail.needsRecheck && Boolean(detail.selectedFieldKey && detail.selectedFieldKey !== detail.suggestedFieldKey));
     // A new revision needs its own explanation; never copy an earlier reviewer's note.
     setReviewerNote("");
+    setNoteEditorOpen(false);
     setCorrectQuantity(!detail.needsRecheck && Boolean(last?.correctedValues));
     const quantities = Array.isArray(detail.sourceRow.quantity) ? detail.sourceRow.quantity : [];
     const edited = editableSourceQuantities(quantities);
@@ -223,7 +243,7 @@ export default function CatalogGroup1Review() {
       setRange(selectedRange);
       window.sessionStorage.setItem(`group1-review-range:${batchKey}`, JSON.stringify(selectedRange));
       setSkippedIds(new Set());
-      setSelectedTaskId(nextPendingTask(refreshed.tasks, "", new Set(), selectedRange.first, selectedRange.last)?.id ?? "");
+      router.push("/admin/catalog/group1-review");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to refresh the review queue.");
     } finally {
@@ -267,6 +287,7 @@ export default function CatalogGroup1Review() {
 
   return (
     <section className="space-y-4" aria-label="Group 1 nutrition review">
+      {mode === "selector" ? <>
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5">
         <h2 className="font-headline text-2xl font-bold">General nutrition review</h2>
         <p className="mt-2 text-sm text-text-secondary">
@@ -293,15 +314,23 @@ export default function CatalogGroup1Review() {
           <p className="mt-2 text-xs text-text-secondary">These remain outside the automatic pending queue. An admin other than the one who escalated each row can open it here.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {tasks.filter((task) => task.status === "escalated").map((task) => <button key={task.id} type="button"
-              onClick={() => { setSelectedTaskId(task.id); setNotice(""); }}
+              onClick={() => {
+                window.sessionStorage.setItem(`group1-review-open-task:${batchKey}`, task.id);
+                router.push("/admin/catalog/group1-review");
+              }}
               className="rounded border border-white/15 px-3 py-2 text-left text-xs hover:border-accent">
               #{tasks.indexOf(task) + 1} · {task.suggestedFieldName} · {task.printedName}
             </button>)}
           </div>
         </details> : null}
       </div>
+      </> : <Link href="/admin/catalog?view=group1-review"
+        className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-semibold text-text-primary hover:border-accent hover:text-accent">
+        ← Back to range selector
+      </Link>}
       {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
       {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
+      {mode === "queue" ?
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
         {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
           {detail?.status === "escalated" ? "Escalation" : "Occurrence"} {currentPosition} of {tasks.length}
@@ -321,25 +350,28 @@ export default function CatalogGroup1Review() {
             <div>
               <h3 className="font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
               <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}</p>
-              <div className="mt-4 grid items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
+              <div className="mt-4 grid items-start gap-3 sm:grid-cols-[1fr_auto_1fr]">
                 <div className="rounded border border-amber-400/35 bg-amber-400/5 p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Name extracted by DSLD</p>
-                  <p className="mt-2 break-words text-xl font-bold text-text-primary">“{detail.printedName}”</p>
-                  <p className="mt-2 text-xs text-text-secondary">Source wording to check against the label image.</p>
+                  <p className="mt-1 break-words text-xl font-bold text-text-primary">“{detail.printedName}”</p>
                 </div>
-                <span aria-hidden="true" className="self-center text-center text-xl text-text-muted">→</span>
+                <span aria-hidden="true" className="hidden self-center text-center text-xl text-text-muted sm:block">→</span>
                 <div className="rounded border border-accent/40 bg-accent/5 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-accent">Our suggested field</p>
-                  <p className="mt-2 break-words text-xl font-bold text-text-primary">{detail.suggestedFieldName}</p>
-                  <p className="mt-2 text-xs text-text-secondary">Canonical nutrition field proposed for this row.</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-accent">Our suggested field</p>
+                      <p className="mt-1 break-words text-xl font-bold text-text-primary">{detail.suggestedFieldName}</p>
+                    </div>
+                    <button type="button" aria-label={fieldEditorOpen ? "Hide Group 1 field choices" : "Change to a different Group 1 field"}
+                      aria-expanded={fieldEditorOpen} aria-controls="group1-field-editor"
+                      onClick={() => setFieldEditorOpen((open) => !open)}
+                      className="shrink-0 whitespace-nowrap text-right text-xs font-semibold text-accent underline underline-offset-2 hover:text-accent/80">
+                      {fieldEditorOpen ? "Hide choices" : "Change field"}
+                    </button>
+                  </div>
                   {outcome === "accepted" && fieldKey !== detail.suggestedFieldKey ? <p className="mt-2 text-sm text-text-primary">
                     Selected instead: <span className="font-semibold">{fields.find((field) => field.fieldKey === fieldKey)?.displayName ?? fieldKey}</span>
                   </p> : null}
-                  <button type="button" aria-expanded={fieldEditorOpen} aria-controls="group1-field-editor"
-                    onClick={() => setFieldEditorOpen((open) => !open)}
-                    className="mt-3 text-left text-sm font-semibold text-accent underline underline-offset-2 hover:text-accent/80">
-                    {fieldEditorOpen ? "Hide field choices" : "Change to a different Group 1 field"}
-                  </button>
                   {fieldEditorOpen ? <div id="group1-field-editor" className="mt-3">
                     <label className="block text-sm font-semibold">Group 1 field
                       <select value={fieldKey} onChange={(event) => { setFieldKey(event.target.value); setOutcome("accepted"); }} className={`${inputClass} mt-1`}>
@@ -361,19 +393,21 @@ export default function CatalogGroup1Review() {
                 </div>
                 <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
                   sourceName={detail.printedName} suggestedFieldName={detail.suggestedFieldName}
+                  expectDailyValue={sourceQuantities.some((quantity) => quantity.dailyValueTargetGroup?.some(
+                    (target) => target.percent != null || Boolean(target.footnote?.trim())))}
                   onScanSettled={() => setScanReadyFor(detail.id)} />
               </div>
-              <div className="space-y-4 md:max-h-[650px] md:overflow-y-auto md:pr-1">
+              <div className="space-y-4">
                 <div className="rounded border border-amber-400/30 bg-amber-400/5 p-3 text-sm">
                   <h4 className="font-semibold text-amber-200">Verify amount, unit, and % Daily Value</h4>
-                  <p className="mt-1 text-xs text-text-secondary">Compare these DSLD-extracted values with the original label at left. “Not recorded” is different from zero.</p>
+                  <p className="mt-1 text-xs text-text-secondary">Check the label. “Not recorded” is not zero.</p>
                   {sourceQuantities.length ? sourceQuantities.map((quantity, index) =>
                     <div key={index} className="mt-3 rounded border border-white/10 bg-[#080D12] p-3">
                       <p className="font-semibold text-text-primary">{quantity.servingSizeQuantity == null
                         ? "Serving size not recorded"
                         : `Based on serving size of ${quantity.servingSizeQuantity} ${quantity.servingSizeUnit ?? ""}`.trim()}</p>
                       {sourceQuantities.length > 1 ? <p className="mt-1 text-xs text-text-muted">DSLD value {index + 1} of {sourceQuantities.length}</p> : null}
-                      <dl className="mt-3 grid grid-cols-2 gap-2">
+                      <dl className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)] gap-2">
                         <div className="rounded border border-white/10 p-2">
                           <dt className="text-xs text-text-muted">Amount</dt>
                           <dd className="mt-1 font-semibold text-text-primary">{quantity.quantity == null ? "Not recorded" : quantity.quantity}</dd>
@@ -382,13 +416,9 @@ export default function CatalogGroup1Review() {
                           <dt className="text-xs text-text-muted">Unit</dt>
                           <dd className="mt-1 font-semibold text-text-primary">{quantity.unit?.trim() || "Not recorded"}</dd>
                         </div>
-                        {nonEqualityOperator(quantity.operator) ? <div className="col-span-2 rounded border border-white/10 p-2">
-                          <dt className="text-xs text-text-muted">Amount operator</dt>
-                          <dd className="mt-1 font-semibold text-text-primary">{nonEqualityOperator(quantity.operator)}</dd>
-                        </div> : null}
-                        <div className="col-span-2 rounded border border-white/10 p-2">
-                          <dt className="text-xs text-text-muted">% Daily Value</dt>
-                          <dd className="mt-1 space-y-2 font-semibold text-text-primary">
+                        <div className="min-w-0 rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">% DV</dt>
+                          <dd className="mt-1 space-y-2 break-words font-semibold text-text-primary">
                             {quantity.dailyValueTargetGroup?.length ? quantity.dailyValueTargetGroup.map((target, targetIndex) =>
                               <div key={targetIndex}>
                                 {target.name ? <span className="block text-xs font-normal text-text-secondary">{target.name}</span> : null}
@@ -398,6 +428,10 @@ export default function CatalogGroup1Review() {
                             ) : "Not recorded"}
                           </dd>
                         </div>
+                        {nonEqualityOperator(quantity.operator) ? <div className="col-span-3 rounded border border-white/10 p-2">
+                          <dt className="text-xs text-text-muted">Amount operator</dt>
+                          <dd className="mt-1 font-semibold text-text-primary">{nonEqualityOperator(quantity.operator)}</dd>
+                        </div> : null}
                       </dl>
                     </div>
                   ) : <p className="mt-2 text-text-muted">No source quantity or Daily Value.</p>}
@@ -441,10 +475,18 @@ export default function CatalogGroup1Review() {
                     <span><span className="block font-semibold">{choice.title}</span><span className="block text-xs text-text-secondary">{choice.explanation}</span></span>
                   </label>)}
                 </fieldset>
-                <label className="block text-sm font-semibold">Reviewer note {detail.needsRecheck || outcome === "escalated" || outcome === "not_real_data_row"
-                  || (outcome === "accepted" && fieldKey !== detail.suggestedFieldKey) ? "(required)" : "(optional)"}
-                  <textarea className={`${inputClass} mt-1 min-h-20`} value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
-                </label>
+                <div>
+                  {reviewerNoteRequired ? <label htmlFor="group1-reviewer-note" className="block text-sm font-semibold">Reviewer note (required)</label>
+                    : <button type="button" aria-expanded={noteEditorOpen} aria-controls="group1-reviewer-note-editor"
+                      onClick={() => setNoteEditorOpen((open) => !open)}
+                      className="text-left text-sm font-semibold text-accent underline underline-offset-2 hover:text-accent/80">
+                      {noteEditorOpen ? "Hide reviewer note" : reviewerNote.trim() ? "Edit reviewer note (optional)" : "Add reviewer note (optional)"}
+                    </button>}
+                  {reviewerNoteRequired || noteEditorOpen ? <div id="group1-reviewer-note-editor" className="mt-2">
+                    <textarea id="group1-reviewer-note" aria-label="Reviewer note" className={`${inputClass} min-h-20`}
+                      value={reviewerNote} onChange={(event) => setReviewerNote(event.target.value)} />
+                  </div> : null}
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={save} disabled={!outcome || saving}
                     className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">{saving ? "Saving…" : "Save decision"}</button>
@@ -466,7 +508,7 @@ export default function CatalogGroup1Review() {
         {prefetchTask ? <Group1LabelPreview key={`preload-${prefetchTask.id}`} prefetchOnly
           labelId={prefetchTask.dsldLabelId} sourceName={prefetchTask.printedName}
           suggestedFieldName={prefetchTask.suggestedFieldName} onScanSettled={() => setPreloadStep((current) => current + 1)} /> : null}
-      </div>
+      </div> : null}
     </section>
   );
 }

@@ -4,7 +4,8 @@ import type { LabelOcrPage } from "./group1-label-highlight";
 const assets = "/ocr/tesseract-7-eng-1";
 const cache = new Map<string, LabelOcrPage>();
 const cacheLimit = 16;
-type LabelWorker = Pick<Worker, "recognize" | "terminate">;
+export type LabelOcrMode = "sparse" | "singleBlock";
+type LabelWorker = Pick<Worker, "recognize" | "setParameters" | "terminate">;
 
 async function makeLabelWorker(): Promise<LabelWorker> {
   const { createWorker, PSM } = await import("tesseract.js");
@@ -42,6 +43,7 @@ export function createLabelOcrSession(signal: AbortSignal, makeWorker: () => Pro
   let worker: LabelWorker | null = null;
   let initializing: Promise<LabelWorker> | null = null;
   let disposed = false;
+  let currentMode: LabelOcrMode = "sparse";
   const dispose = () => {
     disposed = true;
     if (worker) { void worker.terminate(); worker = null; }
@@ -50,7 +52,7 @@ export function createLabelOcrSession(signal: AbortSignal, makeWorker: () => Pro
   signal.addEventListener("abort", dispose, { once: true });
   return {
     dispose,
-    async recognize(canvas: HTMLCanvasElement, key: string): Promise<LabelOcrPage> {
+    async recognize(canvas: HTMLCanvasElement, key: string, mode: LabelOcrMode = "sparse"): Promise<LabelOcrPage> {
       const cached = cachedLabelOcr(key);
       if (signal.aborted || disposed) throw new DOMException("Cancelled", "AbortError");
       if (cached) return cached;
@@ -62,6 +64,11 @@ export function createLabelOcrSession(signal: AbortSignal, makeWorker: () => Pro
         });
       }
       const active = await abortable(initializing, signal);
+      if (currentMode !== mode) {
+        const { PSM } = await import("tesseract.js");
+        await abortable(active.setParameters({ tessedit_pageseg_mode: mode === "singleBlock" ? PSM.SINGLE_BLOCK : PSM.SPARSE_TEXT }), signal);
+        currentMode = mode;
+      }
       const { data } = await abortable(active.recognize(canvas, {}, { blocks: true, text: false }), signal);
       const result: LabelOcrPage = { width: canvas.width, height: canvas.height,
         lines: (data.blocks ?? []).flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines.map(

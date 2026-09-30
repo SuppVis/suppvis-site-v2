@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeLabelText, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight } from '../app/admin/catalog/group1-label-highlight.ts';
+import { normalizeLabelText, fallbackRegionScore, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, withLabelRowValues } from '../app/admin/catalog/group1-label-highlight.ts';
 import { abortable, cachedLabelOcr, createLabelOcrSession } from '../app/admin/catalog/group1-label-ocr.ts';
 
 const word = (text, x, confidence = 95) => ({ text, confidence, box: { x0: x, y0: 100, x1: x + 50, y1: 120 } });
@@ -15,6 +15,31 @@ assert.ok(spot.width >= 30 && spot.height >= 52, 'spotlight leaves broad label c
 assert.ok(spot.left <= matches[0].left && spot.top <= matches[0].top);
 assert.ok(spot.left + spot.width >= matches[0].left + matches[0].width);
 assert.ok(spot.top + spot.height >= matches[0].top + matches[0].height);
+const valueWord = (text, x, y = 100) => ({ text, confidence: 94,
+  box: { x0: x, y0: y, x1: x + 40, y1: y + 20 } });
+const fullRow = page([
+  [valueWord('Net', 100), valueWord('Carbohydrates', 145)],
+  [valueWord('0', 500), valueWord('g', 544)],
+  [valueWord('0%', 800)],
+  [valueWord('999', 900, 135)],
+]);
+const rowMatch = findLabelHighlights(fullRow, 'Net Carbohydrates', 'Net Carbohydrates')[0];
+assert.equal(rowMatch.relatedBoxes.length, 2, 'amount/unit and %DV are found across separate OCR lines');
+assert.ok(rowMatch.relatedBoxes[0].width > 4, 'the nearby unit joins the amount outline');
+const rowSpot = spotlightForLabelHighlight(rowMatch);
+assert.ok(rowSpot.left <= rowMatch.left && rowSpot.left + rowSpot.width >= rowMatch.relatedBoxes[1].left + rowMatch.relatedBoxes[1].width,
+  'spotlight covers the name and the printed values');
+assert.ok(rowMatch.relatedBoxes.every((box) => box.left < 90), 'a numeric word on the next row is excluded');
+assert.equal(findLabelHighlights(page([[word('Calories', 20)], [valueWord('50', 700, 135)]]), 'Calories', 'Calories')[0].relatedBoxes.length, 0,
+  'do not outline a value when it cannot be aligned to the printed row');
+const nameAndAmount = page([[valueWord('Net', 100), valueWord('Carbohydrates', 145), valueWord('0', 500)]]);
+const dvFromSeparateCrop = { width: 2000, height: 1000, lines: [[valueWord('0%', 1600, 200)]] };
+const differentlyReadAmount = page([[valueWord('5g', 500)]]);
+const enriched = withLabelRowValues(findLabelHighlights(nameAndAmount, 'Net Carbohydrates', 'Net Carbohydrates')[0],
+  [nameAndAmount, nameAndAmount, differentlyReadAmount, dvFromSeparateCrop]);
+assert.equal(enriched.relatedBoxes.length, 2, 'other OCR crops contribute %DV without duplicating even a differently read amount');
+assert.ok(spotlightForLabelHighlight(enriched).left + spotlightForLabelHighlight(enriched).width
+  >= enriched.relatedBoxes[1].left + enriched.relatedBoxes[1].width);
 const edgeSpot = spotlightForLabelHighlight({ ...matches[0], left: 98, top: 97, width: 2, height: 3 });
 assert.equal(edgeSpot.left + edgeSpot.width, 100);
 assert.equal(edgeSpot.top + edgeSpot.height, 100);
@@ -40,12 +65,16 @@ assert.deepEqual(labelOcrRegions(300, 1000)[2], { left: 0, top: 230, width: 300,
 const cropped = placeLabelOcrRegion(page([[word('Fat', 20)]]), wideRegions[4], 2, 2000, 600);
 assert.equal(cropped.lines[0][0].box.x0, 1320);
 assert.equal(findLabelHighlights(cropped, 'Fat', 'Total Fat')[0].left, 66);
+assert.ok(fallbackRegionScore(page([[word('Carbohydrates', 20)]]), 'Net Carbohydrates', 'Net Carbohydrates')
+  > fallbackRegionScore(page([[word('Unrelated', 20)]]), 'Net Carbohydrates', 'Net Carbohydrates'),
+  'a partial name match should prioritize its zoomed region for the fallback');
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const canvas = { width: 1000, height: 500 };
-let terminated = 0; let recognized = 0; let initialized = 0;
+let terminated = 0; let recognized = 0; let initialized = 0; const modes = [];
 const worker = {
   terminate: async () => { terminated += 1; },
+  setParameters: async (parameters) => { modes.push(parameters.tessedit_pageseg_mode); },
   recognize: async () => { recognized += 1; return { data: { blocks: [{ paragraphs: [{ lines: [{ words: [
     { text: 'Calories', confidence: 95, bbox: { x0: 20, y0: 100, x1: 100, y1: 120 } },
   ] }] }] }] } }; },
@@ -55,7 +84,10 @@ await session.recognize(canvas, 'test:first');
 assert.equal(cachedLabelOcr('test:first').lines[0][0].text, 'Calories');
 await session.recognize(canvas, 'test:first');
 await session.recognize(canvas, 'test:second');
-assert.equal(initialized, 1); assert.equal(recognized, 2, 'repeated label pages use cached OCR');
+await session.recognize(canvas, 'test:first:block', 'singleBlock');
+await session.recognize(canvas, 'test:first:block', 'singleBlock');
+assert.equal(initialized, 1); assert.equal(recognized, 3, 'fallback reuses the worker and caches its separate result');
+assert.equal(modes.length, 1, 'fallback switches page segmentation mode once');
 session.dispose(); session.dispose(); assert.equal(terminated, 1);
 await assert.rejects(session.recognize(canvas, 'test:first'), { name: 'AbortError' });
 
@@ -94,6 +126,8 @@ assert.ok(ocrSource.includes('workerBlobURL: false'));
 assert.ok(!ocrSource.includes('https://'), 'OCR assets do not use an external service/CDN');
 const preview = readFileSync('app/admin/catalog/Group1LabelPreview.tsx', 'utf8');
 assert.ok(preview.includes('createLabelOcrSession(signal)'));
+assert.ok(preview.includes('fallbackCandidates.slice(0, 2)'), 'fallback OCR is bounded to two promising crops');
+assert.ok(preview.includes('"singleBlock"'), 'fallback uses single-block segmentation');
 assert.ok(!preview.includes('Find on label'), 'OCR starts automatically, with no button');
 assert.ok(preview.includes('spotlightForLabelHighlight(visibleBox)'), 'located text receives a broad spotlight');
 assert.ok(!preview.includes('Possible match ↓'), 'the old orange badge must not obscure the label');

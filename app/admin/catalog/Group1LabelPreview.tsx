@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, type LabelHighlight } from "./group1-label-highlight";
-import { abortable, cachedLabelOcr, createLabelOcrSession } from "./group1-label-ocr";
+import { fallbackRegionScore, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, withLabelRowValues, type LabelHighlight, type LabelOcrPage, type LabelOcrRegion } from "./group1-label-highlight";
+import { abortable, cachedLabelOcr, createLabelOcrSession, type LabelOcrMode } from "./group1-label-ocr";
 import { labelPdfBytes } from "./group1-label-pdf";
-import { MAX_LABEL_ZOOM, MIN_LABEL_ZOOM, clampLabelZoom, labelRenderGeometry, nextLabelZoom } from "./group1-label-render";
+import { MAX_LABEL_ZOOM, MIN_LABEL_ZOOM, clampLabelZoom, labelRenderGeometry, labelSpotlightScroll, labelZoomForSpotlight, nextLabelZoom } from "./group1-label-render";
 
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
+type PdfPage = import("pdfjs-dist").PDFPageProxy;
 type ZoomAnchor = { pageX: number; pageY: number; viewportX: number; viewportY: number };
 
-export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, prefetchOnly = false, onScanSettled }: {
+export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, expectDailyValue = false, prefetchOnly = false, onScanSettled }: {
   labelId: number; sourceName: string; suggestedFieldName: string;
-  prefetchOnly?: boolean; onScanSettled?: () => void;
+  expectDailyValue?: boolean; prefetchOnly?: boolean; onScanSettled?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -20,6 +21,8 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   const renderedPageRef = useRef<{ document: PdfDocument; page: number } | null>(null);
   const renderedZoomRef = useRef(1);
   const pendingAnchorRef = useRef<ZoomAnchor | null>(null);
+  const autoFocusPendingRef = useRef(false);
+  const manuallyAdjustedViewRef = useRef(false);
   const zoomRef = useRef(1);
   const [document, setDocument] = useState<PdfDocument | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -39,6 +42,8 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   zoomRef.current = zoom;
 
   const setZoomAt = useCallback((nextZoom: number, clientX: number, clientY: number) => {
+    manuallyAdjustedViewRef.current = true;
+    autoFocusPendingRef.current = false;
     const next = clampLabelZoom(nextZoom);
     if (Math.abs(next - zoomRef.current) < 0.002) return;
     const container = containerRef.current;
@@ -188,10 +193,43 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
     let timedOut = false;
     const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 90_000);
     manuallyChangedPage.current = false;
+    manuallyAdjustedViewRef.current = false;
+    autoFocusPendingRef.current = false;
     setHighlightedPage(null);
     setHint("Finding text on the label automatically…");
     void (async () => {
       let best: { page: number; boxes: LabelHighlight[] } | null = null;
+      let foundViaFallback = false;
+      const scansByPage = new Map<number, LabelOcrPage[]>();
+      const fallbackCandidates: Array<{ page: number; regionIndex: number; region: LabelOcrRegion; score: number }> = [];
+      const scanRegion = async (page: PdfPage, number: number, region: LabelOcrRegion,
+        regionIndex: number, mode: LabelOcrMode) => {
+        const base = page.getViewport({ scale: 1 });
+        const cacheKey = `${labelId}:${number}:${regionIndex}:ocr-v3:${mode}`;
+        let raw = cachedLabelOcr(cacheKey);
+        const maxEdge = regionIndex ? 2000 : 2800;
+        const maxPixels = regionIndex ? 3_500_000 : 6_000_000;
+        const scale = Math.min(maxEdge / Math.max(region.width, region.height),
+          Math.sqrt(maxPixels / (region.width * region.height)));
+        if (!raw) {
+          const viewport = page.getViewport({ scale, offsetX: -region.left * scale, offsetY: -region.top * scale });
+          const image = window.document.createElement("canvas");
+          image.width = Math.ceil(region.width * scale); image.height = Math.ceil(region.height * scale);
+          const context = image.getContext("2d");
+          if (!context) throw new Error("OCR canvas unavailable");
+          try {
+            renderTask = page.render({ canvas: image, canvasContext: context, viewport });
+            await abortable(renderTask.promise, signal);
+            raw = await session.recognize(image, cacheKey, mode);
+          } finally {
+            image.width = 0; image.height = 0;
+          }
+        }
+        if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+        const placed = placeLabelOcrRegion(raw, region, scale, base.width * scale, base.height * scale);
+        scansByPage.set(number, [...(scansByPage.get(number) ?? []), placed]);
+        return placed;
+      };
       const pageLimit = Math.min(document.numPages, 12);
       for (let number = 1; number <= pageLimit; number += 1) {
         const page = await abortable(document.getPage(number), signal);
@@ -200,28 +238,9 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
         for (let regionIndex = 0; regionIndex < regions.length; regionIndex += 1) {
           const region = regions[regionIndex];
           setHint(`Finding text on the label automatically… page ${number} of ${document.numPages}${regionIndex ? ", detail scan" : ""}`);
-          const cacheKey = `${labelId}:${number}:${regionIndex}:ocr-v2`;
-          let raw = cachedLabelOcr(cacheKey);
-          const maxEdge = regionIndex ? 2000 : 2800;
-          const maxPixels = regionIndex ? 3_500_000 : 6_000_000;
-          const scale = Math.min(maxEdge / Math.max(region.width, region.height),
-            Math.sqrt(maxPixels / (region.width * region.height)));
-          if (!raw) {
-            const viewport = page.getViewport({ scale, offsetX: -region.left * scale, offsetY: -region.top * scale });
-            const image = window.document.createElement("canvas");
-            image.width = Math.ceil(region.width * scale); image.height = Math.ceil(region.height * scale);
-            const context = image.getContext("2d");
-            if (!context) throw new Error("OCR canvas unavailable");
-            try {
-              renderTask = page.render({ canvas: image, canvasContext: context, viewport });
-              await abortable(renderTask.promise, signal);
-              raw = await session.recognize(image, cacheKey);
-            } finally {
-              image.width = 0; image.height = 0;
-            }
-          }
-          if (signal.aborted) return;
-          const result = placeLabelOcrRegion(raw, region, scale, base.width * scale, base.height * scale);
+          const result = await scanRegion(page, number, region, regionIndex, "sparse");
+          if (regionIndex) fallbackCandidates.push({ page: number, regionIndex, region,
+            score: fallbackRegionScore(result, sourceName, suggestedFieldName) });
           const boxes = findLabelHighlights(result, sourceName, suggestedFieldName);
           const priority = { source: 3, suggested: 2, approximate: 1 };
           if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
@@ -232,14 +251,65 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
         }
         if (best?.boxes[0].mode === "source") break;
       }
+      // The sparse-text layout can skip an entire printed row. Retry only the two most
+      // promising zoomed regions as a single text block; never slow successful source matches.
+      if (best?.boxes[0].mode !== "source") {
+        fallbackCandidates.sort((left, right) => right.score - left.score);
+        for (const candidate of fallbackCandidates.slice(0, 2)) {
+          setHint(`Refining text search on page ${candidate.page} of ${document.numPages}…`);
+          const page = await abortable(document.getPage(candidate.page), signal);
+          const result = await scanRegion(page, candidate.page, candidate.region, candidate.regionIndex, "singleBlock");
+          const boxes = findLabelHighlights(result, sourceName, suggestedFieldName);
+          const priority = { source: 3, suggested: 2, approximate: 1 };
+          if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
+            best = { page: candidate.page, boxes };
+            foundViaFallback = true;
+          }
+          if (best?.boxes[0].mode === "source") break;
+        }
+      }
+      if (best) {
+        let outlined = withLabelRowValues(best.boxes[0], scansByPage.get(best.page) ?? []);
+        const needed = expectDailyValue ? 2 : 1;
+        if ((outlined.relatedBoxes?.length ?? 0) < needed) {
+          const page = await abortable(document.getPage(best.page), signal);
+          const base = page.getViewport({ scale: 1 });
+          const nameLeft = outlined.left;
+          const regions = labelOcrRegions(base.width, base.height).slice(1)
+            .map((region, index) => ({ region, index: index + 1 }))
+            .filter(({ region }) => (region.left + region.width) / base.width * 100 > outlined.left + outlined.width)
+            .sort((a, b) => Math.abs(a.region.left / base.width * 100 - nameLeft)
+              - Math.abs(b.region.left / base.width * 100 - nameLeft));
+          // One or two high-resolution strips may contain columns omitted by the
+          // whole-page OCR. Keep this bounded, and reuse the worker/cache.
+          for (const { region, index } of regions.slice(0, 2)) {
+            setHint(`Checking printed values on page ${best.page} of ${document.numPages}…`);
+            await scanRegion(page, best.page, region, index, "singleBlock");
+            outlined = withLabelRowValues(outlined, scansByPage.get(best.page) ?? []);
+            if ((outlined.relatedBoxes?.length ?? 0) >= needed) break;
+          }
+        }
+        best = { ...best, boxes: [outlined, ...best.boxes.slice(1)] };
+      }
       if (signal.aborted) return;
       if (best) {
+        const spotlight = spotlightForLabelHighlight(best.boxes[0]);
+        if (!prefetchOnly && !manuallyAdjustedViewRef.current && containerRef.current) {
+          const container = containerRef.current;
+          const page = await abortable(document.getPage(best.page), signal);
+          const base = page.getViewport({ scale: 1 });
+          const focusedZoom = labelZoomForSpotlight(base.width, base.height,
+            container.clientWidth, container.clientHeight, spotlight);
+          autoFocusPendingRef.current = true;
+          zoomRef.current = focusedZoom;
+          setZoom(focusedZoom);
+        }
         setHighlightedPage(best);
         if (!manuallyChangedPage.current) setPageNumber(best.page);
         const qualifier = best.boxes[0].mode === "source" ? "extracted wording"
           : best.boxes[0].mode === "suggested" ? "suggested-field wording, not the extracted name"
             : "approximate wording";
-        setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${best.boxes[0].text}” (${qualifier}). Verify it against the label; this is not an approval.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
+        setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${best.boxes[0].text}” (${qualifier}${foundViaFallback ? ", refined scan" : ""}). Verify it against the label; this is not an approval.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
       } else {
         setHint(`Couldn’t confidently locate this text. Please inspect the label manually.${document.numPages > pageLimit ? " Only the first 12 pages were searched." : ""}`);
       }
@@ -259,7 +329,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       renderTask?.cancel();
       session.dispose();
     };
-  }, [document, labelId, sourceName, suggestedFieldName]);
+  }, [document, labelId, sourceName, suggestedFieldName, expectDailyValue, prefetchOnly]);
 
   useEffect(() => {
     if (!document || prefetchOnly || !viewSize.width || !viewSize.height) return;
@@ -333,6 +403,7 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   useEffect(() => {
     if (loading || !renderRevision) return;
     if (pendingAnchorRef.current && Math.abs(renderedZoomRef.current - zoomRef.current) > 0.002) return;
+    if (autoFocusPendingRef.current && Math.abs(renderedZoomRef.current - zoomRef.current) > 0.002) return;
     const container = containerRef.current;
     const page = pageRef.current;
     if (!container || !page) return;
@@ -343,6 +414,16 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       container.scrollTop = page.offsetTop + anchor.pageY * page.clientHeight - anchor.viewportY;
       return;
     }
+    if (autoFocusPendingRef.current && highlightedPage?.page === pageNumber) {
+      autoFocusPendingRef.current = false;
+      const spotlight = spotlightForLabelHighlight(highlightedPage.boxes[0]);
+      const scroll = labelSpotlightScroll(page.clientWidth, page.clientHeight,
+        container.clientWidth, container.clientHeight, spotlight);
+      container.scrollLeft = page.offsetLeft + scroll.left;
+      container.scrollTop = page.offsetTop + scroll.top;
+      return;
+    }
+    if (manuallyAdjustedViewRef.current) return;
     const marker = firstHighlightRef.current;
     if (highlightedPage?.page === pageNumber && marker) {
       container.scrollTop = Math.max(0, page.offsetTop + marker.offsetTop - 120);
@@ -362,10 +443,10 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       <p role="status" className="border-b border-slate-200 bg-amber-50 px-3 py-2 text-left text-xs text-slate-700">{hint}</p>
       <div className="flex flex-wrap items-center justify-center gap-2 border-b border-slate-200 bg-slate-100 p-2 text-sm">
         {pageCount > 1 ? <>
-          <button type="button" disabled={pageNumber === 1} onClick={() => { manuallyChangedPage.current = true; setPageNumber(pageNumber - 1); }}
+          <button type="button" disabled={pageNumber === 1} onClick={() => { manuallyChangedPage.current = true; manuallyAdjustedViewRef.current = true; setPageNumber(pageNumber - 1); }}
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Previous</button>
           <span>Page {pageNumber} of {pageCount}</span>
-          <button type="button" disabled={pageNumber === pageCount} onClick={() => { manuallyChangedPage.current = true; setPageNumber(pageNumber + 1); }}
+          <button type="button" disabled={pageNumber === pageCount} onClick={() => { manuallyChangedPage.current = true; manuallyAdjustedViewRef.current = true; setPageNumber(pageNumber + 1); }}
             className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40">Next</button>
         </> : null}
         <button type="button" aria-label="Zoom out" disabled={zoom <= MIN_LABEL_ZOOM + 0.01} onClick={() => zoomFromCenter(nextLabelZoom(zoom, -1))}
@@ -393,6 +474,10 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
             className="pointer-events-none absolute z-20 rounded-sm"
             style={{ left: `${visibleBox.left}%`, top: `${visibleBox.top}%`, width: `${visibleBox.width}%`, height: `${visibleBox.height}%`,
               outline: "2px solid #f59e0b", outlineOffset: "7px" }} /> : null}
+          {visibleBox?.relatedBoxes?.map((value, index) => <span key={index} aria-hidden="true"
+            className="pointer-events-none absolute z-20 rounded-sm"
+            style={{ left: `${value.left}%`, top: `${value.top}%`, width: `${value.width}%`, height: `${value.height}%`,
+              outline: "2px solid #f59e0b", outlineOffset: "7px" }} />)}
         </div>
       </div>
     </div>
