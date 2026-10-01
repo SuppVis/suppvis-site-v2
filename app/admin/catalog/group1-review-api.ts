@@ -41,9 +41,21 @@ export type ReviewTaskDetail = ReviewTask & {
   sourceAncestorNames: string[];
   labelPdfUrl: string;
   decisions: ReviewDecision[];
+  reviewFlags: string[];
 };
 
-type ReviewListResponse = { batchKey: string; fields: ReviewField[]; tasks: ReviewTask[] };
+export type ReviewProgress = {
+  totalCandidates: number;
+  acceptedByReview: number;
+  acceptedAutomatically: number;
+  notGroup1ByReview: number;
+  notRealDataRowByReview: number;
+  pending: number;
+  queuedPending: number;
+  awaitingLaterChecks: number;
+};
+
+type ReviewListResponse = { batchKey: string; fields: ReviewField[]; tasks: ReviewTask[]; progress: ReviewProgress };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {

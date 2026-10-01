@@ -62,6 +62,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
   const productNameRef = useRef<HTMLHeadingElement>(null);
   const [fields, setFields] = useState<ReviewField[]>([]);
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
+  const [candidateTotal, setCandidateTotal] = useState<number | null>(null);
   const [batchKey, setBatchKey] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [range, setRange] = useState({ first: 0, last: -1 });
@@ -87,6 +88,12 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
 
   const actionableSpan = actionableReviewSpan(tasks);
   const pendingCount = actionableSpan?.count ?? 0;
+  const acceptedByReview = tasks.filter((task) => task.status === "accepted").length;
+  const notGroup1ByReview = tasks.filter((task) => task.status === "not_group1").length;
+  const notRealDataRowByReview = tasks.filter((task) => task.status === "not_real_data_row").length;
+  const unresolvedInQueue = tasks.filter((task) => task.status === "pending" || task.status === "escalated").length;
+  const remainingCandidates = candidateTotal == null ? null
+    : candidateTotal - acceptedByReview - notGroup1ByReview - notRealDataRowByReview;
   const rangePendingCount = tasks.slice(range.first, range.last + 1).filter(isActionableReview).length;
   const recheckCount = tasks.filter((task) => task.needsRecheck).length;
   const escalatedCount = tasks.filter((task) => task.status === "escalated").length;
@@ -115,6 +122,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
       if (cancelled) return;
       setFields(result.fields);
       setTasks(result.tasks);
+      setCandidateTotal(result.progress.totalCandidates);
       setBatchKey(result.batchKey);
       const rangeKey = `group1-review-range:${result.batchKey}`;
       // Migrate the previous browser-wide choice once, then keep each review tab independent.
@@ -307,6 +315,10 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
         <p className="mt-2 text-sm text-text-secondary">
           Review one DSLD label occurrence at a time. These decisions do not approve a name globally or write catalog nutrition facts yet.
         </p>
+        {candidateTotal != null && remainingCandidates != null ? <p className="mt-2 text-sm text-text-primary">
+          {candidateTotal.toLocaleString()} candidates · {acceptedByReview.toLocaleString()} accepted by review · 0 accepted automatically · {(notGroup1ByReview + notRealDataRowByReview).toLocaleString()} rejected by review · {remainingCandidates.toLocaleString()} pending
+          <span className="block text-xs text-text-muted">Of the pending candidates, {unresolvedInQueue.toLocaleString()} are in this review queue and {(remainingCandidates - unresolvedInQueue).toLocaleString()} await later checks. Rejections: {notGroup1ByReview} other ingredient, {notRealDataRowByReview} not a real data row.</span>
+        </p> : null}
         <p className="mt-2 text-xs text-text-muted">{actionableSpan
           ? `${pendingCount} to review, spanning occurrences #${actionableSpan.first + 1}–#${actionableSpan.last + 1} of ${tasks.length}`
           : `0 to review of ${tasks.length} occurrences`} · {recheckCount} rechecks · {escalatedCount} escalated · queue {batchKey}</p>
@@ -353,6 +365,7 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
         {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
           {detail?.status === "escalated" ? "Escalation" : "Occurrence"} {currentPosition} of {tasks.length}
           {detail?.status !== "escalated" ? ` · assigned range ${range.first + 1}–${range.last + 1} · ${skippedCount} skipped this pass` : " · a different admin must resolve this"}
+          {remainingCandidates != null ? ` · ${acceptedByReview.toLocaleString()} accepted / ${remainingCandidates.toLocaleString()} pending overall` : ""}
         </p> : null}
           {!detail || detail.id !== selectedTaskId ? <div className="space-y-3 text-sm text-text-secondary">
             <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No review occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
@@ -364,6 +377,11 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
               <p className="font-semibold text-amber-200">Recheck requested — previous decision remains in history</p>
               <p className="mt-1 text-text-secondary">{detail.recheckReason}</p>
               <p className="mt-1 text-xs text-text-secondary">Choose a new outcome and explain it in a reviewer note. Amount edits were reset to the DSLD source for safety; compare any previous correction with this exact label before re-entering it.</p>
+            </div> : null}
+            {detail.reviewFlags?.length ? <div className="rounded border border-amber-400/45 bg-amber-400/10 p-3 text-sm">
+              <p className="font-semibold text-amber-200">Value check — inspect the original label</p>
+              {detail.reviewFlags.includes("no_numeric_amount_or_daily_value") ? <p className="mt-1 text-text-secondary">DSLD recorded neither a numeric amount nor a numeric % Daily Value for this row.</p> : null}
+              {detail.reviewFlags.includes("numeric_amount_missing_unit") ? <p className="mt-1 text-text-secondary">At least one DSLD amount has no recorded unit. Verify whether the label supplies one.</p> : null}
             </div> : null}
             <div>
               <h3 ref={productNameRef} className="scroll-mt-4 font-headline text-xl font-bold">{detail.labelName || `DSLD ${detail.dsldLabelId}`}</h3>
