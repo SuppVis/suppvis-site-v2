@@ -11,6 +11,7 @@ import {
 import CatalogWorkspace from "./CatalogWorkspace";
 import CatalogDatabase from "./CatalogDatabase";
 import CatalogGroup1Review from "./CatalogGroup1Review";
+import CatalogServingSizeReview from "./CatalogServingSizeReview";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,7 +54,8 @@ export default async function CatalogAdminPage({ searchParams }: CatalogAdminPag
   }
 
   const view = searchParams?.view === "database" ? "database"
-    : searchParams?.view === "group1-review" ? "group1-review" : "workspace";
+    : searchParams?.view === "group1-review" ? "group1-review"
+      : searchParams?.view === "serving-size-review" ? "serving-size-review" : "workspace";
   const requestedProduct = typeof searchParams?.product === "string" ? searchParams.product : undefined;
   const productId = requestedProduct && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedProduct)
     ? requestedProduct
@@ -82,7 +84,7 @@ export default async function CatalogAdminPage({ searchParams }: CatalogAdminPag
             </form>
           </div>
         </header>
-        <nav aria-label="Catalog views" className="mb-5 flex gap-2 border-b border-white/10">
+        <nav aria-label="Catalog views" className="mb-5 flex gap-2 overflow-x-auto border-b border-white/10">
           <Link
             href="/admin/catalog?view=workspace"
             aria-current={view === "workspace" ? "page" : undefined}
@@ -104,9 +106,17 @@ export default async function CatalogAdminPage({ searchParams }: CatalogAdminPag
           >
             Nutrition review
           </Link>
+          <Link
+            href="/admin/catalog?view=serving-size-review"
+            aria-current={view === "serving-size-review" ? "page" : undefined}
+            className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${view === "serving-size-review" ? "border-accent text-accent" : "border-transparent text-text-secondary hover:text-text-primary"}`}
+          >
+            Serving size review
+          </Link>
         </nav>
         {view === "database" ? <CatalogDatabase />
           : view === "group1-review" ? <CatalogGroup1Review />
+          : view === "serving-size-review" ? <CatalogServingSizeReview />
           : <CatalogWorkspace key={productId ?? "new"} initialProductId={productId} />}
       </div>
     </main>
