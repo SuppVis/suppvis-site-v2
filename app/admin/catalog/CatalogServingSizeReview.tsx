@@ -128,6 +128,7 @@ function emptyContext(number: number): EditableContext {
 }
 
 export default function CatalogServingSizeReview({ mode = "selector" }: { mode?: "selector" | "queue" }) {
+  const readOnlyPreview = process.env.NEXT_PUBLIC_SERVING_SIZE_REVIEW_READONLY === "1";
   const router = useRouter();
   const productNameRef = useRef<HTMLHeadingElement>(null);
   const [tasks, setTasks] = useState<ServingSizeReviewTask[]>([]);
@@ -263,6 +264,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setNotice("");
     try {
       const reviewed = needsContexts ? contexts.map(reviewedContext) : null;
+      if (readOnlyPreview) {
+        if (noteRequired && !reviewerNote.trim()) throw new Error("Add the required reviewer note before continuing.");
+        setSelectedTaskId(next?.id ?? "");
+        setNotice("Preview only — nothing was recorded. Moved to the next label.");
+        return;
+      }
       const updated = await saveServingSizeReviewDecision(detail.id, {
         expectedRevision: detail.revision,
         outcome,
@@ -290,6 +297,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       </p>
       <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} decided · {escalated} escalated · {tasks.length} total</p>
       <p className="mt-1 text-xs text-text-muted">Queue {batchKey}. Decisions create a reviewed overlay; they never modify the frozen DSLD JSON.</p>
+      {readOnlyPreview ? <p className="mt-3 rounded border border-sky-400/35 bg-sky-400/10 p-3 text-sm text-sky-200">
+        Read-only local preview: decision buttons only advance through the labels. Nothing is saved.
+      </p> : null}
       <div className="mt-4 flex flex-wrap items-end gap-3 rounded border border-white/10 bg-[#080D12] p-3">
         <label className="text-xs font-semibold">Start at label
           <input className={`${inputClass} mt-1 w-28`} type="number" value={rangeStart}
@@ -329,6 +339,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
 
     {mode === "queue" ? <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
+      {readOnlyPreview ? <p className="mb-4 rounded border border-sky-400/35 bg-sky-400/10 p-3 text-sm text-sky-200">
+        Read-only local preview — changing fields or pressing Save does not call the API or record a decision.
+      </p> : null}
       {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
         Label {currentPosition} of {tasks.length} · assigned range {range.first + 1}–{range.last + 1}
       </p> : null}
@@ -352,12 +365,33 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
           <div className="space-y-4">
             <section className="rounded border border-amber-400/30 bg-amber-400/5 p-3">
-              <h4 className="font-semibold text-amber-200">DSLD structured serving size</h4>
-              <div className="mt-2 space-y-2">
+              <h4 className="font-semibold text-amber-200">What DSLD extracted</h4>
+              <p className="mt-1 text-xs text-text-secondary">
+                DSLD stores a structured value and may also leave additional serving information in unstructured text. Compare both with the label.
+              </p>
+              <div className="mt-3 space-y-3">
                 {detail.sourceServingSizes.map((serving) => <div key={serving.order} className="rounded border border-white/10 bg-[#080D12] p-3 text-sm">
-                  <p className="font-semibold">Source row {serving.order}: {formatQuantity(serving.minQuantity, serving.maxQuantity, serving.unit)}</p>
-                  <p className="mt-1 text-xs text-text-secondary">Printed/context note: {serving.notes?.trim() || "Not recorded"}</p>
-                  <p className="mt-1 text-xs text-text-muted">Facts-panel marker: {serving.inSFB == null ? "not recorded" : serving.inSFB ? "yes" : "no"}</p>
+                  {detail.sourceServingSizes.length > 1 ? <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+                    DSLD serving row {serving.order}
+                  </p> : null}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded border border-white/10 p-2">
+                      <p className="text-xs text-text-muted">Structured amount</p>
+                      <p className="mt-1 font-semibold">{formatQuantity(serving.minQuantity, serving.maxQuantity, null)}</p>
+                    </div>
+                    <div className="rounded border border-white/10 p-2">
+                      <p className="text-xs text-text-muted">Structured unit</p>
+                      <p className="mt-1 font-semibold">{serving.unit?.trim() || "Not recorded"}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded border border-amber-400/20 bg-amber-400/5 p-2">
+                    <p className="text-xs font-semibold text-amber-100">Additional text DSLD did not split into fields</p>
+                    <p className="mt-1 text-sm text-text-secondary">{serving.notes?.trim() || "Not recorded"}</p>
+                  </div>
+                  <details className="mt-2 text-xs text-text-muted">
+                    <summary className="cursor-pointer">Technical source details</summary>
+                    <p className="mt-1">DSLD source row {serving.order} · marked as a facts-panel row: {serving.inSFB == null ? "not recorded" : serving.inSFB ? "yes" : "no"}</p>
+                  </details>
                 </div>)}
               </div>
             </section>
@@ -443,7 +477,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={!outcome || saving} onClick={save}
                 className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">
-                {saving ? "Saving…" : "Save decision"}
+                {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue" : "Save decision"}
               </button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button>
