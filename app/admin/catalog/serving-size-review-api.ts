@@ -4,7 +4,9 @@ export type ServingSizeReviewStatus =
   | "confirmed_correct"
   | "corrected"
   | "multiple_contexts"
-  | "removed_duplicate";
+  | "removed_duplicate"
+  | "canonical_selected"
+  | "canonical_corrected";
 
 export type ServingSizeReviewOutcome = Exclude<ServingSizeReviewStatus, "pending">;
 
@@ -15,6 +17,46 @@ export type DsldServingSize = {
   unit: string | null;
   notes: string | null;
   inSFB: boolean | null;
+};
+
+export type ServingSizeWarningSeverity = "high" | "medium" | "low" | "none";
+
+export type DsldIngredientQuantity = {
+  sourceQuantityIndex: number;
+  servingSizeOrder: number | null;
+  servingSizeQuantity: number | null;
+  servingSizeUnit: string | null;
+  operator: string | null;
+  quantity: number | null;
+  unit: string | null;
+  dailyValueTargetGroup: Array<{
+    name: string | null;
+    operator: string | null;
+    percent: number | null;
+    footnote: string | null;
+  }>;
+};
+
+export type ServingSizeIngredientRow = {
+  rowPath: string;
+  rowOrder: number | null;
+  ingredientId: number | null;
+  name: string;
+  ancestorNames: string[];
+  description: string | null;
+  notes: string | null;
+  quantities: DsldIngredientQuantity[];
+};
+
+export type RepeatedIngredientNameGroup = {
+  normalizedName: string;
+  printedNames: string[];
+  rowPaths: string[];
+};
+
+export type ServingSizeQuantityOverride = {
+  rowPath: string;
+  selectedQuantityIndex: number | null;
 };
 
 export type ReviewedServingContext = {
@@ -33,7 +75,7 @@ export type ReviewedServingContext = {
 
 export type ServingSizePrescreenFlag = {
   code: string;
-  severity: "high" | "medium";
+  severity: Exclude<ServingSizeWarningSeverity, "none">;
   summary: string;
   evidence: Record<string, unknown>;
 };
@@ -48,6 +90,8 @@ export type ServingSizeReviewTask = {
   status: ServingSizeReviewStatus;
   revision: number;
   flagCodes: string[];
+  warningSeverity: ServingSizeWarningSeverity;
+  reviewReasonCodes: string[];
 };
 
 export type ServingSizeReviewDecision = {
@@ -55,6 +99,8 @@ export type ServingSizeReviewDecision = {
   taskRevision: number;
   outcome: ServingSizeReviewOutcome;
   reviewedServingContexts: ReviewedServingContext[] | null;
+  selectedServingOrder: number | null;
+  quantityOverrides: ServingSizeQuantityOverride[] | null;
   reviewerNote: string | null;
   reviewerEmail: string;
   decidedAt: string;
@@ -67,6 +113,12 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   sourceServingSizes: DsldServingSize[];
   sourceContexts: ReviewedServingContext[];
   reviewedServingContexts: ReviewedServingContext[] | null;
+  policySuggestedServingOrder: number | null;
+  policySelectionRule: string | null;
+  sourceIngredientRows: ServingSizeIngredientRow[];
+  repeatedIngredientNameGroups: RepeatedIngredientNameGroup[];
+  selectedServingOrder: number | null;
+  quantityOverrides: ServingSizeQuantityOverride[] | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
 };
