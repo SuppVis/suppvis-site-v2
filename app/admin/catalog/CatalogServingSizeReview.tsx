@@ -68,10 +68,10 @@ function optionalNumber(value: string): number | null {
   return parsed;
 }
 
-function reviewedContext(context: EditableContext, selectedOrder: number): ReviewedServingContext {
+function reviewedContext(context: EditableContext, sourceServingOrders: number[]): ReviewedServingContext {
   return {
     contextKey: context.contextKey.trim(),
-    sourceServingOrders: [selectedOrder],
+    sourceServingOrders,
     householdQuantityMin: optionalNumber(context.householdQuantityMin),
     householdQuantityMax: optionalNumber(context.householdQuantityMax),
     householdUnit: context.householdUnit.trim() || null,
@@ -97,6 +97,16 @@ function nextTask(tasks: ServingSizeReviewTask[], afterId: string, first: number
   const current = tasks.findIndex((task) => task.id === afterId);
   for (let index = current < first ? first : current + 1; index <= last; index += 1) {
     if (isActionable(tasks[index])) return tasks[index];
+  }
+  return undefined;
+}
+
+function nextEscalation(tasks: ServingSizeReviewTask[], afterId: string,
+  resolutionKind: ServingSizeReviewTask["resolutionKind"]) {
+  const current = tasks.findIndex((task) => task.id === afterId);
+  for (let index = current + 1; index < tasks.length; index += 1) {
+    const task = tasks[index];
+    if (task.status === "escalated" && task.resolutionKind === resolutionKind) return task;
   }
   return undefined;
 }
@@ -171,8 +181,17 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const pending = tasks.filter(isActionable).length;
   const escalations = tasks.filter((task) => task.status === "escalated").length;
   const decided = tasks.length - pending - escalations;
+  const escalationKinds = useMemo(() => tasks.reduce((counts, task) => {
+    if (task.status === "escalated") counts[task.resolutionKind] += 1;
+    return counts;
+  }, { canonical: 0, composite: 0, profile_variants: 0 }), [tasks]);
   const currentPosition = tasks.findIndex((task) => task.id === selectedTaskId) + 1;
-  const next = useMemo(() => nextTask(tasks, selectedTaskId, range.first, range.last),
+  const next = useMemo(() => {
+    const selected = tasks.find((task) => task.id === selectedTaskId);
+    return selected?.status === "escalated"
+      ? nextEscalation(tasks, selectedTaskId, selected.resolutionKind)
+      : nextTask(tasks, selectedTaskId, range.first, range.last);
+  },
     [tasks, selectedTaskId, range]);
   const severityCounts = useMemo(() => tasks.reduce((counts, task) => {
     counts[task.warningSeverity] += 1;
@@ -240,6 +259,31 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   useEffect(() => {
     if (!detail) return;
+    if (detail.resolutionKind === "composite") {
+      const sourceOrders = detail.sourceServingSizes.map((serving) => serving.order);
+      const effectiveContext = detail.reviewedServingContexts?.[0] ?? {
+        contextKey: "composite-serving",
+        sourceServingOrders: sourceOrders,
+        householdQuantityMin: 1,
+        householdQuantityMax: 1,
+        householdUnit: "packet",
+        metricQuantityMin: null,
+        metricQuantityMax: null,
+        metricUnit: null,
+        contextLabel: "Composite package",
+        preparationContext: null,
+        labelText: "1 packet",
+      };
+      setSelectedOrder(null);
+      setContext(editableContext(effectiveContext));
+      setCorrectionOpen(false);
+      setEscalated(false);
+      setQuantityOverrides(new Map());
+      setReviewerNote("");
+      setNoteOpen(true);
+      productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      return;
+    }
     const order = detail.selectedServingOrder ?? detail.policySuggestedServingOrder;
     const sourceContext = order == null ? null : detail.sourceContexts.find((candidate) =>
       candidate.sourceServingOrders.includes(order)) ?? null;
@@ -309,16 +353,23 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   async function save() {
     if (!detail) return;
-    if (!escalated && (selectedOrder == null || !context)) {
+    const composite = detail.resolutionKind === "composite";
+    if (composite && !context) {
+      setError("Define the one combined serving SuppVis should use.");
+      return;
+    }
+    if (!composite && !escalated && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
       return;
     }
-    if (!escalated && projectionCounts.ambiguous > 0) {
+    if (!composite && !escalated && projectionCounts.ambiguous > 0) {
       setError("Resolve every highlighted ingredient quantity before saving.");
       return;
     }
-    if ((escalated || correctionOpen) && !reviewerNote.trim()) {
-      setError("Add a reviewer note explaining the escalation or correction.");
+    if ((composite || escalated || correctionOpen) && !reviewerNote.trim()) {
+      setError(composite
+        ? "Add a note explaining what the combined serving represents."
+        : "Add a reviewer note explaining the escalation or correction.");
       return;
     }
     setSaving(true);
@@ -327,19 +378,30 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     try {
       const overrides: ServingSizeQuantityOverride[] = [...quantityOverrides.entries()]
         .map(([rowPath, selectedQuantityIndex]) => ({ rowPath, selectedQuantityIndex }));
-      const body = escalated ? {
+      const body = composite ? {
+        expectedRevision: detail.revision,
+        outcome: "composite_serving",
+        reviewedServingContexts: [reviewedContext(context!,
+          detail.sourceServingSizes.map((serving) => serving.order))],
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        reviewerNote: reviewerNote.trim(),
+      } : escalated ? {
         expectedRevision: detail.revision,
         outcome: "escalated",
         reviewedServingContexts: null,
         selectedServingOrder: null,
         quantityOverrides: null,
+        profileVariantRules: null,
         reviewerNote: reviewerNote.trim(),
       } : {
         expectedRevision: detail.revision,
         outcome: correctionOpen ? "canonical_corrected" : "canonical_selected",
-        reviewedServingContexts: [reviewedContext(context!, selectedOrder!)],
+        reviewedServingContexts: [reviewedContext(context!, [selectedOrder!])],
         selectedServingOrder: selectedOrder,
         quantityOverrides: overrides,
+        profileVariantRules: null,
         reviewerNote: reviewerNote.trim() || null,
       };
       if (readOnlyPreview) {
@@ -350,8 +412,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       const updated = await saveServingSizeReviewDecision(detail.id, body);
       const nextTasks = tasks.map((task) => task.id === updated.id ? updated : task);
       setTasks(nextTasks);
-      setSelectedTaskId(nextTask(nextTasks, updated.id, range.first, range.last)?.id ?? "");
-      setNotice("Canonical serving saved. Moved to the next label.");
+      setSelectedTaskId(detail.status === "escalated"
+        ? nextEscalation(nextTasks, updated.id, detail.resolutionKind)?.id ?? ""
+        : nextTask(nextTasks, updated.id, range.first, range.last)?.id ?? "");
+      setNotice(composite
+        ? "Combined serving saved. Moved to the next label."
+        : "Canonical serving saved. Moved to the next label.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save this decision.");
     } finally {
@@ -363,9 +429,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   if (mode === "selector") return <section aria-label="Serving size review" className="space-y-4">
     <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5">
-      <h2 className="font-headline text-2xl font-bold">Canonical serving review</h2>
+      <h2 className="font-headline text-2xl font-bold">Serving resolution review</h2>
       <p className="mt-2 max-w-4xl text-sm text-text-secondary">
-        Choose one serving size per label and verify the ingredient quantities that will remain in the curated catalog.
+        Choose one canonical serving for standard labels, or combine every printed component for composite packages.
       </p>
       <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} decided · {escalations} escalated · {tasks.length} total</p>
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
@@ -392,13 +458,24 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       {escalations ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
         <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalations})</summary>
         <p className="mt-2 text-xs text-text-secondary">The admin who escalated a label cannot resolve their own escalation.</p>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          {escalationKinds.composite ? <span className="rounded-full border border-violet-400/35 bg-violet-400/10 px-3 py-1 text-violet-200">
+            {escalationKinds.composite} composite packages
+          </span> : null}
+          {escalationKinds.canonical ? <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-text-secondary">
+            {escalationKinds.canonical} standard serving choices
+          </span> : null}
+          {escalationKinds.profile_variants ? <span className="rounded-full border border-sky-400/35 bg-sky-400/10 px-3 py-1 text-sky-200">
+            {escalationKinds.profile_variants} profile variants
+          </span> : null}
+        </div>
         <div className="mt-2 flex flex-wrap gap-2">
           {tasks.filter((task) => task.status === "escalated").map((task) => <button key={task.id} type="button"
             onClick={() => {
               window.sessionStorage.setItem(`serving-size-review-open-task:${batchKey}`, task.id);
               router.push("/admin/catalog/serving-size-review");
             }} className="rounded border border-white/15 px-3 py-2 text-left text-xs hover:border-accent">
-            #{task.queueOrdinal} · {task.labelName}
+            #{task.queueOrdinal} · {task.labelName}{task.resolutionKind === "composite" ? " · combine package" : ""}
           </button>)}
         </div>
       </details> : null}
@@ -426,9 +503,14 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 ref={productNameRef} className="scroll-mt-4 font-headline text-xl font-bold">{detail.labelName}</h3>
             <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}{detail.offMarket ? " · off market" : ""}</p></div>
-          <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${severityStyle[detail.warningSeverity]}`}>
-            {detail.warningSeverity === "none" ? "No extraction warning" : `${detail.warningSeverity} warning`}
-          </span>
+          <div className="flex flex-wrap gap-2">
+            {detail.resolutionKind === "composite" ? <span className="rounded-full border border-violet-400/40 bg-violet-400/10 px-3 py-1 text-xs font-bold uppercase text-violet-200">
+              Composite package
+            </span> : null}
+            <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${severityStyle[detail.warningSeverity]}`}>
+              {detail.warningSeverity === "none" ? "No extraction warning" : `${detail.warningSeverity} warning`}
+            </span>
+          </div>
         </div>
 
         <div className="grid items-start gap-4 md:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
@@ -453,6 +535,68 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </details> : null}
             </section>
 
+            {detail.resolutionKind === "composite" ? <>
+              <section className="rounded border border-violet-400/35 bg-violet-400/10 p-3">
+                <h4 className="font-semibold text-violet-100">1. Confirm the package components</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  This label contains several serving rows that together make one package or regimen. All of them will remain as source evidence.
+                </p>
+                <div className="mt-3 space-y-2">
+                  {detail.sourceServingSizes.map((serving) => <div key={serving.order}
+                    className="rounded border border-violet-300/20 bg-[#080D12] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold">Component {serving.order}: {formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}</span>
+                      <span className="text-xs text-text-muted">DSLD serving order {serving.order}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-text-secondary">{serving.notes?.trim() || "No additional serving description"}</p>
+                  </div>)}
+                </div>
+              </section>
+
+              {context ? <section className="rounded border border-accent/25 bg-accent/5 p-3">
+                <h4 className="font-semibold">2. Define the one combined serving SuppVis should display</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Usually this is one packet, pack, kit, or daily regimen containing every component above.
+                </p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <label className="text-xs">Amount<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
+                    value={context.householdQuantityMin} onChange={(event) => updateContext({ householdQuantityMin: event.target.value,
+                      householdQuantityMax: event.target.value })} /></label>
+                  <label className="text-xs">Unit<input className={`${inputClass} mt-1`} value={context.householdUnit}
+                    onChange={(event) => updateContext({ householdUnit: event.target.value })} placeholder="packet" /></label>
+                  <label className="text-xs">Printed description<input className={`${inputClass} mt-1`} value={context.labelText}
+                    onChange={(event) => updateContext({ labelText: event.target.value })} placeholder="1 packet" /></label>
+                </div>
+              </section> : null}
+
+              <section className="rounded border border-white/10 p-3">
+                <h4 className="font-semibold">3. Check what the combined serving carries forward</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Every ingredient row linked to any component is retained. SuppVis will combine matching nutrition fields during catalog ingest while preserving each source row.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
+                  <div className="rounded bg-accent/10 p-2"><strong className="block text-lg text-accent">{detail.sourceIngredientRows.length}</strong>source ingredient rows</div>
+                  <div className={`rounded p-2 ${detail.repeatedIngredientNameGroups.length ? "bg-amber-400/10 text-amber-100" : "bg-white/5"}`}>
+                    <strong className="block text-lg">{detail.repeatedIngredientNameGroups.length}</strong>repeated printed names
+                  </div>
+                </div>
+                {detail.repeatedIngredientNameGroups.length ? <div className="mt-3 rounded border border-amber-400/25 bg-amber-400/5 p-3 text-xs">
+                  <p className="font-semibold text-amber-100">Repeated names will be combined later, not discarded.</p>
+                  <ul className="mt-2 space-y-1 text-text-secondary">{detail.repeatedIngredientNameGroups.slice(0, 30).map((group) =>
+                    <li key={group.normalizedName}>• {group.printedNames.join(" / ")} — {group.rowPaths.length} rows</li>)}</ul>
+                </div> : null}
+                <details className="mt-3 text-xs"><summary className="cursor-pointer font-semibold">Preview all included rows ({detail.sourceIngredientRows.length})</summary>
+                  <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">{detail.sourceIngredientRows.map((row) => <div key={row.rowPath}
+                    className="rounded bg-[#080D12] p-2">
+                    <span className="font-semibold">{row.name || "Unnamed row"}</span>
+                    {row.ancestorNames.length ? <span className="block text-text-muted">under {row.ancestorNames.join(" › ")}</span> : null}
+                    <span className="mt-1 block text-text-secondary">{row.quantities.length
+                      ? row.quantities.map((quantity) => `serving ${quantity.servingSizeOrder ?? "unlinked"}: ${formatQuantity(quantity)}`).join(" · ")
+                      : "structural row"}</span>
+                  </div>)}</div>
+                </details>
+              </section>
+            </> : <>
             <fieldset className="space-y-2">
               <legend className="font-semibold">1. Choose the one serving size SuppVis should use</legend>
               <p className="text-xs text-text-secondary">Unused variants stay in source history but will not populate the curated catalog.</p>
@@ -538,23 +682,27 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 </div>)}</div>
               </details>
             </section> : null}
+            </>}
 
-            <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
+            {detail.resolutionKind !== "composite" ? <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
               <input type="checkbox" className="mt-1 accent-amber-400" checked={escalated}
                 onChange={(event) => setEscalated(event.target.checked)} />
               <span><span className="block font-semibold">Escalate — cannot determine the canonical serving</span>
                 <span className="block text-xs text-text-secondary">A different admin must resolve an escalation.</span></span>
-            </label>
+            </label> : null}
 
-            <div>{escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
+            <div>{detail.resolutionKind === "composite" || escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
-              {escalated || correctionOpen || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
+              {detail.resolutionKind === "composite" || escalated || correctionOpen || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
-            <div className="flex flex-wrap gap-2"><button type="button" disabled={saving || (!escalated && selectedOrder == null)} onClick={save}
+            <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
+              || (detail.resolutionKind !== "composite" && !escalated && selectedOrder == null)} onClick={save}
               className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">
-              {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue" : escalated ? "Save escalation" : "Save canonical serving"}</button>
+              {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue"
+                : detail.resolutionKind === "composite" ? "Save combined serving"
+                  : escalated ? "Save escalation" : "Save canonical serving"}</button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button></div>
           </div>

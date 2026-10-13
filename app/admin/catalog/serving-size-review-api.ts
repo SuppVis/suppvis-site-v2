@@ -6,9 +6,12 @@ export type ServingSizeReviewStatus =
   | "multiple_contexts"
   | "removed_duplicate"
   | "canonical_selected"
-  | "canonical_corrected";
+  | "canonical_corrected"
+  | "profile_variants_retained"
+  | "composite_serving";
 
 export type ServingSizeReviewOutcome = Exclude<ServingSizeReviewStatus, "pending">;
+export type ServingSizeResolutionKind = "canonical" | "profile_variants" | "composite";
 
 export type DsldServingSize = {
   order: number;
@@ -59,6 +62,13 @@ export type ServingSizeQuantityOverride = {
   selectedQuantityIndex: number | null;
 };
 
+export type ServingSizeProfileVariantRule = {
+  contextKey: string;
+  dimension: "sex" | "age";
+  value: string;
+  isDefault: boolean;
+};
+
 export type ReviewedServingContext = {
   contextKey: string;
   sourceServingOrders: number[];
@@ -92,6 +102,7 @@ export type ServingSizeReviewTask = {
   flagCodes: string[];
   warningSeverity: ServingSizeWarningSeverity;
   reviewReasonCodes: string[];
+  resolutionKind: ServingSizeResolutionKind;
 };
 
 export type ServingSizeReviewDecision = {
@@ -101,6 +112,8 @@ export type ServingSizeReviewDecision = {
   reviewedServingContexts: ReviewedServingContext[] | null;
   selectedServingOrder: number | null;
   quantityOverrides: ServingSizeQuantityOverride[] | null;
+  resolutionKind: ServingSizeResolutionKind;
+  profileVariantRules: ServingSizeProfileVariantRule[] | null;
   reviewerNote: string | null;
   reviewerEmail: string;
   decidedAt: string;
@@ -119,6 +132,7 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   repeatedIngredientNameGroups: RepeatedIngredientNameGroup[];
   selectedServingOrder: number | null;
   quantityOverrides: ServingSizeQuantityOverride[] | null;
+  profileVariantRules: ServingSizeProfileVariantRule[] | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
 };
