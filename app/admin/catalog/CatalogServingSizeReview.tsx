@@ -156,8 +156,8 @@ function reviewedContext(context: EditableContext, sourceServingOrders: number[]
   };
 }
 
-function isActionable(task: ServingSizeReviewTask) {
-  return task.status === "pending";
+function isActionable(task: ServingSizeReviewTask | undefined) {
+  return task?.status === "pending";
 }
 
 function pendingSpan(tasks: ServingSizeReviewTask[]) {
