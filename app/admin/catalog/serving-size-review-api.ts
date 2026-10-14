@@ -13,6 +13,14 @@ export type ServingSizeReviewStatus =
 
 export type ServingSizeReviewOutcome = Exclude<ServingSizeReviewStatus, "pending">;
 export type ServingSizeResolutionKind = "canonical" | "profile_variants" | "composite";
+
+export type ServingSizeReviewCategory =
+  | "label_column_review"
+  | "canonical_choice_review"
+  | "unreferenced_serving_mapping_review"
+  | "composite_review"
+  | "profile_variant_review"
+  | "exclusion_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
@@ -67,6 +75,7 @@ export type RepeatedIngredientNameGroup = {
 export type ServingSizeQuantityOverride = {
   rowPath: string;
   selectedQuantityIndex: number | null;
+  contextKey: string | null;
 };
 
 export type ServingSizeProfileVariantRule = {
@@ -109,6 +118,7 @@ export type ServingSizeReviewTask = {
   flagCodes: string[];
   warningSeverity: ServingSizeWarningSeverity;
   reviewReasonCodes: string[];
+  reviewCategory: ServingSizeReviewCategory;
   resolutionKind: ServingSizeResolutionKind;
   exclusionReason: ServingSizeExclusionReason | null;
 };

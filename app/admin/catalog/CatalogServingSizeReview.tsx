@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Group1LabelPreview } from "./Group1LabelPreview";
 import { labelPdfBytes } from "./group1-label-pdf";
@@ -13,7 +13,9 @@ import {
   type ReviewedServingContext,
   type ServingSizeIngredientRow,
   type ServingSizeExclusionReason,
+  type ServingSizeProfileVariantRule,
   type ServingSizeQuantityOverride,
+  type ServingSizeReviewCategory,
   type ServingSizeReviewTask,
   type ServingSizeReviewTaskDetail,
   type ServingSizeWarningSeverity,
@@ -25,6 +27,59 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
   medium: "border-amber-400/40 bg-amber-400/10 text-amber-100",
   low: "border-sky-400/40 bg-sky-400/10 text-sky-100",
   none: "border-white/15 bg-white/5 text-text-secondary",
+};
+
+const categoryOrder: ServingSizeReviewCategory[] = [
+  "label_column_review",
+  "canonical_choice_review",
+  "unreferenced_serving_mapping_review",
+  "composite_review",
+  "profile_variant_review",
+  "exclusion_review",
+];
+
+const categoryCopy: Record<ServingSizeReviewCategory, {
+  title: string;
+  short: string;
+  instructions: string;
+  style: string;
+}> = {
+  label_column_review: {
+    title: "Choose the correct value column",
+    short: "The serving is known, but DSLD attached multiple value columns to it.",
+    instructions: "Compare the printed columns and choose the one column that belongs to the canonical serving. The choice applies across the whole label.",
+    style: "border-cyan-400/35 bg-cyan-400/5",
+  },
+  canonical_choice_review: {
+    title: "Choose a canonical serving",
+    short: "The precedence rules could not safely choose one serving.",
+    instructions: "Choose the adult, full, standard prepared-with-water serving that SuppVis should use by default.",
+    style: "border-emerald-400/35 bg-emerald-400/5",
+  },
+  unreferenced_serving_mapping_review: {
+    title: "Map values to an unreferenced serving",
+    short: "The preferred serving exists, but ingredient values point somewhere else.",
+    instructions: "Confirm the canonical serving, then choose which printed value column should populate its ingredient amounts.",
+    style: "border-blue-400/35 bg-blue-400/5",
+  },
+  composite_review: {
+    title: "Combine a package",
+    short: "Several component rows together represent one packet, pack, or regimen.",
+    instructions: "Confirm that the components belong together and define the single combined serving SuppVis should display.",
+    style: "border-violet-400/35 bg-violet-400/5",
+  },
+  profile_variant_review: {
+    title: "Retain profile-based variants",
+    short: "The printed serving changes by sex or adult age group.",
+    instructions: "Confirm every retained variant, its profile selector, and which one should be the fallback default.",
+    style: "border-sky-400/35 bg-sky-400/5",
+  },
+  exclusion_review: {
+    title: "Decide possible exclusions",
+    short: "The label may describe an unsupported multi-day or changing regimen.",
+    instructions: "Exclude the product only if one stable catalog serving cannot represent it; otherwise choose a canonical serving.",
+    style: "border-red-400/35 bg-red-400/5",
+  },
 };
 
 const exclusionReasons: Array<{ value: ServingSizeExclusionReason; label: string }> = [
@@ -53,6 +108,14 @@ type Projection = {
   status: "selected" | "excluded" | "ambiguous" | "no_quantity";
   selected: DsldIngredientQuantity | null;
   candidates: DsldIngredientQuantity[];
+};
+
+type MappingOption = {
+  key: string;
+  servingOrder: number | null;
+  columnPosition: number;
+  coverage: number;
+  examples: string[];
 };
 
 function editableContext(context: ReviewedServingContext): EditableContext {
@@ -136,6 +199,56 @@ function humanize(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function isReviewCategory(value: string | null): value is ServingSizeReviewCategory {
+  return Boolean(value && categoryOrder.includes(value as ServingSizeReviewCategory));
+}
+
+function categoryTasks(tasks: ServingSizeReviewTask[], category: ServingSizeReviewCategory | null) {
+  return category ? tasks.filter((task) => task.reviewCategory === category) : [];
+}
+
+function mappingOptions(rows: ServingSizeIngredientRow[], selectedOrder: number | null): MappingOption[] {
+  const groups = new Map<string, MappingOption>();
+  for (const row of rows) {
+    const positions = new Map<string, number>();
+    for (const quantity of row.quantities) {
+      if (quantity.servingSizeOrder === selectedOrder) continue;
+      const orderKey = quantity.servingSizeOrder == null ? "unlinked" : String(quantity.servingSizeOrder);
+      const position = positions.get(orderKey) ?? 0;
+      positions.set(orderKey, position + 1);
+      const key = `${orderKey}:${position}`;
+      const current = groups.get(key) ?? {
+        key,
+        servingOrder: quantity.servingSizeOrder,
+        columnPosition: position,
+        coverage: 0,
+        examples: [],
+      };
+      current.coverage += 1;
+      if (current.examples.length < 4) current.examples.push(`${row.name}: ${formatQuantity(quantity)}`);
+      groups.set(key, current);
+    }
+  }
+  return [...groups.values()].sort((left, right) => right.coverage - left.coverage
+    || (left.servingOrder ?? Number.MAX_SAFE_INTEGER) - (right.servingOrder ?? Number.MAX_SAFE_INTEGER)
+    || left.columnPosition - right.columnPosition);
+}
+
+function inferProfileRules(detail: ServingSizeReviewTaskDetail): ServingSizeProfileVariantRule[] {
+  const dimension = detail.reviewReasonCodes.includes("profile_variant_adult_age_50") ? "age" : "sex";
+  return detail.sourceContexts.map((context, index) => {
+    const serving = detail.sourceServingSizes.find((candidate) =>
+      context.sourceServingOrders.includes(candidate.order));
+    const note = serving?.notes?.toLowerCase() ?? "";
+    const value = dimension === "sex"
+      ? /\bwomen\b|\bfemale/.test(note) ? "female" : /\bmen\b|\bmale/.test(note) ? "male" : `variant_${index + 1}`
+      : /\bunder\s*50|\bbelow\s*50|\byounger\s+than\s*50/.test(note) ? "under_50"
+        : /\bover\s*50|\babove\s*50|\bolder\s+than\s*50|\b50\s*(?:and|or)?\s*(?:older|over|above|up|\+)/.test(note)
+          ? "50_and_over" : `variant_${index + 1}`;
+    return { contextKey: context.contextKey, dimension, value, isDefault: index === 0 };
+  });
+}
+
 function projections(
   rows: ServingSizeIngredientRow[],
   selectedOrder: number | null,
@@ -166,9 +279,13 @@ function projections(
 export default function CatalogServingSizeReview({ mode = "selector" }: { mode?: "selector" | "queue" }) {
   const readOnlyPreview = process.env.NEXT_PUBLIC_SERVING_SIZE_REVIEW_READONLY === "1";
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedCategory = isReviewCategory(searchParams.get("category"))
+    ? searchParams.get("category") as ServingSizeReviewCategory : null;
   const productNameRef = useRef<HTMLHeadingElement>(null);
   const [tasks, setTasks] = useState<ServingSizeReviewTask[]>([]);
   const [batchKey, setBatchKey] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<ServingSizeReviewCategory | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [detail, setDetail] = useState<ServingSizeReviewTaskDetail | null>(null);
   const [range, setRange] = useState({ first: 0, last: -1 });
@@ -181,6 +298,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [excludeFromIngest, setExcludeFromIngest] = useState(false);
   const [exclusionReason, setExclusionReason] = useState<ServingSizeExclusionReason | "">("");
   const [quantityOverrides, setQuantityOverrides] = useState<Map<string, number | null>>(new Map());
+  const [globalColumn, setGlobalColumn] = useState<number | null>(null);
+  const [globalMapping, setGlobalMapping] = useState("");
+  const [profileRules, setProfileRules] = useState<ServingSizeProfileVariantRule[]>([]);
+  const [profileQuantityOverrides, setProfileQuantityOverrides] = useState<Map<string, number | null>>(new Map());
+  const [profileColumns, setProfileColumns] = useState<Map<string, number>>(new Map());
   const [reviewerNote, setReviewerNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -188,33 +310,42 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const span = pendingSpan(tasks);
+  const activeCategory = mode === "queue" ? requestedCategory : selectedCategory;
+  const scopedTasks = useMemo(() => categoryTasks(tasks, activeCategory), [tasks, activeCategory]);
+  const span = pendingSpan(scopedTasks);
   const pending = tasks.filter(isActionable).length;
   const escalations = tasks.filter((task) => task.status === "escalated").length;
   const exclusions = tasks.filter((task) => task.status === "excluded_from_ingest").length;
   const decided = tasks.length - pending - escalations;
-  const escalationKinds = useMemo(() => tasks.reduce((counts, task) => {
-    if (task.status === "escalated") counts[task.resolutionKind] += 1;
-    return counts;
-  }, { canonical: 0, composite: 0, profile_variants: 0 }), [tasks]);
-  const currentPosition = tasks.findIndex((task) => task.id === selectedTaskId) + 1;
+  const currentPosition = scopedTasks.findIndex((task) => task.id === selectedTaskId) + 1;
   const next = useMemo(() => {
-    const selected = tasks.find((task) => task.id === selectedTaskId);
+    const selected = scopedTasks.find((task) => task.id === selectedTaskId);
     return selected?.status === "escalated"
-      ? nextEscalation(tasks, selectedTaskId, selected.resolutionKind)
-      : nextTask(tasks, selectedTaskId, range.first, range.last);
+      ? nextEscalation(scopedTasks, selectedTaskId, selected.resolutionKind)
+      : nextTask(scopedTasks, selectedTaskId, range.first, range.last);
   },
-    [tasks, selectedTaskId, range]);
-  const severityCounts = useMemo(() => tasks.reduce((counts, task) => {
-    counts[task.warningSeverity] += 1;
-    return counts;
-  }, { high: 0, medium: 0, low: 0, none: 0 }), [tasks]);
+    [scopedTasks, selectedTaskId, range]);
   const projected = useMemo(() => projections(detail?.sourceIngredientRows ?? [], selectedOrder,
     quantityOverrides), [detail, selectedOrder, quantityOverrides]);
   const projectionCounts = useMemo(() => projected.reduce((counts, row) => {
     counts[row.status] += 1;
     return counts;
   }, { selected: 0, excluded: 0, ambiguous: 0, no_quantity: 0 }), [projected]);
+  const categoryCounts = useMemo(() => Object.fromEntries(categoryOrder.map((category) => {
+    const categoryRows = tasks.filter((task) => task.reviewCategory === category);
+    return [category, {
+      total: categoryRows.length,
+      pending: categoryRows.filter(isActionable).length,
+      escalated: categoryRows.filter((task) => task.status === "escalated").length,
+    }];
+  })) as Record<ServingSizeReviewCategory, { total: number; pending: number; escalated: number }>, [tasks]);
+  const unreferencedOptions = useMemo(() => detail?.reviewCategory === "unreferenced_serving_mapping_review"
+    ? mappingOptions(detail.sourceIngredientRows, selectedOrder) : [], [detail, selectedOrder]);
+  const labelColumnCount = useMemo(() => {
+    if (!detail || selectedOrder == null || detail.reviewCategory !== "label_column_review") return 0;
+    return detail.sourceIngredientRows.reduce((maximum, row) => Math.max(maximum,
+      row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder).length), 0);
+  }, [detail, selectedOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,15 +353,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       if (cancelled) return;
       setTasks(result.tasks);
       setBatchKey(result.batchKey);
-      const suggested = pendingSpan(result.tasks);
-      const stored = window.sessionStorage.getItem(`serving-size-review-range:${result.batchKey}`);
+      const category = mode === "queue" ? requestedCategory
+        : categoryOrder.find((candidate) => result.tasks.some((task) =>
+          task.reviewCategory === candidate && isActionable(task))) ?? categoryOrder[0];
+      setSelectedCategory(category);
+      const filtered = categoryTasks(result.tasks, category);
+      const suggested = pendingSpan(filtered);
+      const storageKey = `serving-size-review-range:${result.batchKey}:${category ?? "none"}`;
+      const stored = window.sessionStorage.getItem(storageKey);
       let selectedRange = suggested ? { first: suggested.first, last: suggested.last }
-        : { first: 0, last: Math.max(0, result.tasks.length - 1) };
+        : { first: 0, last: Math.max(0, filtered.length - 1) };
       if (stored) {
         try {
           const parsed = JSON.parse(stored) as { first: number; last: number };
           if (Number.isSafeInteger(parsed.first) && Number.isSafeInteger(parsed.last)
-            && parsed.first >= 0 && parsed.first <= parsed.last && parsed.last < result.tasks.length) {
+            && parsed.first >= 0 && parsed.first <= parsed.last && parsed.last < filtered.length) {
             selectedRange = parsed;
           }
         } catch { /* Use the pending span. */ }
@@ -242,19 +379,23 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       } else {
         setRangeStart(String(selectedRange.first + 1));
         setRangeEnd(String(selectedRange.last + 1));
-        const openKey = `serving-size-review-open-task:${result.batchKey}`;
+        if (!category) {
+          setError("Choose a review category before starting the queue.");
+          return;
+        }
+        const openKey = `serving-size-review-open-task:${result.batchKey}:${category}`;
         const requestedTaskId = window.sessionStorage.getItem(openKey);
         window.sessionStorage.removeItem(openKey);
         const requested = requestedTaskId
-          ? result.tasks.find((task) => task.id === requestedTaskId) : undefined;
+          ? filtered.find((task) => task.id === requestedTaskId) : undefined;
         setSelectedTaskId(requested?.id
-          ?? nextTask(result.tasks, "", selectedRange.first, selectedRange.last)?.id ?? "");
+          ?? nextTask(filtered, "", selectedRange.first, selectedRange.last)?.id ?? "");
       }
     }).catch((reason) => {
       if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to load serving-size reviews.");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [mode]);
+  }, [mode, requestedCategory]);
 
   useEffect(() => {
     if (mode !== "queue" || !selectedTaskId) { setDetail(null); return; }
@@ -271,6 +412,26 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   useEffect(() => {
     if (!detail) return;
+    setGlobalColumn(null);
+    setGlobalMapping("");
+    setProfileColumns(new Map());
+    if (detail.resolutionKind === "profile_variants") {
+      setSelectedOrder(null);
+      setContext(null);
+      setCorrectionOpen(false);
+      setEscalated(false);
+      setExcludeFromIngest(false);
+      setExclusionReason("");
+      setQuantityOverrides(new Map());
+      setProfileRules(detail.profileVariantRules ?? inferProfileRules(detail));
+      setProfileQuantityOverrides(new Map((detail.quantityOverrides ?? [])
+        .filter((override) => override.contextKey)
+        .map((override) => [`${override.contextKey}\u0000${override.rowPath}`, override.selectedQuantityIndex])));
+      setReviewerNote("");
+      setNoteOpen(false);
+      productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      return;
+    }
     if (detail.resolutionKind === "composite") {
       const sourceOrders = detail.sourceServingSizes.map((serving) => serving.order);
       const effectiveContext = detail.reviewedServingContexts?.[0] ?? {
@@ -293,6 +454,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setExcludeFromIngest(false);
       setExclusionReason("");
       setQuantityOverrides(new Map());
+      setProfileRules([]);
+      setProfileQuantityOverrides(new Map());
       setReviewerNote("");
       setNoteOpen(true);
       productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
@@ -309,7 +472,10 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setExcludeFromIngest(false);
     setExclusionReason("");
     setQuantityOverrides(new Map((detail.quantityOverrides ?? [])
+      .filter((override) => override.contextKey === null)
       .map((override) => [override.rowPath, override.selectedQuantityIndex])));
+    setProfileRules([]);
+    setProfileQuantityOverrides(new Map());
     setReviewerNote("");
     setNoteOpen(false);
     productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
@@ -326,6 +492,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setSelectedOrder(order);
     setContext(source ? editableContext(source) : null);
     setQuantityOverrides(new Map());
+    setGlobalColumn(null);
+    setGlobalMapping("");
     setEscalated(false);
     setExcludeFromIngest(false);
     setExclusionReason("");
@@ -355,8 +523,66 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     });
   }
 
+  function chooseCategory(category: ServingSizeReviewCategory) {
+    setSelectedCategory(category);
+    const filtered = categoryTasks(tasks, category);
+    const suggested = pendingSpan(filtered);
+    setRangeStart(suggested ? String(suggested.first + 1) : "");
+    setRangeEnd(suggested ? String(suggested.last + 1) : "");
+    setError("");
+  }
+
+  function applyGlobalColumnChoice(position: number) {
+    if (!detail || selectedOrder == null) return;
+    const nextMap = new Map<string, number | null>();
+    for (const row of detail.sourceIngredientRows) {
+      const candidates = row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder);
+      if (candidates.length > 1 && candidates[position]) {
+        nextMap.set(row.rowPath, candidates[position].sourceQuantityIndex);
+      }
+    }
+    setQuantityOverrides(nextMap);
+    setGlobalColumn(position);
+  }
+
+  function applyUnreferencedMapping(option: MappingOption) {
+    if (!detail) return;
+    const nextMap = new Map<string, number | null>();
+    for (const row of detail.sourceIngredientRows) {
+      if (!row.quantities.length) continue;
+      const candidates = row.quantities.filter((quantity) =>
+        quantity.servingSizeOrder === option.servingOrder);
+      nextMap.set(row.rowPath, candidates[option.columnPosition]?.sourceQuantityIndex ?? null);
+    }
+    setQuantityOverrides(nextMap);
+    setGlobalMapping(option.key);
+  }
+
+  function chooseProfileDefault(contextKey: string) {
+    setProfileRules((current) => current.map((rule) => ({
+      ...rule,
+      isDefault: rule.contextKey === contextKey,
+    })));
+  }
+
+  function applyProfileColumn(contextKey: string, servingOrder: number, position: number) {
+    if (!detail) return;
+    setProfileQuantityOverrides((current) => {
+      const nextMap = new Map(current);
+      for (const row of detail.sourceIngredientRows) {
+        const candidates = row.quantities.filter((quantity) =>
+          quantity.servingSizeOrder === servingOrder);
+        if (candidates.length > 1 && candidates[position]) {
+          nextMap.set(`${contextKey}\u0000${row.rowPath}`, candidates[position].sourceQuantityIndex);
+        }
+      }
+      return nextMap;
+    });
+    setProfileColumns((current) => new Map(current).set(contextKey, position));
+  }
+
   function applyRange() {
-    if (!span) return;
+    if (!span || !selectedCategory) return;
     const first = Number(rangeStart);
     const last = Number(rangeEnd);
     if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)
@@ -365,24 +591,58 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     const selected = { first: first - 1, last: last - 1 };
-    window.sessionStorage.setItem(`serving-size-review-range:${batchKey}`, JSON.stringify(selected));
-    router.push("/admin/catalog/serving-size-review");
+    window.sessionStorage.setItem(
+      `serving-size-review-range:${batchKey}:${selectedCategory}`,
+      JSON.stringify(selected),
+    );
+    router.push(`/admin/catalog/serving-size-review?category=${selectedCategory}`);
   }
 
   async function save() {
     if (!detail) return;
     const composite = detail.resolutionKind === "composite";
+    const profileVariants = detail.resolutionKind === "profile_variants";
     if (!excludeFromIngest && composite && !context) {
       setError("Define the one combined serving SuppVis should use.");
       return;
     }
-    if (!excludeFromIngest && !composite && !escalated && (selectedOrder == null || !context)) {
+    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+      && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
       return;
     }
-    if (!excludeFromIngest && !composite && !escalated && projectionCounts.ambiguous > 0) {
+    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+      && detail.reviewCategory === "label_column_review" && globalColumn == null) {
+      setError("Choose the printed value column that belongs to this serving.");
+      return;
+    }
+    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+      && detail.reviewCategory === "unreferenced_serving_mapping_review" && !globalMapping) {
+      setError("Choose which ingredient-value column should populate the canonical serving.");
+      return;
+    }
+    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+      && projectionCounts.ambiguous > 0) {
       setError("Resolve every highlighted ingredient quantity before saving.");
       return;
+    }
+    if (!excludeFromIngest && profileVariants && !escalated) {
+      if (profileRules.length !== detail.sourceContexts.length
+        || profileRules.filter((rule) => rule.isDefault).length !== 1) {
+        setError("Confirm every profile variant and choose one fallback default.");
+        return;
+      }
+      for (const sourceContext of detail.sourceContexts) {
+        const order = sourceContext.sourceServingOrders[0];
+        for (const row of detail.sourceIngredientRows) {
+          const matches = row.quantities.filter((quantity) => quantity.servingSizeOrder === order);
+          if (matches.length > 1
+            && !profileQuantityOverrides.has(`${sourceContext.contextKey}\u0000${row.rowPath}`)) {
+            setError(`Choose one value column for ${sourceContext.contextKey}.`);
+            return;
+          }
+        }
+      }
     }
     if (excludeFromIngest && !exclusionReason) {
       setError("Choose why this product should be excluded from catalog ingest.");
@@ -401,7 +661,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setNotice("");
     try {
       const overrides: ServingSizeQuantityOverride[] = [...quantityOverrides.entries()]
-        .map(([rowPath, selectedQuantityIndex]) => ({ rowPath, selectedQuantityIndex }));
+        .map(([rowPath, selectedQuantityIndex]) => ({ rowPath, selectedQuantityIndex, contextKey: null }));
+      const profileOverrides: ServingSizeQuantityOverride[] = [...profileQuantityOverrides.entries()]
+        .map(([key, selectedQuantityIndex]) => {
+          const [contextKey, rowPath] = key.split("\u0000", 2);
+          return { rowPath, selectedQuantityIndex, contextKey };
+        });
       const body = excludeFromIngest ? {
         expectedRevision: detail.revision,
         outcome: "excluded_from_ingest",
@@ -421,6 +686,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: null,
         exclusionReason: null,
         reviewerNote: reviewerNote.trim(),
+      } : profileVariants && !escalated ? {
+        expectedRevision: detail.revision,
+        outcome: "profile_variants_retained",
+        reviewedServingContexts: detail.sourceContexts,
+        selectedServingOrder: null,
+        quantityOverrides: profileOverrides,
+        profileVariantRules: profileRules,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim() || null,
       } : escalated ? {
         expectedRevision: detail.revision,
         outcome: "escalated",
@@ -447,14 +721,17 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       }
       const updated = await saveServingSizeReviewDecision(detail.id, body);
       const nextTasks = tasks.map((task) => task.id === updated.id ? updated : task);
+      const nextScopedTasks = scopedTasks.map((task) => task.id === updated.id ? updated : task);
       setTasks(nextTasks);
       setSelectedTaskId(detail.status === "escalated"
-        ? nextEscalation(nextTasks, updated.id, detail.resolutionKind)?.id ?? ""
-        : nextTask(nextTasks, updated.id, range.first, range.last)?.id ?? "");
+        ? nextEscalation(nextScopedTasks, updated.id, detail.resolutionKind)?.id ?? ""
+        : nextTask(nextScopedTasks, updated.id, range.first, range.last)?.id ?? "");
       setNotice(excludeFromIngest
         ? "Product excluded from catalog ingest. Moved to the next label."
         : composite
         ? "Combined serving saved. Moved to the next label."
+        : profileVariants
+        ? "Profile variants saved. Moved to the next label."
         : "Canonical serving saved. Moved to the next label.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save this decision.");
@@ -469,63 +746,74 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-5">
       <h2 className="font-headline text-2xl font-bold">Serving resolution review</h2>
       <p className="mt-2 max-w-4xl text-sm text-text-secondary">
-        Choose one canonical serving for standard labels, or combine every printed component for composite packages.
+        Choose a review category first. Each category contains one consistent type of decision and its own progress.
       </p>
-      <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} completed ({exclusions} excluded) · {escalations} escalated · {tasks.length} total</p>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-        {(["high", "medium", "low", "none"] as const).map((severity) => <span key={severity}
-          className={`rounded-full border px-3 py-1 ${severityStyle[severity]}`}>
-          {severity === "none" ? "No warning" : `${severity[0].toUpperCase()}${severity.slice(1)}`} · {severityCounts[severity]}
-        </span>)}
-      </div>
-      <p className="mt-2 text-xs text-text-muted">Queue {batchKey}. High-severity extraction warnings appear first, followed by medium, low, and unflagged labels.</p>
+      <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} completed ({exclusions} excluded) · {escalations} escalated · {tasks.length} human-review tasks</p>
+      <p className="mt-2 text-xs text-text-muted">Queue {batchKey}. The 918 policy-approved labels are stored separately and do not appear here.</p>
       {readOnlyPreview ? <p className="mt-3 rounded border border-sky-400/35 bg-sky-400/10 p-3 text-sm text-sky-200">
         Read-only local preview: controls advance through the queue, but nothing is saved.
       </p> : null}
+    </div>
+
+    <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+      {categoryOrder.map((category) => {
+        const copy = categoryCopy[category];
+        const counts = categoryCounts[category];
+        const selected = selectedCategory === category;
+        return <button key={category} type="button" onClick={() => chooseCategory(category)}
+          className={`rounded-[8px] border p-4 text-left transition ${copy.style} ${selected ? "ring-2 ring-accent" : "hover:border-accent/60"}`}>
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="font-semibold text-text-primary">{copy.title}</h3>
+            <span className="rounded-full border border-white/15 bg-black/20 px-2.5 py-1 text-xs font-bold">{counts.total}</span>
+          </div>
+          <p className="mt-2 text-sm text-text-secondary">{copy.short}</p>
+          <p className="mt-3 text-xs text-text-muted">{counts.pending} pending{counts.escalated ? ` · ${counts.escalated} escalated` : ""}</p>
+        </button>;
+      })}
+    </div>
+
+    {selectedCategory ? <div className={`rounded-[8px] border p-5 ${categoryCopy[selectedCategory].style}`}>
+      <p className="text-xs font-bold uppercase tracking-wide text-accent">Selected review</p>
+      <h3 className="mt-1 font-headline text-xl font-bold">{categoryCopy[selectedCategory].title}</h3>
+      <p className="mt-2 max-w-4xl text-sm text-text-secondary">{categoryCopy[selectedCategory].instructions}</p>
       <div className="mt-4 flex flex-wrap items-end gap-3 rounded border border-white/10 bg-[#080D12] p-3">
-        <label className="text-xs font-semibold">Start at label<input className={`${inputClass} mt-1 w-28`} type="number"
+        <label className="text-xs font-semibold">Start at task<input className={`${inputClass} mt-1 w-28`} type="number"
           value={rangeStart} min={span ? span.first + 1 : undefined} max={span ? span.last + 1 : undefined}
           onChange={(event) => setRangeStart(event.target.value)} /></label>
-        <label className="text-xs font-semibold">End at label<input className={`${inputClass} mt-1 w-28`} type="number"
+        <label className="text-xs font-semibold">End at task<input className={`${inputClass} mt-1 w-28`} type="number"
           value={rangeEnd} min={span ? span.first + 1 : undefined} max={span ? span.last + 1 : undefined}
           onChange={(event) => setRangeEnd(event.target.value)} /></label>
         <button type="button" disabled={!span} onClick={applyRange}
-          className="rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent disabled:opacity-40">Start review range</button>
-        <p className="text-xs text-text-muted">Use non-overlapping ranges for multiple admins. Completed labels are skipped.</p>
+          className="rounded-full bg-accent px-4 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">Start this category</button>
+        <p className="text-xs text-text-muted">Use non-overlapping ranges for multiple admins. Completed tasks are skipped.</p>
       </div>
-      {escalations ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
-        <summary className="cursor-pointer font-semibold text-amber-200">Escalations awaiting resolution ({escalations})</summary>
-        <p className="mt-2 text-xs text-text-secondary">Any admin can reopen an escalation, review its history, and resolve it.</p>
-        <div className="mt-2 flex flex-wrap gap-2 text-xs">
-          {escalationKinds.composite ? <span className="rounded-full border border-violet-400/35 bg-violet-400/10 px-3 py-1 text-violet-200">
-            {escalationKinds.composite} composite packages
-          </span> : null}
-          {escalationKinds.canonical ? <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-text-secondary">
-            {escalationKinds.canonical} standard serving choices
-          </span> : null}
-          {escalationKinds.profile_variants ? <span className="rounded-full border border-sky-400/35 bg-sky-400/10 px-3 py-1 text-sky-200">
-            {escalationKinds.profile_variants} profile variants
-          </span> : null}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {tasks.filter((task) => task.status === "escalated").map((task) => <button key={task.id} type="button"
-            onClick={() => {
-              window.sessionStorage.setItem(`serving-size-review-open-task:${batchKey}`, task.id);
-              router.push("/admin/catalog/serving-size-review");
-            }} className="rounded border border-white/15 px-3 py-2 text-left text-xs hover:border-accent">
-            #{task.queueOrdinal} · {task.labelName}{task.resolutionKind === "composite" ? " · combine package" : ""}
-          </button>)}
-        </div>
+      {scopedTasks.some((task) => task.status === "escalated") ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
+        <summary className="cursor-pointer font-semibold text-amber-200">Escalations in this category ({categoryCounts[selectedCategory].escalated})</summary>
+        <p className="mt-2 text-xs text-text-secondary">Any admin can reopen and resolve these.</p>
+        <div className="mt-2 flex flex-wrap gap-2">{scopedTasks.filter((task) => task.status === "escalated").map((task, index) =>
+          <button key={task.id} type="button" onClick={() => {
+            window.sessionStorage.setItem(`serving-size-review-open-task:${batchKey}:${selectedCategory}`, task.id);
+            router.push(`/admin/catalog/serving-size-review?category=${selectedCategory}`);
+          }} className="rounded border border-white/15 px-3 py-2 text-left text-xs hover:border-accent">
+            #{index + 1} · {task.labelName}
+          </button>)}</div>
       </details> : null}
-    </div>
+    </div> : null}
     {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
   </section>;
 
-  return <section aria-label="Canonical serving review" className="space-y-4">
+  return <section aria-label="Serving size review queue" className="space-y-4">
     <Link href="/admin/catalog?view=serving-size-review"
       className="inline-flex rounded-full border border-white/20 px-4 py-2 text-sm font-semibold hover:border-accent hover:text-accent">
       ← Back to serving-size queue
     </Link>
+    {requestedCategory ? <div className={`rounded-[8px] border p-4 ${categoryCopy[requestedCategory].style}`}>
+      <p className="text-xs font-bold uppercase tracking-wide text-accent">Current category</p>
+      <h2 className="mt-1 font-headline text-xl font-bold">{categoryCopy[requestedCategory].title}</h2>
+      <p className="mt-1 text-sm text-text-secondary">{categoryCopy[requestedCategory].instructions}</p>
+    </div> : <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+      No review category was selected. Return to the serving-size queue and choose one.
+    </p>}
     {error ? <p role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p> : null}
     {notice ? <p role="status" className="rounded border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{notice}</p> : null}
     <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
@@ -533,7 +821,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         Read-only local preview — controls advance through the queue, but no decision is recorded.
       </p> : null}
       {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
-        Label {currentPosition} of {tasks.length} · assigned range {range.first + 1}–{range.last + 1}
+        Task {currentPosition} of {scopedTasks.length} in this category · assigned range {range.first + 1}–{range.last + 1}
       </p> : null}
       {!detail || detail.id !== selectedTaskId ? <p className="text-sm text-text-secondary">
         {selectedTaskId ? "Loading the next label…" : "No pending labels remain in this range."}
@@ -542,6 +830,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
           <div><h3 ref={productNameRef} className="scroll-mt-4 font-headline text-xl font-bold">{detail.labelName}</h3>
             <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}{detail.offMarket ? " · off market" : ""}</p></div>
           <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-bold uppercase text-text-secondary">
+              {categoryCopy[detail.reviewCategory].title}
+            </span>
             {detail.resolutionKind === "composite" ? <span className="rounded-full border border-violet-400/40 bg-violet-400/10 px-3 py-1 text-xs font-bold uppercase text-violet-200">
               Composite package
             </span> : null}
@@ -573,7 +864,66 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </details> : null}
             </section>
 
-            {detail.resolutionKind === "composite" ? <>
+            {detail.resolutionKind === "profile_variants" ? <>
+              <section className="rounded border border-sky-400/35 bg-sky-400/10 p-3">
+                <h4 className="font-semibold text-sky-100">1. Confirm the profile-based servings</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Keep each printed serving below. SuppVis will choose between them using the user&apos;s profile.
+                </p>
+                <div className="mt-3 space-y-3">{detail.sourceContexts.map((sourceContext) => {
+                  const serving = detail.sourceServingSizes.find((candidate) =>
+                    sourceContext.sourceServingOrders.includes(candidate.order));
+                  const rule = profileRules.find((candidate) => candidate.contextKey === sourceContext.contextKey);
+                  if (!serving || !rule) return null;
+                  const ambiguousRows = detail.sourceIngredientRows.map((row) => ({
+                    row,
+                    candidates: row.quantities.filter((quantity) => quantity.servingSizeOrder === serving.order),
+                  })).filter((entry) => entry.candidates.length > 1);
+                  const columnCount = ambiguousRows.reduce((maximum, entry) =>
+                    Math.max(maximum, entry.candidates.length), 0);
+                  return <div key={sourceContext.contextKey} className="rounded border border-sky-300/20 bg-[#080D12] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div><p className="font-semibold">{formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}</p>
+                        <p className="mt-1 text-sm text-text-secondary">{serving.notes?.trim() || "No additional serving description"}</p>
+                        <p className="mt-1 text-xs text-text-muted">DSLD serving order {serving.order}</p></div>
+                      <label className="flex items-center gap-2 text-xs font-semibold"><input type="radio" name="profile-default"
+                        className="accent-sky-400" checked={rule.isDefault}
+                        onChange={() => chooseProfileDefault(sourceContext.contextKey)} />Fallback default</label>
+                    </div>
+                    <label className="mt-3 block text-xs font-semibold">Profile selector
+                      <select className={`${inputClass} mt-1`} value={rule.value} onChange={(event) => setProfileRules((current) =>
+                        current.map((candidate) => candidate.contextKey === rule.contextKey
+                          ? { ...candidate, value: event.target.value } : candidate))}>
+                        {rule.dimension === "sex" ? <>
+                          <option value="male">Male</option><option value="female">Female</option>
+                        </> : <>
+                          <option value="under_50">Under 50</option><option value="50_and_over">50 and over</option>
+                        </>}
+                      </select>
+                    </label>
+                    {ambiguousRows.length ? <div className="mt-3 rounded border border-amber-400/30 bg-amber-400/5 p-3">
+                      <p className="text-xs font-semibold text-amber-100">Choose one printed value column for this variant</p>
+                      <div className="mt-2 flex flex-wrap gap-2">{Array.from({ length: columnCount }, (_, position) =>
+                        <button key={position} type="button" onClick={() => applyProfileColumn(
+                          sourceContext.contextKey, serving.order, position,
+                        )} className={`rounded border px-3 py-2 text-xs font-semibold ${profileColumns.get(sourceContext.contextKey) === position
+                          ? "border-accent bg-accent/15 text-accent" : "border-white/15"}`}>
+                          Column {position + 1}
+                        </button>)}</div>
+                      <div className="mt-2 space-y-1 text-xs text-text-secondary">{ambiguousRows.slice(0, 3).map((entry) =>
+                        <p key={entry.row.rowPath}>{entry.row.name}: {entry.candidates.map(formatQuantity).join(" | ")}</p>)}</div>
+                    </div> : null}
+                  </div>;
+                })}</div>
+              </section>
+              <section className="rounded border border-white/10 p-3">
+                <h4 className="font-semibold">2. Confirm the fallback</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  The fallback is used only when the relevant profile field is unavailable. Both variants remain preserved.
+                </p>
+                <p className="mt-3 text-sm font-semibold text-accent">{profileRules.find((rule) => rule.isDefault)?.value.replaceAll("_", " ") ?? "Choose a fallback above"}</p>
+              </section>
+            </> : detail.resolutionKind === "composite" ? <>
               <section className="rounded border border-violet-400/35 bg-violet-400/10 p-3">
                 <h4 className="font-semibold text-violet-100">1. Confirm the package components</h4>
                 <p className="mt-1 text-xs text-text-secondary">
@@ -684,14 +1034,40 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
             {selectedOrder != null ? <section className="rounded border border-white/10 p-3">
               <h4 className="font-semibold">3. Verify the resulting ingredient quantities</h4>
-              <p className="mt-1 text-xs text-text-secondary">SuppVis automatically keeps quantities tied to serving order {selectedOrder} and excludes quantities tied only to other servings.</p>
+              <p className="mt-1 text-xs text-text-secondary">{detail.reviewCategory === "unreferenced_serving_mapping_review"
+                ? "Choose the printed value column that should populate this serving. The choice applies across the whole label."
+                : "SuppVis keeps quantities tied to the selected serving and excludes quantities tied only to other servings."}</p>
+              {detail.reviewCategory === "label_column_review" && labelColumnCount > 1 ? <div className="mt-3 rounded border border-cyan-400/30 bg-cyan-400/5 p-3">
+                <p className="text-sm font-semibold text-cyan-100">Choose one value column for the whole label</p>
+                <p className="mt-1 text-xs text-text-secondary">Every affected ingredient follows the same printed column pattern, so you only need to choose once.</p>
+                <div className="mt-3 flex flex-wrap gap-2">{Array.from({ length: labelColumnCount }, (_, position) =>
+                  <button key={position} type="button" onClick={() => applyGlobalColumnChoice(position)}
+                    className={`rounded border px-3 py-2 text-xs font-semibold ${globalColumn === position
+                      ? "border-accent bg-accent/15 text-accent" : "border-white/15"}`}>
+                    Use column {position + 1}
+                  </button>)}</div>
+                <div className="mt-3 space-y-1 text-xs text-text-secondary">{detail.sourceIngredientRows.map((row) => ({
+                  row,
+                  candidates: row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder),
+                })).filter((entry) => entry.candidates.length > 1).slice(0, 4).map((entry) =>
+                  <p key={entry.row.rowPath}>{entry.row.name}: {entry.candidates.map(formatQuantity).join(" | ")}</p>)}</div>
+              </div> : null}
+              {detail.reviewCategory === "unreferenced_serving_mapping_review" ? <div className="mt-3 rounded border border-blue-400/30 bg-blue-400/5 p-3">
+                <p className="text-sm font-semibold text-blue-100">Choose the source value column</p>
+                <div className="mt-3 space-y-2">{unreferencedOptions.map((option) => <button key={option.key} type="button"
+                  onClick={() => applyUnreferencedMapping(option)} className={`block w-full rounded border p-3 text-left text-xs ${globalMapping === option.key
+                    ? "border-accent bg-accent/15" : "border-white/15 bg-[#080D12]"}`}>
+                  <span className="font-semibold">{option.servingOrder == null ? "Unlinked values" : `Values currently tied to serving order ${option.servingOrder}`}{option.columnPosition ? ` · column ${option.columnPosition + 1}` : ""}</span>
+                  <span className="mt-1 block text-text-secondary">Covers {option.coverage} ingredient rows · {option.examples.join(" · ")}</span>
+                </button>)}</div>
+              </div> : null}
               <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
                 <div className="rounded bg-accent/10 p-2"><strong className="block text-lg text-accent">{projectionCounts.selected}</strong>kept</div>
                 <div className="rounded bg-white/5 p-2"><strong className="block text-lg">{projectionCounts.excluded}</strong>excluded</div>
                 <div className={`rounded p-2 ${projectionCounts.ambiguous ? "bg-red-400/10 text-red-200" : "bg-white/5"}`}><strong className="block text-lg">{projectionCounts.ambiguous}</strong>needs choice</div>
                 <div className="rounded bg-white/5 p-2"><strong className="block text-lg">{projectionCounts.no_quantity}</strong>structural rows</div>
               </div>
-              {projected.filter((projection) => projection.status === "ambiguous").map((projection) => <div key={projection.row.rowPath}
+              {detail.reviewCategory !== "label_column_review" ? projected.filter((projection) => projection.status === "ambiguous").map((projection) => <div key={projection.row.rowPath}
                 className="mt-3 rounded border border-red-400/35 bg-red-400/5 p-3">
                 <p className="text-sm font-semibold">{projection.row.name || "Unnamed row"}</p>
                 <p className="text-xs text-text-secondary">DSLD contains multiple possible values for the chosen serving.</p>
@@ -703,7 +1079,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     value={quantity.sourceQuantityIndex}>{formatQuantity(quantity)}</option>)}
                   <option value="exclude">Exclude this row</option>
                 </select>
-              </div>)}
+              </div>) : null}
               {detail.repeatedIngredientNameGroups.length ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-xs">
                 <summary className="cursor-pointer font-semibold text-amber-100">Repeated printed ingredient names ({detail.repeatedIngredientNameGroups.length})</summary>
                 <p className="mt-2 text-text-secondary">Rows tied only to another serving are excluded automatically. Repeated rows that survive the chosen serving remain visible for duplicate review.</p>
@@ -751,7 +1127,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     setExclusionReason("");
                   }
                 }} />
-              <span><span className="block font-semibold">Escalate — cannot determine the canonical serving</span>
+              <span><span className="block font-semibold">Escalate — {detail.resolutionKind === "profile_variants"
+                ? "cannot resolve the profile variants" : "cannot determine the canonical serving"}</span>
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
@@ -762,13 +1139,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
-              || (!excludeFromIngest && detail.resolutionKind !== "composite" && !escalated && selectedOrder == null)} onClick={save}
+              || (!excludeFromIngest && detail.resolutionKind === "canonical" && !escalated && selectedOrder == null)} onClick={save}
               className={`rounded-full px-5 py-2 text-sm font-bold disabled:opacity-40 ${excludeFromIngest
                 ? "bg-red-400 text-[#190404]" : "bg-accent text-[#03100E]"}`}>
               {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue"
                 : excludeFromIngest ? "Exclude product from ingest"
+                  : escalated ? "Save escalation"
                   : detail.resolutionKind === "composite" ? "Save combined serving"
-                  : escalated ? "Save escalation" : "Save canonical serving"}</button>
+                  : detail.resolutionKind === "profile_variants" ? "Save profile variants"
+                  : "Save canonical serving"}</button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button></div>
           </div>
