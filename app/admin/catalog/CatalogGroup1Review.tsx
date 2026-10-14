@@ -24,7 +24,7 @@ const decisions: Array<{ value: ReviewOutcome; title: string; explanation: strin
   { value: "accepted", title: "Nutrition fact", explanation: "Accept the proposed field or choose another available field." },
   { value: "not_group1", title: "Not a nutrition fact, other type of ingredient", explanation: "Keep this row for the later Group 2/3 pass." },
   { value: "not_real_data_row", title: "Not a real data row", explanation: "Exclude this occurrence from all later candidate passes." },
-  { value: "escalated", title: "Escalate", explanation: "Leave unresolved for a different admin to decide." },
+  { value: "escalated", title: "Escalate", explanation: "Leave unresolved so an admin can return to it later." },
 ];
 
 type EditableQuantity = { amount: string; unit: string; dailyValuePercents: string[] };
@@ -340,8 +340,8 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
           <p className="text-xs text-text-muted">Agree on non-overlapping ranges with other admins. Your chosen range stays fixed during review; returning here refreshes the suggested remaining span. Completed rows within your range are skipped, and overlapping decisions are blocked at save.</p>
         </div>
         {escalatedCount ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
-          <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalatedCount})</summary>
-          <p className="mt-2 text-xs text-text-secondary">These remain outside the automatic pending queue. An admin other than the one who escalated each row can open it here.</p>
+          <summary className="cursor-pointer font-semibold text-amber-200">Escalations awaiting resolution ({escalatedCount})</summary>
+          <p className="mt-2 text-xs text-text-secondary">These remain outside the automatic pending queue. Any admin can open and resolve them here.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {tasks.filter((task) => task.status === "escalated").map((task) => <button key={task.id} type="button"
               onClick={() => {
@@ -364,14 +364,14 @@ export default function CatalogGroup1Review({ mode = "selector" }: { mode?: "sel
       <div className="rounded-[8px] border border-white/10 bg-[#0D1117] p-4">
         {selectedTaskId ? <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-accent">
           {detail?.status === "escalated" ? "Escalation" : "Occurrence"} {currentPosition} of {tasks.length}
-          {detail?.status !== "escalated" ? ` · assigned range ${range.first + 1}–${range.last + 1} · ${skippedCount} skipped this pass` : " · a different admin must resolve this"}
+          {detail?.status !== "escalated" ? ` · assigned range ${range.first + 1}–${range.last + 1} · ${skippedCount} skipped this pass` : " · awaiting resolution"}
           {remainingCandidates != null ? ` · ${acceptedByReview.toLocaleString()} accepted / ${remainingCandidates.toLocaleString()} pending overall` : ""}
         </p> : null}
           {!detail || detail.id !== selectedTaskId ? <div className="space-y-3 text-sm text-text-secondary">
             <p>{selectedTaskId ? "Loading the next label…" : rangePendingCount === 0 ? "No review occurrences remain in your assigned range." : "You reached the end of your assigned range for this pass."}</p>
             {rangePendingCount > 0 && skippedCount > 0 ? <button type="button" onClick={revisitSkipped}
               className="rounded-full border border-accent px-5 py-2 font-semibold text-accent">Revisit skipped occurrences ({skippedCount})</button> : null}
-            {escalatedCount ? <p>{escalatedCount} escalated occurrence{escalatedCount === 1 ? "" : "s"} still need a different admin’s decision.</p> : null}
+            {escalatedCount ? <p>{escalatedCount} escalated occurrence{escalatedCount === 1 ? "" : "s"} still need a decision.</p> : null}
           </div> : <div className="space-y-5">
             {detail.needsRecheck ? <div className="rounded border border-amber-400/45 bg-amber-400/10 p-3 text-sm">
               <p className="font-semibold text-amber-200">Recheck requested — previous decision remains in history</p>

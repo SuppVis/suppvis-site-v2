@@ -24,7 +24,7 @@ const rechecks = [
   { id: 'done', status: 'accepted', needsRecheck: false },
 ];
 assert.equal(isActionableReview(rechecks[0]), true);
-assert.equal(isActionableReview(rechecks[2]), false, 'escalation needs a different admin');
+assert.equal(isActionableReview(rechecks[2]), false, 'escalations stay outside the automatic pending queue');
 assert.deepEqual(upcomingPendingTasks(rechecks, '', new Set(), 0, 3).map((task) => task.id), ['old', 'new']);
 assert.equal(nextPendingTask(rechecks, 'old', new Set())?.id, 'new');
 assert.equal(nextPendingTask(rechecks, '', new Set(['old']))?.id, 'new');

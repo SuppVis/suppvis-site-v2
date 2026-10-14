@@ -456,8 +456,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         <p className="text-xs text-text-muted">Use non-overlapping ranges for multiple admins. Completed labels are skipped.</p>
       </div>
       {escalations ? <details className="mt-3 rounded border border-amber-400/25 p-3 text-sm">
-        <summary className="cursor-pointer font-semibold text-amber-200">Escalations needing another admin ({escalations})</summary>
-        <p className="mt-2 text-xs text-text-secondary">The admin who escalated a label cannot resolve their own escalation.</p>
+        <summary className="cursor-pointer font-semibold text-amber-200">Escalations awaiting resolution ({escalations})</summary>
+        <p className="mt-2 text-xs text-text-secondary">Any admin can reopen an escalation, review its history, and resolve it.</p>
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           {escalationKinds.composite ? <span className="rounded-full border border-violet-400/35 bg-violet-400/10 px-3 py-1 text-violet-200">
             {escalationKinds.composite} composite packages
@@ -688,7 +688,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               <input type="checkbox" className="mt-1 accent-amber-400" checked={escalated}
                 onChange={(event) => setEscalated(event.target.checked)} />
               <span><span className="block font-semibold">Escalate — cannot determine the canonical serving</span>
-                <span className="block text-xs text-text-secondary">A different admin must resolve an escalation.</span></span>
+                <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
             <div>{detail.resolutionKind === "composite" || escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
