@@ -12,6 +12,7 @@ import {
   type DsldIngredientQuantity,
   type ReviewedServingContext,
   type ServingSizeIngredientRow,
+  type ServingSizeExclusionReason,
   type ServingSizeQuantityOverride,
   type ServingSizeReviewTask,
   type ServingSizeReviewTaskDetail,
@@ -25,6 +26,14 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
   low: "border-sky-400/40 bg-sky-400/10 text-sky-100",
   none: "border-white/15 bg-white/5 text-text-secondary",
 };
+
+const exclusionReasons: Array<{ value: ServingSizeExclusionReason; label: string }> = [
+  { value: "incomplete_packet_extraction", label: "Packet or component data is incomplete" },
+  { value: "unsupported_multi_day_regimen", label: "Multi-day regimen is not supported" },
+  { value: "label_dsld_mismatch", label: "Label and DSLD data cannot be reconciled" },
+  { value: "unsupported_product_format", label: "Product format is not supported" },
+  { value: "other", label: "Other" },
+];
 
 type EditableContext = {
   contextKey: string;
@@ -169,6 +178,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [context, setContext] = useState<EditableContext | null>(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [escalated, setEscalated] = useState(false);
+  const [excludeFromIngest, setExcludeFromIngest] = useState(false);
+  const [exclusionReason, setExclusionReason] = useState<ServingSizeExclusionReason | "">("");
   const [quantityOverrides, setQuantityOverrides] = useState<Map<string, number | null>>(new Map());
   const [reviewerNote, setReviewerNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
@@ -180,6 +191,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const span = pendingSpan(tasks);
   const pending = tasks.filter(isActionable).length;
   const escalations = tasks.filter((task) => task.status === "escalated").length;
+  const exclusions = tasks.filter((task) => task.status === "excluded_from_ingest").length;
   const decided = tasks.length - pending - escalations;
   const escalationKinds = useMemo(() => tasks.reduce((counts, task) => {
     if (task.status === "escalated") counts[task.resolutionKind] += 1;
@@ -278,6 +290,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setContext(editableContext(effectiveContext));
       setCorrectionOpen(false);
       setEscalated(false);
+      setExcludeFromIngest(false);
+      setExclusionReason("");
       setQuantityOverrides(new Map());
       setReviewerNote("");
       setNoteOpen(true);
@@ -292,6 +306,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setContext(effectiveContext ? editableContext(effectiveContext) : null);
     setCorrectionOpen(detail.status === "canonical_corrected");
     setEscalated(false);
+    setExcludeFromIngest(false);
+    setExclusionReason("");
     setQuantityOverrides(new Map((detail.quantityOverrides ?? [])
       .map((override) => [override.rowPath, override.selectedQuantityIndex])));
     setReviewerNote("");
@@ -311,6 +327,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setContext(source ? editableContext(source) : null);
     setQuantityOverrides(new Map());
     setEscalated(false);
+    setExcludeFromIngest(false);
+    setExclusionReason("");
   }
 
   function updateContext(update: Partial<EditableContext>) {
@@ -354,20 +372,26 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   async function save() {
     if (!detail) return;
     const composite = detail.resolutionKind === "composite";
-    if (composite && !context) {
+    if (!excludeFromIngest && composite && !context) {
       setError("Define the one combined serving SuppVis should use.");
       return;
     }
-    if (!composite && !escalated && (selectedOrder == null || !context)) {
+    if (!excludeFromIngest && !composite && !escalated && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
       return;
     }
-    if (!composite && !escalated && projectionCounts.ambiguous > 0) {
+    if (!excludeFromIngest && !composite && !escalated && projectionCounts.ambiguous > 0) {
       setError("Resolve every highlighted ingredient quantity before saving.");
       return;
     }
-    if ((composite || escalated || correctionOpen) && !reviewerNote.trim()) {
-      setError(composite
+    if (excludeFromIngest && !exclusionReason) {
+      setError("Choose why this product should be excluded from catalog ingest.");
+      return;
+    }
+    if ((excludeFromIngest || composite || escalated || correctionOpen) && !reviewerNote.trim()) {
+      setError(excludeFromIngest
+        ? "Add a note explaining why this entire product must be excluded."
+        : composite
         ? "Add a note explaining what the combined serving represents."
         : "Add a reviewer note explaining the escalation or correction.");
       return;
@@ -378,7 +402,16 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     try {
       const overrides: ServingSizeQuantityOverride[] = [...quantityOverrides.entries()]
         .map(([rowPath, selectedQuantityIndex]) => ({ rowPath, selectedQuantityIndex }));
-      const body = composite ? {
+      const body = excludeFromIngest ? {
+        expectedRevision: detail.revision,
+        outcome: "excluded_from_ingest",
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason,
+        reviewerNote: reviewerNote.trim(),
+      } : composite ? {
         expectedRevision: detail.revision,
         outcome: "composite_serving",
         reviewedServingContexts: [reviewedContext(context!,
@@ -386,6 +419,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         selectedServingOrder: null,
         quantityOverrides: null,
         profileVariantRules: null,
+        exclusionReason: null,
         reviewerNote: reviewerNote.trim(),
       } : escalated ? {
         expectedRevision: detail.revision,
@@ -394,6 +428,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         selectedServingOrder: null,
         quantityOverrides: null,
         profileVariantRules: null,
+        exclusionReason: null,
         reviewerNote: reviewerNote.trim(),
       } : {
         expectedRevision: detail.revision,
@@ -402,6 +437,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         selectedServingOrder: selectedOrder,
         quantityOverrides: overrides,
         profileVariantRules: null,
+        exclusionReason: null,
         reviewerNote: reviewerNote.trim() || null,
       };
       if (readOnlyPreview) {
@@ -415,7 +451,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setSelectedTaskId(detail.status === "escalated"
         ? nextEscalation(nextTasks, updated.id, detail.resolutionKind)?.id ?? ""
         : nextTask(nextTasks, updated.id, range.first, range.last)?.id ?? "");
-      setNotice(composite
+      setNotice(excludeFromIngest
+        ? "Product excluded from catalog ingest. Moved to the next label."
+        : composite
         ? "Combined serving saved. Moved to the next label."
         : "Canonical serving saved. Moved to the next label.");
     } catch (reason) {
@@ -433,7 +471,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       <p className="mt-2 max-w-4xl text-sm text-text-secondary">
         Choose one canonical serving for standard labels, or combine every printed component for composite packages.
       </p>
-      <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} decided · {escalations} escalated · {tasks.length} total</p>
+      <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} completed ({exclusions} excluded) · {escalations} escalated · {tasks.length} total</p>
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
         {(["high", "medium", "low", "none"] as const).map((severity) => <span key={severity}
           className={`rounded-full border px-3 py-1 ${severityStyle[severity]}`}>
@@ -684,24 +722,52 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </section> : null}
             </>}
 
+            <section className={`rounded border p-3 ${excludeFromIngest ? "border-red-400/60 bg-red-400/10" : "border-red-400/25 bg-[#080D12]"}`}>
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input type="checkbox" className="mt-1 accent-red-400" checked={excludeFromIngest}
+                  onChange={(event) => {
+                    setExcludeFromIngest(event.target.checked);
+                    if (event.target.checked) setEscalated(false);
+                    else setExclusionReason("");
+                  }} />
+                <span><span className="block font-semibold text-red-200">Do not include this product in catalog ingest</span>
+                  <span className="block text-xs text-text-secondary">This is a terminal product-level decision. The original DSLD data remains preserved for audit and possible future reconstruction.</span></span>
+              </label>
+              {excludeFromIngest ? <label className="mt-3 block text-xs font-semibold text-red-100">Reason
+                <select className={`${inputClass} mt-1`} value={exclusionReason}
+                  onChange={(event) => setExclusionReason(event.target.value as ServingSizeExclusionReason | "")}>
+                  <option value="">Choose a reason…</option>
+                  {exclusionReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                </select>
+              </label> : null}
+            </section>
+
             {detail.resolutionKind !== "composite" ? <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
               <input type="checkbox" className="mt-1 accent-amber-400" checked={escalated}
-                onChange={(event) => setEscalated(event.target.checked)} />
+                onChange={(event) => {
+                  setEscalated(event.target.checked);
+                  if (event.target.checked) {
+                    setExcludeFromIngest(false);
+                    setExclusionReason("");
+                  }
+                }} />
               <span><span className="block font-semibold">Escalate — cannot determine the canonical serving</span>
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
-            <div>{detail.resolutionKind === "composite" || escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
+            <div>{excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
-              {detail.resolutionKind === "composite" || escalated || correctionOpen || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
+              {excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
-              || (detail.resolutionKind !== "composite" && !escalated && selectedOrder == null)} onClick={save}
-              className="rounded-full bg-accent px-5 py-2 text-sm font-bold text-[#03100E] disabled:opacity-40">
+              || (!excludeFromIngest && detail.resolutionKind !== "composite" && !escalated && selectedOrder == null)} onClick={save}
+              className={`rounded-full px-5 py-2 text-sm font-bold disabled:opacity-40 ${excludeFromIngest
+                ? "bg-red-400 text-[#190404]" : "bg-accent text-[#03100E]"}`}>
               {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue"
-                : detail.resolutionKind === "composite" ? "Save combined serving"
+                : excludeFromIngest ? "Exclude product from ingest"
+                  : detail.resolutionKind === "composite" ? "Save combined serving"
                   : escalated ? "Save escalation" : "Save canonical serving"}</button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button></div>
@@ -712,6 +778,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
           {detail.decisions.map((decision) => <p key={decision.id} className="mb-2 text-xs text-text-secondary">
             Rev {decision.taskRevision}: {humanize(decision.outcome)} by {decision.reviewerEmail} · {new Date(decision.decidedAt).toLocaleString()}
             {decision.selectedServingOrder ? ` · serving order ${decision.selectedServingOrder}` : ""}
+            {decision.exclusionReason ? ` · ${humanize(decision.exclusionReason)}` : ""}
             {decision.reviewerNote ? ` — ${decision.reviewerNote}` : ""}
           </p>)}</div> : null}
       </div>}

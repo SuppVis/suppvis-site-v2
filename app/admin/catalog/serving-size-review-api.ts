@@ -8,10 +8,17 @@ export type ServingSizeReviewStatus =
   | "canonical_selected"
   | "canonical_corrected"
   | "profile_variants_retained"
-  | "composite_serving";
+  | "composite_serving"
+  | "excluded_from_ingest";
 
 export type ServingSizeReviewOutcome = Exclude<ServingSizeReviewStatus, "pending">;
 export type ServingSizeResolutionKind = "canonical" | "profile_variants" | "composite";
+export type ServingSizeExclusionReason =
+  | "incomplete_packet_extraction"
+  | "unsupported_multi_day_regimen"
+  | "label_dsld_mismatch"
+  | "unsupported_product_format"
+  | "other";
 
 export type DsldServingSize = {
   order: number;
@@ -103,6 +110,7 @@ export type ServingSizeReviewTask = {
   warningSeverity: ServingSizeWarningSeverity;
   reviewReasonCodes: string[];
   resolutionKind: ServingSizeResolutionKind;
+  exclusionReason: ServingSizeExclusionReason | null;
 };
 
 export type ServingSizeReviewDecision = {
@@ -114,6 +122,7 @@ export type ServingSizeReviewDecision = {
   quantityOverrides: ServingSizeQuantityOverride[] | null;
   resolutionKind: ServingSizeResolutionKind;
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
+  exclusionReason: ServingSizeExclusionReason | null;
   reviewerNote: string | null;
   reviewerEmail: string;
   decidedAt: string;
@@ -133,6 +142,7 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   selectedServingOrder: number | null;
   quantityOverrides: ServingSizeQuantityOverride[] | null;
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
+  exclusionReason: ServingSizeExclusionReason | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
 };
