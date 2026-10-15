@@ -283,6 +283,7 @@ function projections(
   rows: ServingSizeIngredientRow[],
   selectedOrder: number | null,
   overrides: Map<string, number | null>,
+  independentColumns = false,
 ): Projection[] {
   if (selectedOrder == null) return [];
   return rows.map((row) => {
@@ -292,6 +293,15 @@ function projections(
         ? { row, status: "excluded", selected: null, candidates: row.quantities }
         : { row, status: "selected", selected: row.quantities.find((quantity) =>
           quantity.sourceQuantityIndex === chosen) ?? null, candidates: row.quantities };
+    }
+    if (independentColumns) {
+      if (row.quantities.length === 0) {
+        return { row, status: "no_quantity", selected: null, candidates: [] };
+      }
+      if (row.quantities.length === 1) {
+        return { row, status: "selected", selected: row.quantities[0], candidates: row.quantities };
+      }
+      return { row, status: "ambiguous", selected: null, candidates: row.quantities };
     }
     const exact = row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder);
     if (exact.length === 1) return { row, status: "selected", selected: exact[0], candidates: exact };
@@ -356,7 +366,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   },
     [scopedTasks, selectedTaskId, range]);
   const projected = useMemo(() => projections(detail?.sourceIngredientRows ?? [], selectedOrder,
-    quantityOverrides), [detail, selectedOrder, quantityOverrides]);
+    quantityOverrides, detail?.reviewCategory === "label_column_review"),
+  [detail, selectedOrder, quantityOverrides]);
   const projectionCounts = useMemo(() => projected.reduce((counts, row) => {
     counts[row.status] += 1;
     return counts;
@@ -374,7 +385,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const labelColumnCount = useMemo(() => {
     if (!detail || selectedOrder == null || detail.reviewCategory !== "label_column_review") return 0;
     return detail.sourceIngredientRows.reduce((maximum, row) => Math.max(maximum,
-      row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder).length), 0);
+      row.quantities.length), 0);
   }, [detail, selectedOrder]);
 
   useEffect(() => {
@@ -579,9 +590,10 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     if (!detail || selectedOrder == null) return;
     const nextMap = new Map<string, number | null>();
     for (const row of detail.sourceIngredientRows) {
-      const candidates = row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder);
-      if (candidates.length > 1 && candidates[position]) {
-        nextMap.set(row.rowPath, candidates[position].sourceQuantityIndex);
+      const selected = row.quantities[position]
+        ?? (row.quantities.length === 1 ? row.quantities[0] : undefined);
+      if (selected) {
+        nextMap.set(row.rowPath, selected.sourceQuantityIndex);
       }
     }
     setQuantityOverrides(nextMap);
@@ -1104,12 +1116,14 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
             {selectedOrder != null ? <section className="rounded border border-white/10 p-3">
               <h4 className="font-semibold">3. Verify the resulting ingredient quantities</h4>
-              <p className="mt-1 text-xs text-text-secondary">{detail.reviewCategory === "unreferenced_serving_mapping_review"
+              <p className="mt-1 text-xs text-text-secondary">{detail.reviewCategory === "label_column_review"
+                ? "Choose the serving above and the printed ingredient-value column here independently. Incorrect DSLD serving pointers will not hide a column."
+                : detail.reviewCategory === "unreferenced_serving_mapping_review"
                 ? "Choose the printed value column that should populate this serving. The choice applies across the whole label."
                 : "SuppVis keeps quantities tied to the selected serving and excludes quantities tied only to other servings."}</p>
               {detail.reviewCategory === "label_column_review" && labelColumnCount > 1 ? <div className="mt-3 rounded border border-cyan-400/30 bg-cyan-400/5 p-3">
                 <p className="text-sm font-semibold text-cyan-100">Choose one value column for the whole label</p>
-                <p className="mt-1 text-xs text-text-secondary">Every affected ingredient follows the same printed column pattern, so you only need to choose once.</p>
+                <p className="mt-1 text-xs text-text-secondary">This choice is independent of the serving selected above. Every affected ingredient follows the same printed column pattern, so you only need to choose once.</p>
                 <div className="mt-3 flex flex-wrap gap-2">{Array.from({ length: labelColumnCount }, (_, position) =>
                   <button key={position} type="button" onClick={() => applyGlobalColumnChoice(position)}
                     className={`rounded border px-3 py-2 text-xs font-semibold ${globalColumn === position
@@ -1118,7 +1132,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   </button>)}</div>
                 <div className="mt-3 space-y-1 text-xs text-text-secondary">{detail.sourceIngredientRows.map((row) => ({
                   row,
-                  candidates: row.quantities.filter((quantity) => quantity.servingSizeOrder === selectedOrder),
+                  candidates: row.quantities,
                 })).filter((entry) => entry.candidates.length > 1).slice(0, 4).map((entry) =>
                   <p key={entry.row.rowPath}>{entry.row.name}: {entry.candidates.map(formatQuantity).join(" | ")}</p>)}</div>
               </div> : null}
@@ -1137,7 +1151,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <div className={`rounded p-2 ${projectionCounts.ambiguous ? "bg-red-400/10 text-red-200" : "bg-white/5"}`}><strong className="block text-lg">{projectionCounts.ambiguous}</strong>needs choice</div>
                 <div className="rounded bg-white/5 p-2"><strong className="block text-lg">{projectionCounts.no_quantity}</strong>structural rows</div>
               </div>
-              {detail.reviewCategory !== "label_column_review" ? projected.filter((projection) => projection.status === "ambiguous").map((projection) => <div key={projection.row.rowPath}
+              {detail.reviewCategory !== "label_column_review" || globalColumn != null
+                ? projected.filter((projection) => projection.status === "ambiguous").map((projection) => <div key={projection.row.rowPath}
                 className="mt-3 rounded border border-red-400/35 bg-red-400/5 p-3">
                 <p className="text-sm font-semibold">{projection.row.name || "Unnamed row"}</p>
                 <p className="text-xs text-text-secondary">DSLD contains multiple possible values for the chosen serving.</p>
