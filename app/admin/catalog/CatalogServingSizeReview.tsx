@@ -119,6 +119,8 @@ type MappingOption = {
   examples: string[];
 };
 
+type ProfileResolutionMode = "variants" | "single";
+
 function editableContext(context: ReviewedServingContext): EditableContext {
   return {
     contextKey: context.contextKey,
@@ -279,6 +281,52 @@ function inferProfileRules(detail: ServingSizeReviewTaskDetail): ServingSizeProf
   });
 }
 
+function singleProfileServingSuggestion(detail: ServingSizeReviewTaskDetail) {
+  const referenceCounts = new Map<number, number>();
+  for (const row of detail.sourceIngredientRows) {
+    for (const quantity of row.quantities) {
+      if (quantity.servingSizeOrder == null) continue;
+      referenceCounts.set(quantity.servingSizeOrder,
+        (referenceCounts.get(quantity.servingSizeOrder) ?? 0) + 1);
+    }
+  }
+  const serving = [...detail.sourceServingSizes].sort((left, right) =>
+    (referenceCounts.get(right.order) ?? 0) - (referenceCounts.get(left.order) ?? 0)
+    || Number(Boolean(right.inSFB)) - Number(Boolean(left.inSFB))
+    || left.order - right.order)[0];
+  if (!serving) return null;
+  const sourceContext = detail.sourceContexts.find((candidate) =>
+    candidate.sourceServingOrders.includes(serving.order));
+  if (!sourceContext) return null;
+
+  const embeddedServingKeys = new Map<string, { amount: number; unit: string | null; count: number }>();
+  for (const row of detail.sourceIngredientRows) {
+    for (const quantity of row.quantities) {
+      if (quantity.servingSizeOrder !== serving.order || quantity.servingSizeQuantity == null) continue;
+      const key = `${quantity.servingSizeQuantity}\u0000${quantity.servingSizeUnit ?? ""}`;
+      const current = embeddedServingKeys.get(key);
+      embeddedServingKeys.set(key, {
+        amount: quantity.servingSizeQuantity,
+        unit: quantity.servingSizeUnit,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+  }
+  const embeddedServing = embeddedServingKeys.size === 1 ? [...embeddedServingKeys.values()][0] : null;
+  const context: ReviewedServingContext = {
+    ...sourceContext,
+    contextKey: "canonical-serving",
+    sourceServingOrders: [serving.order],
+    householdQuantityMin: embeddedServing?.amount ?? sourceContext.householdQuantityMin,
+    householdQuantityMax: embeddedServing?.amount ?? sourceContext.householdQuantityMax,
+    householdUnit: embeddedServing?.unit ?? sourceContext.householdUnit,
+    contextLabel: null,
+    preparationContext: null,
+    labelText: null,
+  };
+  return { order: serving.order, context };
+}
+
 function projections(
   rows: ServingSizeIngredientRow[],
   selectedOrder: number | null,
@@ -343,6 +391,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [profileRules, setProfileRules] = useState<ServingSizeProfileVariantRule[]>([]);
   const [profileQuantityOverrides, setProfileQuantityOverrides] = useState<Map<string, number | null>>(new Map());
   const [profileColumns, setProfileColumns] = useState<Map<string, number>>(new Map());
+  const [profileResolutionMode, setProfileResolutionMode] = useState<ProfileResolutionMode>("variants");
   const [reviewerNote, setReviewerNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -466,6 +515,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setGlobalMapping("");
     setProfileColumns(new Map());
     if (detail.resolutionKind === "profile_variants") {
+      setProfileResolutionMode("variants");
       setSelectedOrder(null);
       setContext(null);
       setCorrectionOpen(false);
@@ -498,6 +548,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     if (detail.resolutionKind === "composite") {
+      setProfileResolutionMode("variants");
       const sourceOrders = detail.sourceServingSizes.map((serving) => serving.order);
       const effectiveContext = detail.reviewedServingContexts?.[0] ?? {
         contextKey: "composite-serving",
@@ -527,6 +578,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     const order = detail.selectedServingOrder ?? detail.policySuggestedServingOrder;
+    setProfileResolutionMode("variants");
     const sourceContext = order == null ? null : detail.sourceContexts.find((candidate) =>
       candidate.sourceServingOrders.includes(order)) ?? null;
     const effectiveContext = detail.reviewedServingContexts?.[0] ?? sourceContext;
@@ -631,6 +683,31 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     })));
   }
 
+  function chooseProfileResolution(mode: ProfileResolutionMode) {
+    if (!detail || detail.resolutionKind !== "profile_variants") return;
+    setProfileResolutionMode(mode);
+    setEscalated(false);
+    setExcludeFromIngest(false);
+    setExclusionReason("");
+    setError("");
+    if (mode === "variants") {
+      setSelectedOrder(null);
+      setContext(null);
+      setCorrectionOpen(false);
+      setQuantityOverrides(new Map());
+      setReviewerNote("");
+      setNoteOpen(false);
+      return;
+    }
+    const suggestion = singleProfileServingSuggestion(detail);
+    setSelectedOrder(suggestion?.order ?? null);
+    setContext(suggestion ? editableContext(suggestion.context) : null);
+    setCorrectionOpen(true);
+    setQuantityOverrides(new Map());
+    setReviewerNote("The Facts panel has one non-profile-specific serving; the gender-specific text is suggested-use guidance.");
+    setNoteOpen(true);
+  }
+
   function applyProfileColumn(contextKey: string, serving: DsldServingSize, position: number) {
     if (!detail) return;
     setProfileQuantityOverrides((current) => {
@@ -666,7 +743,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   async function save() {
     if (!detail) return;
     const composite = detail.resolutionKind === "composite";
-    const profileVariants = detail.resolutionKind === "profile_variants";
+    const profileVariants = detail.resolutionKind === "profile_variants"
+      && profileResolutionMode === "variants";
     if (!excludeFromIngest && composite && !context) {
       setError("Define the one combined serving SuppVis should use.");
       return;
@@ -954,7 +1032,29 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </details> : null}
             </section>
 
-            {detail.resolutionKind === "profile_variants" ? <>
+            {detail.resolutionKind === "profile_variants" ? <fieldset className="rounded border border-sky-400/35 bg-sky-400/5 p-3">
+              <legend className="px-1 font-semibold text-sky-100">What does the Facts panel actually contain?</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <label className={`cursor-pointer rounded border p-3 ${profileResolutionMode === "variants"
+                  ? "border-sky-300 bg-sky-400/10" : "border-white/15 bg-[#080D12]"}`}>
+                  <span className="flex items-start gap-2"><input type="radio" name="profile-resolution"
+                    className="mt-1 accent-sky-400" checked={profileResolutionMode === "variants"}
+                    onChange={() => chooseProfileResolution("variants")} />
+                    <span><span className="block text-sm font-semibold">Profile-specific serving variants</span>
+                      <span className="mt-1 block text-xs text-text-secondary">The Facts panel prints different servings or value columns for each profile.</span></span></span>
+                </label>
+                <label className={`cursor-pointer rounded border p-3 ${profileResolutionMode === "single"
+                  ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12]"}`}>
+                  <span className="flex items-start gap-2"><input type="radio" name="profile-resolution"
+                    className="mt-1 accent-emerald-400" checked={profileResolutionMode === "single"}
+                    onChange={() => chooseProfileResolution("single")} />
+                    <span><span className="block text-sm font-semibold">Single serving — not profile-specific</span>
+                      <span className="mt-1 block text-xs text-text-secondary">Gender or age appears only in suggested-use directions. Save one shared Facts-panel serving.</span></span></span>
+                </label>
+              </div>
+            </fieldset> : null}
+
+            {detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? <>
               <section className="rounded border border-sky-400/35 bg-sky-400/10 p-3">
                 <h4 className="font-semibold text-sky-100">1. Confirm the profile-based servings</h4>
                 <p className="mt-1 text-xs text-text-secondary">
@@ -1125,10 +1225,13 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
             {selectedOrder != null && context ? <section className="rounded border border-accent/25 bg-accent/5 p-3">
               <div className="flex items-start justify-between gap-3"><div><h4 className="font-semibold">2. Verify the selected serving</h4>
-                <p className="mt-1 text-xs text-text-secondary">Correct only the serving that will enter the catalog.</p></div>
-                <button type="button" onClick={toggleCorrection} className="shrink-0 text-xs font-semibold text-accent underline">
+                <p className="mt-1 text-xs text-text-secondary">{detail.resolutionKind === "profile_variants"
+                  ? "Save the one shared Facts-panel serving. Suggested-use directions remain only in source history."
+                  : "Correct only the serving that will enter the catalog."}</p></div>
+                {detail.resolutionKind !== "profile_variants" ? <button type="button" onClick={toggleCorrection}
+                  className="shrink-0 text-xs font-semibold text-accent underline">
                   {correctionOpen ? "Use extracted values" : "Correct selected serving"}
-                </button></div>
+                </button> : null}</div>
               {!correctionOpen ? <p className="mt-3 rounded border border-white/10 bg-[#080D12] p-3 text-sm">
                 {formatServing(detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.minQuantity ?? null,
                   detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.maxQuantity ?? null,
@@ -1253,6 +1356,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   }
                 }} />
               <span><span className="block font-semibold">Escalate — {detail.resolutionKind === "profile_variants"
+                && profileResolutionMode === "variants"
                 ? "cannot resolve the profile variants" : "cannot determine the canonical serving"}</span>
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
@@ -1264,14 +1368,17 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
-              || (!excludeFromIngest && detail.resolutionKind === "canonical" && !escalated && selectedOrder == null)} onClick={save}
+              || (!excludeFromIngest && detail.resolutionKind !== "composite"
+                && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
+                && !escalated && selectedOrder == null)} onClick={save}
               className={`rounded-full px-5 py-2 text-sm font-bold disabled:opacity-40 ${excludeFromIngest
                 ? "bg-red-400 text-[#190404]" : "bg-accent text-[#03100E]"}`}>
               {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue"
                 : excludeFromIngest ? "Exclude product from ingest"
                   : escalated ? "Save escalation"
                   : detail.resolutionKind === "composite" ? "Save combined serving"
-                  : detail.resolutionKind === "profile_variants" ? "Save profile variants"
+                  : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? "Save profile variants"
+                  : detail.resolutionKind === "profile_variants" ? "Save as one shared serving"
                   : "Save canonical serving"}</button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button></div>
