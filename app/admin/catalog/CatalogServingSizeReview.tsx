@@ -387,6 +387,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     return detail.sourceIngredientRows.reduce((maximum, row) => Math.max(maximum,
       row.quantities.length), 0);
   }, [detail, selectedOrder]);
+  const profileUnassignedRows = useMemo(() => {
+    if (!detail || detail.resolutionKind !== "profile_variants") return [];
+    return detail.sourceIngredientRows.filter((row) => row.quantities.length > 0
+      && detail.sourceContexts.every((sourceContext) => {
+        const serving = detail.sourceServingSizes.find((candidate) =>
+          sourceContext.sourceServingOrders.includes(candidate.order));
+        return !serving || profileServingQuantityCandidates(row, serving).length === 0;
+      }));
+  }, [detail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -477,6 +486,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
           const key = `${sourceContext.contextKey}\u0000${row.rowPath}`;
           if (candidates.length === 1 && !inferredOverrides.has(key)) {
             inferredOverrides.set(key, candidates[0].sourceQuantityIndex);
+          } else if (candidates.length === 0 && !inferredOverrides.has(key)) {
+            inferredOverrides.set(key, null);
           }
         }
       }
@@ -696,14 +707,30 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         for (const row of detail.sourceIngredientRows) {
           if (!row.quantities.length) continue;
           const matches = profileServingQuantityCandidates(row, serving);
-          if (!matches.length) {
-            setError(`${row.name || "An ingredient"} has no value matching ${sourceContext.contextKey}. Escalate this label.`);
-            return;
-          }
-          if (!profileQuantityOverrides.has(`${sourceContext.contextKey}\u0000${row.rowPath}`)) {
+          const key = `${sourceContext.contextKey}\u0000${row.rowPath}`;
+          if (!profileQuantityOverrides.has(key)) {
             setError(`Confirm one value for ${row.name || "an ingredient"} in ${sourceContext.contextKey}.`);
             return;
           }
+          const selectedQuantityIndex = profileQuantityOverrides.get(key);
+          if (!matches.length && selectedQuantityIndex !== null) {
+            setError(`${row.name || "An ingredient"} must be excluded from ${sourceContext.contextKey}.`);
+            return;
+          }
+          if (matches.length && (selectedQuantityIndex == null || !matches.some((quantity) =>
+            quantity.sourceQuantityIndex === selectedQuantityIndex))) {
+            setError(`Confirm one matching value for ${row.name || "an ingredient"} in ${sourceContext.contextKey}.`);
+            return;
+          }
+        }
+      }
+      for (const row of detail.sourceIngredientRows) {
+        if (!row.quantities.length) continue;
+        const retained = detail.sourceContexts.some((sourceContext) =>
+          profileQuantityOverrides.get(`${sourceContext.contextKey}\u0000${row.rowPath}`) != null);
+        if (!retained) {
+          setError(`No profile variant retains ${row.name || "an ingredient"}. Escalate this label.`);
+          return;
         }
       }
     }
@@ -990,13 +1017,26 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                       <div className="mt-2 space-y-1 text-xs text-text-secondary">{ambiguousRows.slice(0, 3).map((entry) =>
                         <p key={entry.row.rowPath}>{entry.row.name}: {entry.candidates.map(formatQuantity).join(" | ")}</p>)}</div>
                     </div> : null}
-                    {missingRows.length ? <div className="mt-3 rounded border border-red-400/35 bg-red-400/10 p-3">
-                      <p className="text-xs font-semibold text-red-200">This serving is missing matching ingredient values</p>
-                      <p className="mt-1 text-xs text-text-secondary">Escalate this label rather than saving an incomplete profile variant.</p>
-                      <p className="mt-2 text-xs text-red-100">{missingRows.map((entry) => entry.row.name || "Unnamed row").join(", ")}</p>
+                    {missingRows.length ? <div className="mt-3 rounded border border-white/15 bg-white/5 p-3">
+                      <p className="text-xs font-semibold text-text-primary">
+                        {missingRows.length} ingredient {missingRows.length === 1 ? "row belongs" : "rows belong"} to another profile
+                      </p>
+                      <p className="mt-1 text-xs text-text-secondary">
+                        {missingRows.length === 1 ? "It is" : "They are"} excluded from this variant and retained in the matching variant.
+                      </p>
+                      <p className="mt-2 text-xs text-text-muted">{missingRows.map((entry) => entry.row.name || "Unnamed row").join(", ")}</p>
                     </div> : null}
                   </div>;
                 })}</div>
+                {profileUnassignedRows.length ? <div className="mt-3 rounded border border-red-400/35 bg-red-400/10 p-3">
+                  <p className="text-xs font-semibold text-red-200">
+                    {profileUnassignedRows.length} ingredient {profileUnassignedRows.length === 1 ? "row does" : "rows do"} not match any profile
+                  </p>
+                  <p className="mt-1 text-xs text-text-secondary">Escalate this label so no source data is silently dropped.</p>
+                  <p className="mt-2 text-xs text-red-100">
+                    {profileUnassignedRows.map((row) => row.name || "Unnamed row").join(", ")}
+                  </p>
+                </div> : null}
               </section>
               <section className="rounded border border-white/10 p-3">
                 <h4 className="font-semibold">2. Confirm the fallback</h4>
