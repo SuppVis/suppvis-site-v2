@@ -10,6 +10,7 @@ import {
   getServingSizeReviewTask,
   saveServingSizeReviewDecision,
   type DsldIngredientQuantity,
+  type DsldServingSize,
   type ReviewedServingContext,
   type ServingSizeIngredientRow,
   type ServingSizeExclusionReason,
@@ -193,6 +194,35 @@ function formatQuantity(quantity: DsldIngredientQuantity) {
   const operator = quantity.operator && quantity.operator !== "=" ? `${quantity.operator} ` : "";
   const amount = quantity.quantity == null ? "amount not recorded" : `${operator}${quantity.quantity}`;
   return `${amount} ${quantity.unit ?? ""}`.trim();
+}
+
+function servingUnitKey(value: string | null) {
+  const compact = (value ?? "").toLowerCase()
+    .replace(/vegetable|veggie/g, "v")
+    .replace(/[^a-z0-9]/g, "");
+  if (/^(?:v?caps?|capsules?)$/.test(compact)) return "capsule";
+  if (/^(?:tabs?|tablets?)$/.test(compact)) return "tablet";
+  if (/^(?:softgels?|softcaps?)$/.test(compact)) return "softgel";
+  if (/^(?:scoops?)$/.test(compact)) return "scoop";
+  if (/^(?:packets?|packs?)$/.test(compact)) return "packet";
+  if (/^(?:gummies|gummys|gummy)$/.test(compact)) return "gummy";
+  return compact.replace(/s$/, "");
+}
+
+function profileServingQuantityCandidates(row: ServingSizeIngredientRow, serving: DsldServingSize) {
+  const servingUnit = servingUnitKey(serving.unit);
+  const metadataMatches = row.quantities.filter((quantity) => {
+    const amountMatches = quantity.servingSizeQuantity != null
+      && ((serving.minQuantity != null
+        && Math.abs(quantity.servingSizeQuantity - serving.minQuantity) < 1e-9)
+        || (serving.maxQuantity != null
+          && Math.abs(quantity.servingSizeQuantity - serving.maxQuantity) < 1e-9));
+    if (!amountMatches) return false;
+    const quantityUnit = servingUnitKey(quantity.servingSizeUnit);
+    return !servingUnit || !quantityUnit || servingUnit === quantityUnit;
+  });
+  if (metadataMatches.length) return metadataMatches;
+  return row.quantities.filter((quantity) => quantity.servingSizeOrder === serving.order);
 }
 
 function humanize(value: string) {
@@ -424,9 +454,22 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setExclusionReason("");
       setQuantityOverrides(new Map());
       setProfileRules(detail.profileVariantRules ?? inferProfileRules(detail));
-      setProfileQuantityOverrides(new Map((detail.quantityOverrides ?? [])
+      const inferredOverrides = new Map((detail.quantityOverrides ?? [])
         .filter((override) => override.contextKey)
-        .map((override) => [`${override.contextKey}\u0000${override.rowPath}`, override.selectedQuantityIndex])));
+        .map((override) => [`${override.contextKey}\u0000${override.rowPath}`, override.selectedQuantityIndex]));
+      for (const sourceContext of detail.sourceContexts) {
+        const serving = detail.sourceServingSizes.find((candidate) =>
+          sourceContext.sourceServingOrders.includes(candidate.order));
+        if (!serving) continue;
+        for (const row of detail.sourceIngredientRows) {
+          const candidates = profileServingQuantityCandidates(row, serving);
+          const key = `${sourceContext.contextKey}\u0000${row.rowPath}`;
+          if (candidates.length === 1 && !inferredOverrides.has(key)) {
+            inferredOverrides.set(key, candidates[0].sourceQuantityIndex);
+          }
+        }
+      }
+      setProfileQuantityOverrides(inferredOverrides);
       setReviewerNote("");
       setNoteOpen(false);
       productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
@@ -565,13 +608,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     })));
   }
 
-  function applyProfileColumn(contextKey: string, servingOrder: number, position: number) {
+  function applyProfileColumn(contextKey: string, serving: DsldServingSize, position: number) {
     if (!detail) return;
     setProfileQuantityOverrides((current) => {
       const nextMap = new Map(current);
       for (const row of detail.sourceIngredientRows) {
-        const candidates = row.quantities.filter((quantity) =>
-          quantity.servingSizeOrder === servingOrder);
+        const candidates = profileServingQuantityCandidates(row, serving);
         if (candidates.length > 1 && candidates[position]) {
           nextMap.set(`${contextKey}\u0000${row.rowPath}`, candidates[position].sourceQuantityIndex);
         }
@@ -633,12 +675,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         return;
       }
       for (const sourceContext of detail.sourceContexts) {
-        const order = sourceContext.sourceServingOrders[0];
+        const serving = detail.sourceServingSizes.find((candidate) =>
+          sourceContext.sourceServingOrders.includes(candidate.order));
+        if (!serving) {
+          setError(`No source serving was found for ${sourceContext.contextKey}.`);
+          return;
+        }
         for (const row of detail.sourceIngredientRows) {
-          const matches = row.quantities.filter((quantity) => quantity.servingSizeOrder === order);
-          if (matches.length > 1
-            && !profileQuantityOverrides.has(`${sourceContext.contextKey}\u0000${row.rowPath}`)) {
-            setError(`Choose one value column for ${sourceContext.contextKey}.`);
+          if (!row.quantities.length) continue;
+          const matches = profileServingQuantityCandidates(row, serving);
+          if (!matches.length) {
+            setError(`${row.name || "An ingredient"} has no value matching ${sourceContext.contextKey}. Escalate this label.`);
+            return;
+          }
+          if (!profileQuantityOverrides.has(`${sourceContext.contextKey}\u0000${row.rowPath}`)) {
+            setError(`Confirm one value for ${row.name || "an ingredient"} in ${sourceContext.contextKey}.`);
             return;
           }
         }
@@ -875,10 +926,14 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     sourceContext.sourceServingOrders.includes(candidate.order));
                   const rule = profileRules.find((candidate) => candidate.contextKey === sourceContext.contextKey);
                   if (!serving || !rule) return null;
-                  const ambiguousRows = detail.sourceIngredientRows.map((row) => ({
+                  const mappedRows = detail.sourceIngredientRows.map((row) => ({
                     row,
-                    candidates: row.quantities.filter((quantity) => quantity.servingSizeOrder === serving.order),
-                  })).filter((entry) => entry.candidates.length > 1);
+                    candidates: profileServingQuantityCandidates(row, serving),
+                  }));
+                  const matchedRows = mappedRows.filter((entry) => entry.candidates.length === 1);
+                  const ambiguousRows = mappedRows.filter((entry) => entry.candidates.length > 1);
+                  const missingRows = mappedRows.filter((entry) =>
+                    entry.row.quantities.length > 0 && entry.candidates.length === 0);
                   const columnCount = ambiguousRows.reduce((maximum, entry) =>
                     Math.max(maximum, entry.candidates.length), 0);
                   return <div key={sourceContext.contextKey} className="rounded border border-sky-300/20 bg-[#080D12] p-3">
@@ -901,17 +956,32 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                         </>}
                       </select>
                     </label>
+                    {matchedRows.length ? <div className="mt-3 rounded border border-accent/30 bg-accent/5 p-3">
+                      <p className="text-xs font-semibold text-accent">
+                        {matchedRows.length} ingredient {matchedRows.length === 1 ? "value" : "values"} matched to this serving
+                      </p>
+                      <p className="mt-1 text-xs text-text-secondary">
+                        Matched using the printed serving amount and unit, even when DSLD&apos;s serving-order pointer is wrong.
+                      </p>
+                      <div className="mt-2 space-y-1 text-xs text-text-secondary">{matchedRows.slice(0, 4).map((entry) =>
+                        <p key={entry.row.rowPath}>{entry.row.name}: {formatQuantity(entry.candidates[0])}</p>)}</div>
+                    </div> : null}
                     {ambiguousRows.length ? <div className="mt-3 rounded border border-amber-400/30 bg-amber-400/5 p-3">
                       <p className="text-xs font-semibold text-amber-100">Choose one printed value column for this variant</p>
                       <div className="mt-2 flex flex-wrap gap-2">{Array.from({ length: columnCount }, (_, position) =>
                         <button key={position} type="button" onClick={() => applyProfileColumn(
-                          sourceContext.contextKey, serving.order, position,
+                          sourceContext.contextKey, serving, position,
                         )} className={`rounded border px-3 py-2 text-xs font-semibold ${profileColumns.get(sourceContext.contextKey) === position
                           ? "border-accent bg-accent/15 text-accent" : "border-white/15"}`}>
                           Column {position + 1}
                         </button>)}</div>
                       <div className="mt-2 space-y-1 text-xs text-text-secondary">{ambiguousRows.slice(0, 3).map((entry) =>
                         <p key={entry.row.rowPath}>{entry.row.name}: {entry.candidates.map(formatQuantity).join(" | ")}</p>)}</div>
+                    </div> : null}
+                    {missingRows.length ? <div className="mt-3 rounded border border-red-400/35 bg-red-400/10 p-3">
+                      <p className="text-xs font-semibold text-red-200">This serving is missing matching ingredient values</p>
+                      <p className="mt-1 text-xs text-text-secondary">Escalate this label rather than saving an incomplete profile variant.</p>
+                      <p className="mt-2 text-xs text-red-100">{missingRows.map((entry) => entry.row.name || "Unnamed row").join(", ")}</p>
                     </div> : null}
                   </div>;
                 })}</div>
