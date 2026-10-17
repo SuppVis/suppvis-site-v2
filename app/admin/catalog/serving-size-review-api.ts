@@ -9,6 +9,7 @@ export type ServingSizeReviewStatus =
   | "canonical_corrected"
   | "profile_variants_retained"
   | "composite_serving"
+  | "serving_correct_ingredient_review"
   | "excluded_from_ingest";
 
 export type ServingSizeReviewOutcome = Exclude<ServingSizeReviewStatus, "pending">;
@@ -20,7 +21,8 @@ export type ServingSizeReviewCategory =
   | "unreferenced_serving_mapping_review"
   | "composite_review"
   | "profile_variant_review"
-  | "exclusion_review";
+  | "exclusion_review"
+  | "serving_extraction_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
@@ -152,6 +154,7 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   selectedServingOrder: number | null;
   quantityOverrides: ServingSizeQuantityOverride[] | null;
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
+  suggestedServingContext: ReviewedServingContext | null;
   exclusionReason: ServingSizeExclusionReason | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];

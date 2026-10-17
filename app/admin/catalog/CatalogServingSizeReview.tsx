@@ -37,6 +37,7 @@ const categoryOrder: ServingSizeReviewCategory[] = [
   "composite_review",
   "profile_variant_review",
   "exclusion_review",
+  "serving_extraction_review",
 ];
 
 const categoryCopy: Record<ServingSizeReviewCategory, {
@@ -81,6 +82,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
     instructions: "Exclude the product only if one stable catalog serving cannot represent it; otherwise choose a canonical serving.",
     style: "border-red-400/35 bg-red-400/5",
   },
+  serving_extraction_review: {
+    title: "Verify extracted serving sizes",
+    short: "DSLD's structured serving conflicts with the printed label or its ingredient values.",
+    instructions: "Compare the Facts-panel serving with DSLD. Confirm it, correct it, or record that the serving is correct and ingredient data caused the warning.",
+    style: "border-amber-300/40 bg-amber-300/5",
+  },
 };
 
 const exclusionReasons: Array<{ value: ServingSizeExclusionReason; label: string }> = [
@@ -120,6 +127,7 @@ type MappingOption = {
 };
 
 type ProfileResolutionMode = "variants" | "single";
+type ExtractionResolution = "confirm" | "correct" | "ingredient_review" | "escalate";
 
 function editableContext(context: ReviewedServingContext): EditableContext {
   return {
@@ -392,6 +400,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [profileQuantityOverrides, setProfileQuantityOverrides] = useState<Map<string, number | null>>(new Map());
   const [profileColumns, setProfileColumns] = useState<Map<string, number>>(new Map());
   const [profileResolutionMode, setProfileResolutionMode] = useState<ProfileResolutionMode>("variants");
+  const [extractionResolution, setExtractionResolution] = useState<ExtractionResolution>("confirm");
   const [reviewerNote, setReviewerNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -514,6 +523,24 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setGlobalColumn(null);
     setGlobalMapping("");
     setProfileColumns(new Map());
+    if (detail.reviewCategory === "serving_extraction_review") {
+      const effectiveContext = detail.reviewedServingContexts?.[0]
+        ?? detail.suggestedServingContext ?? detail.sourceContexts[0] ?? null;
+      setExtractionResolution("confirm");
+      setSelectedOrder(null);
+      setContext(effectiveContext ? editableContext(effectiveContext) : null);
+      setCorrectionOpen(false);
+      setEscalated(false);
+      setExcludeFromIngest(false);
+      setExclusionReason("");
+      setQuantityOverrides(new Map());
+      setProfileRules([]);
+      setProfileQuantityOverrides(new Map());
+      setReviewerNote("");
+      setNoteOpen(false);
+      productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      return;
+    }
     if (detail.resolutionKind === "profile_variants") {
       setProfileResolutionMode("variants");
       setSelectedOrder(null);
@@ -631,6 +658,25 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setCorrectionOpen((open) => !open);
   }
 
+  function chooseExtractionResolution(resolution: ExtractionResolution) {
+    if (!detail || detail.reviewCategory !== "serving_extraction_review") return;
+    setExtractionResolution(resolution);
+    setEscalated(resolution === "escalate");
+    setExcludeFromIngest(false);
+    setExclusionReason("");
+    setError("");
+    if (resolution === "correct") {
+      const startingContext = detail.suggestedServingContext ?? detail.sourceContexts[0] ?? null;
+      setContext(startingContext ? editableContext(startingContext) : null);
+    }
+    if (resolution === "confirm") {
+      setReviewerNote("");
+      setNoteOpen(false);
+    } else {
+      setNoteOpen(true);
+    }
+  }
+
   function updateOverride(rowPath: string, value: string) {
     setQuantityOverrides((current) => {
       const nextMap = new Map(current);
@@ -742,6 +788,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   async function save() {
     if (!detail) return;
+    const extractionReview = detail.reviewCategory === "serving_extraction_review";
     const composite = detail.resolutionKind === "composite";
     const profileVariants = detail.resolutionKind === "profile_variants"
       && profileResolutionMode === "variants";
@@ -749,9 +796,13 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Define the one combined serving SuppVis should use.");
       return;
     }
-    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+    if (!excludeFromIngest && !extractionReview && !composite && !profileVariants && !escalated
       && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
+      return;
+    }
+    if (!excludeFromIngest && extractionReview && extractionResolution === "correct" && !context) {
+      setError("Enter the serving printed on the label.");
       return;
     }
     if (!excludeFromIngest && !composite && !profileVariants && !escalated
@@ -816,7 +867,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Choose why this product should be excluded from catalog ingest.");
       return;
     }
-    if ((excludeFromIngest || composite || escalated || correctionOpen) && !reviewerNote.trim()) {
+    const extractionNeedsNote = extractionReview && extractionResolution !== "confirm";
+    if ((excludeFromIngest || composite || escalated || correctionOpen || extractionNeedsNote)
+      && !reviewerNote.trim()) {
       setError(excludeFromIngest
         ? "Add a note explaining why this entire product must be excluded."
         : composite
@@ -835,6 +888,44 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
           const [contextKey, rowPath] = key.split("\u0000", 2);
           return { rowPath, selectedQuantityIndex, contextKey };
         });
+      const extractionBody = extractionResolution === "correct" ? {
+        expectedRevision: detail.revision,
+        outcome: "corrected",
+        reviewedServingContexts: [reviewedContext(context!,
+          detail.sourceServingSizes.map((serving) => serving.order))],
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim(),
+      } : extractionResolution === "ingredient_review" ? {
+        expectedRevision: detail.revision,
+        outcome: "serving_correct_ingredient_review",
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim(),
+      } : extractionResolution === "escalate" ? {
+        expectedRevision: detail.revision,
+        outcome: "escalated",
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim(),
+      } : {
+        expectedRevision: detail.revision,
+        outcome: "confirmed_correct",
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim() || null,
+      };
       const body = excludeFromIngest ? {
         expectedRevision: detail.revision,
         outcome: "excluded_from_ingest",
@@ -844,7 +935,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: null,
         exclusionReason,
         reviewerNote: reviewerNote.trim(),
-      } : composite ? {
+      } : extractionReview ? extractionBody : composite ? {
         expectedRevision: detail.revision,
         outcome: "composite_serving",
         reviewedServingContexts: [reviewedContext(context!,
@@ -896,6 +987,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         : nextTask(nextScopedTasks, updated.id, range.first, range.last)?.id ?? "");
       setNotice(excludeFromIngest
         ? "Product excluded from catalog ingest. Moved to the next label."
+        : extractionReview && extractionResolution === "correct"
+        ? "Corrected serving saved. Moved to the next label."
+        : extractionReview && extractionResolution === "ingredient_review"
+        ? "Serving confirmed and ingredient follow-up recorded. Moved to the next label."
+        : extractionReview
+        ? "Serving decision saved. Moved to the next label."
         : composite
         ? "Combined serving saved. Moved to the next label."
         : profileVariants
@@ -917,7 +1014,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         Choose a review category first. Each category contains one consistent type of decision and its own progress.
       </p>
       <p className="mt-3 text-sm text-text-primary">{pending} pending · {decided} completed ({exclusions} excluded) · {escalations} escalated · {tasks.length} human-review tasks</p>
-      <p className="mt-2 text-xs text-text-muted">Queue {batchKey}. The 918 policy-approved labels are stored separately and do not appear here.</p>
+      <p className="mt-2 text-xs text-text-muted">Queue {batchKey}. Automatically resolved labels are stored separately and do not appear here.</p>
       {readOnlyPreview ? <p className="mt-3 rounded border border-sky-400/35 bg-sky-400/10 p-3 text-sm text-sky-200">
         Read-only local preview: controls advance through the queue, but nothing is saved.
       </p> : null}
@@ -1032,7 +1129,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </details> : null}
             </section>
 
-            {detail.resolutionKind === "profile_variants" ? <fieldset className="rounded border border-sky-400/35 bg-sky-400/5 p-3">
+            {detail.reviewCategory !== "serving_extraction_review"
+              && detail.resolutionKind === "profile_variants" ? <fieldset className="rounded border border-sky-400/35 bg-sky-400/5 p-3">
               <legend className="px-1 font-semibold text-sky-100">What does the Facts panel actually contain?</legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <label className={`cursor-pointer rounded border p-3 ${profileResolutionMode === "variants"
@@ -1054,7 +1152,88 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </div>
             </fieldset> : null}
 
-            {detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? <>
+            {detail.reviewCategory === "serving_extraction_review" ? <>
+              <section className="rounded border border-amber-300/30 bg-amber-300/5 p-3">
+                <h4 className="font-semibold text-amber-100">DSLD extracted serving</h4>
+                {detail.sourceServingSizes.map((serving) => <div key={serving.order}
+                  className="mt-3 rounded border border-white/15 bg-[#080D12] p-3">
+                  <p className="font-semibold">Structured value: {formatServing(
+                    serving.minQuantity, serving.maxQuantity, serving.unit,
+                  )}</p>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    Extracted description: {serving.notes?.trim() || "Not recorded"}
+                  </p>
+                </div>)}
+                <p className="mt-3 text-xs text-text-secondary">
+                  Verify the serving printed inside the Nutrition Facts or Supplement Facts panel. Suggested-use directions belong in guidance, not in the canonical amount.
+                </p>
+              </section>
+
+              {detail.suggestedServingContext ? <section className="rounded border border-sky-400/30 bg-sky-400/5 p-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-sky-200">Conservative starting suggestion</p>
+                <p className="mt-2 text-sm text-text-primary">
+                  {detail.suggestedServingContext.householdQuantityMin != null
+                    ? `${formatServing(detail.suggestedServingContext.householdQuantityMin,
+                      detail.suggestedServingContext.householdQuantityMax,
+                      detail.suggestedServingContext.householdUnit)}` : "Household measure not inferred"}
+                  {detail.suggestedServingContext.metricQuantityMin != null
+                    ? ` · ${formatServing(detail.suggestedServingContext.metricQuantityMin,
+                      detail.suggestedServingContext.metricQuantityMax,
+                      detail.suggestedServingContext.metricUnit)}` : ""}
+                </p>
+                <p className="mt-1 text-xs text-text-secondary">This is only a prefilled starting point. Compare it with the label before saving.</p>
+              </section> : null}
+
+              <fieldset className="space-y-2">
+                <legend className="font-semibold">Choose the serving-extraction result</legend>
+                {([
+                  ["confirm", "DSLD serving is correct", "The structured serving accurately represents the Facts-panel serving."],
+                  ["correct", "Correct the serving", "Enter the printed household measure, metric equivalent, and description separately."],
+                  ["ingredient_review", "Serving is correct — ingredient data needs later review", "The serving itself is valid; an ingredient amount or serving pointer caused the warning."],
+                  ["escalate", "Escalate — cannot determine the serving", "Save this label for a later decision."],
+                ] as Array<[ExtractionResolution, string, string]>).map(([value, title, description]) => <label key={value}
+                  className={`block cursor-pointer rounded border p-3 ${extractionResolution === value
+                    ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12] hover:border-accent/50"}`}>
+                  <span className="flex items-start gap-3"><input type="radio" name="extraction-resolution"
+                    className="mt-1 accent-emerald-400" checked={extractionResolution === value}
+                    onChange={() => chooseExtractionResolution(value)} />
+                    <span><span className="block text-sm font-semibold">{title}</span>
+                      <span className="mt-1 block text-xs text-text-secondary">{description}</span></span></span>
+                </label>)}
+              </fieldset>
+
+              {extractionResolution === "correct" && context ? <section className="rounded border border-accent/30 bg-accent/5 p-3">
+                <h4 className="font-semibold">Enter exactly what the Facts panel prints</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Preserve a real printed range here. Choosing one scalar from a legitimate range happens in the later range review.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <label className="text-xs">Household minimum<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
+                    value={context.householdQuantityMin} onChange={(event) => updateContext({ householdQuantityMin: event.target.value })} /></label>
+                  <label className="text-xs">Household maximum<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
+                    value={context.householdQuantityMax} onChange={(event) => updateContext({ householdQuantityMax: event.target.value })}
+                    placeholder="Leave blank if not a range" /></label>
+                  <label className="text-xs">Household unit<input className={`${inputClass} mt-1`} value={context.householdUnit}
+                    onChange={(event) => updateContext({ householdUnit: event.target.value })} placeholder="scoops" /></label>
+                  <label className="text-xs">Metric minimum<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
+                    value={context.metricQuantityMin} onChange={(event) => updateContext({ metricQuantityMin: event.target.value })} /></label>
+                  <label className="text-xs">Metric maximum<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
+                    value={context.metricQuantityMax} onChange={(event) => updateContext({ metricQuantityMax: event.target.value })}
+                    placeholder="Leave blank if not a range" /></label>
+                  <label className="text-xs">Metric unit<input className={`${inputClass} mt-1`} value={context.metricUnit}
+                    onChange={(event) => updateContext({ metricUnit: event.target.value })} placeholder="g" /></label>
+                  <label className="text-xs sm:col-span-3">Printed serving description<input className={`${inputClass} mt-1`} value={context.labelText}
+                    onChange={(event) => updateContext({ labelText: event.target.value })} placeholder="4 scoops (150 g)" /></label>
+                  <label className="text-xs sm:col-span-3">Serving guidance, if separate<input className={`${inputClass} mt-1`} value={context.preparationContext}
+                    onChange={(event) => updateContext({ preparationContext: event.target.value })}
+                    placeholder="For example: Add 1–2 tablespoons to a meal or shake" /></label>
+                </div>
+              </section> : null}
+
+              {extractionResolution === "ingredient_review" ? <p className="rounded border border-blue-400/30 bg-blue-400/5 p-3 text-xs text-blue-100">
+                This closes the serving-size task while preserving a distinct ingredient-level follow-up for later queue design.
+              </p> : null}
+            </> : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? <>
               <section className="rounded border border-sky-400/35 bg-sky-400/10 p-3">
                 <h4 className="font-semibold text-sky-100">1. Confirm the profile-based servings</h4>
                 <p className="mt-1 text-xs text-text-secondary">
@@ -1346,7 +1525,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </label> : null}
             </section>
 
-            {detail.resolutionKind !== "composite" ? <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
+            {detail.resolutionKind !== "composite" && detail.reviewCategory !== "serving_extraction_review"
+              ? <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
               <input type="checkbox" className="mt-1 accent-amber-400" checked={escalated}
                 onChange={(event) => {
                   setEscalated(event.target.checked);
@@ -1361,20 +1541,30 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
-            <div>{excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
+            <div>{excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen
+              || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
+              ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
-              {excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
+              {excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen
+                || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
+                || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
               || (!excludeFromIngest && detail.resolutionKind !== "composite"
+                && detail.reviewCategory !== "serving_extraction_review"
                 && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
                 && !escalated && selectedOrder == null)} onClick={save}
               className={`rounded-full px-5 py-2 text-sm font-bold disabled:opacity-40 ${excludeFromIngest
                 ? "bg-red-400 text-[#190404]" : "bg-accent text-[#03100E]"}`}>
               {saving ? "Saving…" : readOnlyPreview ? "Preview decision and continue"
                 : excludeFromIngest ? "Exclude product from ingest"
+                  : detail.reviewCategory === "serving_extraction_review"
+                    ? extractionResolution === "correct" ? "Save corrected serving"
+                      : extractionResolution === "ingredient_review" ? "Confirm serving and flag ingredients"
+                        : extractionResolution === "escalate" ? "Save escalation"
+                          : "Confirm extracted serving"
                   : escalated ? "Save escalation"
                   : detail.resolutionKind === "composite" ? "Save combined serving"
                   : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? "Save profile variants"
