@@ -31,6 +31,7 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
 };
 
 const categoryOrder: ServingSizeReviewCategory[] = [
+  "bundle_combination_review",
   "label_column_review",
   "canonical_choice_review",
   "unreferenced_serving_mapping_review",
@@ -46,6 +47,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   instructions: string;
   style: string;
 }> = {
+  bundle_combination_review: {
+    title: "Combine linked facts panels",
+    short: "Several DSLD records belong to one physical package edition.",
+    instructions: "Keep and combine a fixed, repeatable package. Exclude products whose contents change by day, phase, time of day, or another regimen.",
+    style: "border-fuchsia-400/35 bg-fuchsia-400/5",
+  },
   label_column_review: {
     title: "Choose the correct value column",
     short: "The serving is known, but DSLD attached multiple value columns to it.",
@@ -383,6 +390,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [batchKey, setBatchKey] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<ServingSizeReviewCategory | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [previewComponentId, setPreviewComponentId] = useState<number | null>(null);
   const [detail, setDetail] = useState<ServingSizeReviewTaskDetail | null>(null);
   const [range, setRange] = useState({ first: 0, last: -1 });
   const [rangeStart, setRangeStart] = useState("");
@@ -416,6 +424,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const exclusions = tasks.filter((task) => task.status === "excluded_from_ingest").length;
   const decided = tasks.length - pending - escalations;
   const currentPosition = scopedTasks.findIndex((task) => task.id === selectedTaskId) + 1;
+  const bundleReview = detail?.reviewCategory === "bundle_combination_review";
+  const previewComponent = detail?.sourceBundleComponents.find((component) =>
+    component.dsldLabelId === previewComponentId) ?? detail?.sourceBundleComponents[0] ?? null;
   const next = useMemo(() => {
     const selected = scopedTasks.find((task) => task.id === selectedTaskId);
     return selected?.status === "escalated"
@@ -520,6 +531,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
   useEffect(() => {
     if (!detail) return;
+    setPreviewComponentId(detail.sourceBundleComponents[0]?.dsldLabelId ?? null);
     setGlobalColumn(null);
     setGlobalMapping("");
     setProfileColumns(new Map());
@@ -600,7 +612,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setProfileRules([]);
       setProfileQuantityOverrides(new Map());
       setReviewerNote("");
-      setNoteOpen(true);
+      setNoteOpen(detail.reviewCategory !== "bundle_combination_review");
       productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       return;
     }
@@ -868,7 +880,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     const extractionNeedsNote = extractionReview && extractionResolution !== "confirm";
-    if ((excludeFromIngest || composite || escalated || correctionOpen || extractionNeedsNote)
+    if ((excludeFromIngest || (composite && !bundleReview) || escalated || correctionOpen || extractionNeedsNote)
       && !reviewerNote.trim()) {
       setError(excludeFromIngest
         ? "Add a note explaining why this entire product must be excluded."
@@ -1093,7 +1105,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       </p> : <div className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 ref={productNameRef} className="scroll-mt-4 font-headline text-xl font-bold">{detail.labelName}</h3>
-            <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}{detail.offMarket ? " · off market" : ""}</p></div>
+            <p className="text-sm text-text-secondary">{detail.brandName} · DSLD {detail.dsldLabelId}{detail.offMarket ? " · off market" : ""}
+              {detail.componentCount > 1 ? ` · ${detail.componentCount} linked component records` : ""}</p></div>
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-bold uppercase text-text-secondary">
               {categoryCopy[detail.reviewCategory].title}
@@ -1110,8 +1123,18 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         <div className="grid items-start gap-4 md:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
           <div className="min-w-0">
             <div className="mb-2 flex items-center justify-between gap-2"><h4 className="font-semibold">Original label</h4>
-              <a href={detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a></div>
-            <Group1LabelPreview key={detail.id} labelId={detail.dsldLabelId}
+              <a href={previewComponent?.labelPdfUrl ?? detail.labelPdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-accent underline">Open label PDF</a></div>
+            {detail.sourceBundleComponents.length > 1 ? <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+              {detail.sourceBundleComponents.map((component, index) => <button key={component.dsldLabelId}
+                type="button" onClick={() => setPreviewComponentId(component.dsldLabelId)}
+                className={`shrink-0 rounded border px-3 py-2 text-left text-xs ${previewComponent?.dsldLabelId === component.dsldLabelId
+                  ? "border-accent bg-accent/10 text-accent" : "border-white/15 bg-[#080D12] text-text-secondary"}`}>
+                <span className="block font-semibold">{index + 1}. {component.labelName}</span>
+                <span className="mt-0.5 block text-[10px] opacity-70">DSLD {component.dsldLabelId}</span>
+              </button>)}
+            </div> : null}
+            <Group1LabelPreview key={`${detail.id}:${previewComponent?.dsldLabelId ?? detail.dsldLabelId}`}
+              labelId={previewComponent?.dsldLabelId ?? detail.dsldLabelId}
               sourceName="Serving Size" suggestedFieldName="Serving Size" />
           </div>
 
@@ -1326,12 +1349,44 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </section>
             </> : detail.resolutionKind === "composite" ? <>
               <section className="rounded border border-violet-400/35 bg-violet-400/10 p-3">
-                <h4 className="font-semibold text-violet-100">1. Confirm the package components</h4>
+                <h4 className="font-semibold text-violet-100">1. {bundleReview
+                  ? "Review the linked package components" : "Confirm the package components"}</h4>
                 <p className="mt-1 text-xs text-text-secondary">
-                  This label contains several serving rows that together make one package or regimen. All of them will remain as source evidence.
+                  {bundleReview
+                    ? "DSLD stored these facts panels as separate records. Confirm whether they form one fixed, repeatable package or an unsupported changing regimen."
+                    : "This label contains several serving rows that together make one package or regimen. All of them will remain as source evidence."}
                 </p>
                 <div className="mt-3 space-y-2">
-                  {detail.sourceServingSizes.map((serving) => <div key={serving.order}
+                  {bundleReview ? detail.sourceBundleComponents.map((component, componentIndex) => {
+                    const rows = detail.sourceIngredientRows.filter((row) =>
+                      row.rowPath.startsWith(`component:${component.dsldLabelId}/`));
+                    return <div key={component.dsldLabelId}
+                      className="rounded border border-violet-300/20 bg-[#080D12] p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div><p className="font-semibold">{componentIndex + 1}. {component.labelName}</p>
+                          <p className="mt-1 text-xs text-text-muted">DSLD {component.dsldLabelId}
+                            {component.entryDate ? ` · entered ${component.entryDate}` : ""}
+                            {component.offMarket ? " · off market" : ""}</p></div>
+                        <button type="button" onClick={() => setPreviewComponentId(component.dsldLabelId)}
+                          className="text-xs font-semibold text-accent underline">Show this label</button>
+                      </div>
+                      <div className="mt-2 space-y-1 text-xs text-text-secondary">
+                        {component.sourceServingSizes.map((serving) => <p key={serving.order}>
+                          Serving: {formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}
+                          {serving.notes?.trim() ? ` — ${serving.notes.trim()}` : ""}
+                        </p>)}
+                        <p>{rows.length} ingredient {rows.length === 1 ? "row" : "rows"}</p>
+                      </div>
+                      <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold text-violet-100">
+                        Show component ingredients</summary>
+                        <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">{rows.map((row) => <div key={row.rowPath}
+                          className="rounded bg-black/20 p-2"><span className="font-semibold">{row.name || "Unnamed row"}</span>
+                          {row.ancestorNames.length ? <span className="block text-text-muted">under {row.ancestorNames.join(" › ")}</span> : null}
+                          <span className="block text-text-secondary">{row.quantities.length
+                            ? row.quantities.map(formatQuantity).join(" · ") : "structural row"}</span></div>)}</div>
+                      </details>
+                    </div>;
+                  }) : detail.sourceServingSizes.map((serving) => <div key={serving.order}
                     className="rounded border border-violet-300/20 bg-[#080D12] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-semibold">Component {serving.order}: {formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}</span>
@@ -1340,9 +1395,32 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     <p className="mt-1 text-sm text-text-secondary">{serving.notes?.trim() || "No additional serving description"}</p>
                   </div>)}
                 </div>
+                {bundleReview ? <p className="mt-3 text-[11px] text-text-muted">
+                  Edition grouping: {detail.editionGroupingConfidence ?? "unknown"} confidence · {detail.editionGroupingEvidence.map(humanize).join(" · ")}
+                </p> : null}
               </section>
 
-              {context ? <section className="rounded border border-accent/25 bg-accent/5 p-3">
+              {bundleReview ? <fieldset className="rounded border border-accent/25 bg-accent/5 p-3">
+                <legend className="px-1 font-semibold">2. Decide whether SuppVis can represent this package</legend>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <label className={`cursor-pointer rounded border p-3 ${!excludeFromIngest
+                    ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12]"}`}>
+                    <span className="flex items-start gap-2"><input type="radio" name="bundle-resolution"
+                      className="mt-1 accent-emerald-400" checked={!excludeFromIngest}
+                      onChange={() => { setExcludeFromIngest(false); setExclusionReason(""); }} />
+                      <span><span className="block text-sm font-semibold">Combine into one canonical product</span>
+                        <span className="mt-1 block text-xs text-text-secondary">Every component belongs to the same fixed serving each time. Ingest will flatten the rows and add matching ingredient amounts.</span></span></span>
+                  </label>
+                  <label className={`cursor-pointer rounded border p-3 ${excludeFromIngest
+                    ? "border-red-400 bg-red-400/10" : "border-white/15 bg-[#080D12]"}`}>
+                    <span className="flex items-start gap-2"><input type="radio" name="bundle-resolution"
+                      className="mt-1 accent-red-400" checked={excludeFromIngest}
+                      onChange={() => setExcludeFromIngest(true)} />
+                      <span><span className="block text-sm font-semibold text-red-100">Exclude from ingest</span>
+                        <span className="mt-1 block text-xs text-text-secondary">Use when contents change by day, phase, time of day, or another non-repeatable regimen.</span></span></span>
+                  </label>
+                </div>
+              </fieldset> : context ? <section className="rounded border border-accent/25 bg-accent/5 p-3">
                 <h4 className="font-semibold">2. Define the one combined serving SuppVis should display</h4>
                 <p className="mt-1 text-xs text-text-secondary">
                   Usually this is one packet, pack, kit, or daily regimen containing every component above.
@@ -1505,7 +1583,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </section> : null}
             </>}
 
-            <section className={`rounded border p-3 ${excludeFromIngest ? "border-red-400/60 bg-red-400/10" : "border-red-400/25 bg-[#080D12]"}`}>
+            {bundleReview ? excludeFromIngest ? <section className="rounded border border-red-400/60 bg-red-400/10 p-3">
+              <label className="block text-xs font-semibold text-red-100">Reason
+                <select className={`${inputClass} mt-1`} value={exclusionReason}
+                  onChange={(event) => setExclusionReason(event.target.value as ServingSizeExclusionReason | "")}>
+                  <option value="">Choose a reason…</option>
+                  {exclusionReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
+                </select>
+              </label>
+            </section> : null : <section className={`rounded border p-3 ${excludeFromIngest ? "border-red-400/60 bg-red-400/10" : "border-red-400/25 bg-[#080D12]"}`}>
               <label className="flex cursor-pointer items-start gap-3 text-sm">
                 <input type="checkbox" className="mt-1 accent-red-400" checked={excludeFromIngest}
                   onChange={(event) => {
@@ -1523,7 +1609,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   {exclusionReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
                 </select>
               </label> : null}
-            </section>
+            </section>}
 
             {detail.resolutionKind !== "composite" && detail.reviewCategory !== "serving_extraction_review"
               ? <label className="flex cursor-pointer items-start gap-3 rounded border border-white/15 bg-[#080D12] p-3 text-sm">
@@ -1541,12 +1627,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
-            <div>{excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen
+            <div>{excludeFromIngest || (detail.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
               || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
               ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
-              {excludeFromIngest || detail.resolutionKind === "composite" || escalated || correctionOpen
+              {excludeFromIngest || (detail.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
                 || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
                 || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
@@ -1566,6 +1652,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                         : extractionResolution === "escalate" ? "Save escalation"
                           : "Confirm extracted serving"
                   : escalated ? "Save escalation"
+                  : bundleReview ? "Combine fixed package"
                   : detail.resolutionKind === "composite" ? "Save combined serving"
                   : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? "Save profile variants"
                   : detail.resolutionKind === "profile_variants" ? "Save as one shared serving"

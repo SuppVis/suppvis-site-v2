@@ -22,7 +22,8 @@ export type ServingSizeReviewCategory =
   | "composite_review"
   | "profile_variant_review"
   | "exclusion_review"
-  | "serving_extraction_review";
+  | "serving_extraction_review"
+  | "bundle_combination_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
@@ -66,6 +67,21 @@ export type ServingSizeIngredientRow = {
   description: string | null;
   notes: string | null;
   quantities: DsldIngredientQuantity[];
+};
+
+export type ServingSizeBundleComponent = {
+  dsldLabelId: number;
+  labelName: string;
+  brandName: string;
+  bundleName: string | null;
+  entryDate: string | null;
+  productVersionCode: string | null;
+  upcSku: string | null;
+  offMarket: boolean;
+  labelPdfUrl: string;
+  sourceServingSizes: DsldServingSize[];
+  syntheticServingOrders: Record<string, number>;
+  sourceIngredientRowCount: number;
 };
 
 export type RepeatedIngredientNameGroup = {
@@ -123,6 +139,7 @@ export type ServingSizeReviewTask = {
   reviewCategory: ServingSizeReviewCategory;
   resolutionKind: ServingSizeResolutionKind;
   exclusionReason: ServingSizeExclusionReason | null;
+  componentCount: number;
 };
 
 export type ServingSizeReviewDecision = {
@@ -155,6 +172,11 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   quantityOverrides: ServingSizeQuantityOverride[] | null;
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
   suggestedServingContext: ReviewedServingContext | null;
+  sourceBundleComponents: ServingSizeBundleComponent[];
+  bundleGroupKey: string | null;
+  editionKey: string | null;
+  editionGroupingConfidence: "high" | "medium" | null;
+  editionGroupingEvidence: string[];
   exclusionReason: ServingSizeExclusionReason | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
