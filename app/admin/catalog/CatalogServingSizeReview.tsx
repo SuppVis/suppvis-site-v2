@@ -605,7 +605,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setSelectedOrder(null);
       setContext(editableContext(effectiveContext));
       setCorrectionOpen(false);
-      setEscalated(false);
+      setEscalated(detail.status === "escalated");
       setExcludeFromIngest(false);
       setExclusionReason("");
       setQuantityOverrides(new Map());
@@ -947,7 +947,16 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: null,
         exclusionReason,
         reviewerNote: reviewerNote.trim(),
-      } : extractionReview ? extractionBody : composite ? {
+      } : extractionReview ? extractionBody : escalated ? {
+        expectedRevision: detail.revision,
+        outcome: "escalated",
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim(),
+      } : composite ? {
         expectedRevision: detail.revision,
         outcome: "composite_serving",
         reviewedServingContexts: [reviewedContext(context!,
@@ -957,7 +966,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: null,
         exclusionReason: null,
         reviewerNote: reviewerNote.trim(),
-      } : profileVariants && !escalated ? {
+      } : profileVariants ? {
         expectedRevision: detail.revision,
         outcome: "profile_variants_retained",
         reviewedServingContexts: detail.sourceContexts,
@@ -966,15 +975,6 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: profileRules,
         exclusionReason: null,
         reviewerNote: reviewerNote.trim() || null,
-      } : escalated ? {
-        expectedRevision: detail.revision,
-        outcome: "escalated",
-        reviewedServingContexts: null,
-        selectedServingOrder: null,
-        quantityOverrides: null,
-        profileVariantRules: null,
-        exclusionReason: null,
-        reviewerNote: reviewerNote.trim(),
       } : {
         expectedRevision: detail.revision,
         outcome: correctionOpen ? "canonical_corrected" : "canonical_selected",
@@ -1005,6 +1005,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         ? "Serving confirmed and ingredient follow-up recorded. Moved to the next label."
         : extractionReview
         ? "Serving decision saved. Moved to the next label."
+        : escalated
+        ? "Escalation saved. Moved to the next label."
         : composite
         ? "Combined serving saved. Moved to the next label."
         : profileVariants
@@ -1402,12 +1404,16 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
               {bundleReview ? <fieldset className="rounded border border-accent/25 bg-accent/5 p-3">
                 <legend className="px-1 font-semibold">2. Decide whether SuppVis can represent this package</legend>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <label className={`cursor-pointer rounded border p-3 ${!excludeFromIngest
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <label className={`cursor-pointer rounded border p-3 ${!excludeFromIngest && !escalated
                     ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12]"}`}>
                     <span className="flex items-start gap-2"><input type="radio" name="bundle-resolution"
-                      className="mt-1 accent-emerald-400" checked={!excludeFromIngest}
-                      onChange={() => { setExcludeFromIngest(false); setExclusionReason(""); }} />
+                      className="mt-1 accent-emerald-400" checked={!excludeFromIngest && !escalated}
+                      onChange={() => {
+                        setExcludeFromIngest(false);
+                        setEscalated(false);
+                        setExclusionReason("");
+                      }} />
                       <span><span className="block text-sm font-semibold">Combine into one canonical product</span>
                         <span className="mt-1 block text-xs text-text-secondary">Every component belongs to the same fixed serving each time. Ingest will flatten the rows and add matching ingredient amounts.</span></span></span>
                   </label>
@@ -1415,9 +1421,24 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     ? "border-red-400 bg-red-400/10" : "border-white/15 bg-[#080D12]"}`}>
                     <span className="flex items-start gap-2"><input type="radio" name="bundle-resolution"
                       className="mt-1 accent-red-400" checked={excludeFromIngest}
-                      onChange={() => setExcludeFromIngest(true)} />
+                      onChange={() => {
+                        setExcludeFromIngest(true);
+                        setEscalated(false);
+                      }} />
                       <span><span className="block text-sm font-semibold text-red-100">Exclude from ingest</span>
                         <span className="mt-1 block text-xs text-text-secondary">Use when contents change by day, phase, time of day, or another non-repeatable regimen.</span></span></span>
+                  </label>
+                  <label className={`cursor-pointer rounded border p-3 ${escalated
+                    ? "border-amber-400 bg-amber-400/10" : "border-white/15 bg-[#080D12]"}`}>
+                    <span className="flex items-start gap-2"><input type="radio" name="bundle-resolution"
+                      className="mt-1 accent-amber-400" checked={escalated}
+                      onChange={() => {
+                        setEscalated(true);
+                        setExcludeFromIngest(false);
+                        setExclusionReason("");
+                      }} />
+                      <span><span className="block text-sm font-semibold text-amber-100">Escalate for later review</span>
+                        <span className="mt-1 block text-xs text-text-secondary">Use when the package cannot be confidently classified as a fixed combination or an exclusion.</span></span></span>
                   </label>
                 </div>
               </fieldset> : context ? <section className="rounded border border-accent/25 bg-accent/5 p-3">
