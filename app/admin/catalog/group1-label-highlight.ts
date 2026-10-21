@@ -24,6 +24,16 @@ export function spotlightForLabelHighlight(box: LabelHighlight) {
   return { left, top, width, height };
 }
 
+/** Show the facts-panel body beneath its heading instead of tightly framing one OCR row. */
+export function factsPanelSpotlightForLabelHighlight(box: LabelHighlight) {
+  const width = Math.min(100, Math.max(62, box.width + 30));
+  const left = Math.max(0, Math.min(100 - width,
+    box.left + box.width / 2 - width / 2));
+  const top = Math.max(0, box.top - 5);
+  const height = Math.min(100 - top, Math.max(55, 95 - top));
+  return { left, top, width, height };
+}
+
 export type LabelOcrRegion = { left: number; top: number; width: number; height: number };
 
 /** Whole-page first, then overlapping high-resolution strips on the long axis. */

@@ -16,6 +16,7 @@ import {
   type ServingSizeExclusionReason,
   type ServingSizeProfileVariantRule,
   type ServingSizeQuantityOverride,
+  type ServingSizeRangeEndpoint,
   type ServingSizeReviewCategory,
   type ServingSizeReviewTask,
   type ServingSizeReviewTaskDetail,
@@ -31,6 +32,7 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
 };
 
 const categoryOrder: ServingSizeReviewCategory[] = [
+  "range_endpoint_review",
   "bundle_combination_review",
   "label_column_review",
   "canonical_choice_review",
@@ -47,6 +49,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   instructions: string;
   style: string;
 }> = {
+  range_endpoint_review: {
+    title: "Choose a serving-range endpoint",
+    short: "Every ingredient has a complete minimum and maximum value set.",
+    instructions: "Compare the printed range and explicitly choose the minimum or maximum as the catalog serving. Nothing is preselected and the source guidance remains unchanged.",
+    style: "border-teal-300/40 bg-teal-300/5",
+  },
   bundle_combination_review: {
     title: "Combine linked facts panels",
     short: "Several DSLD records belong to one physical package edition.",
@@ -396,6 +404,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
+  const [selectedRangeEndpoint, setSelectedRangeEndpoint] = useState<ServingSizeRangeEndpoint | null>(null);
   const [context, setContext] = useState<EditableContext | null>(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [escalated, setEscalated] = useState(false);
@@ -425,6 +434,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const decided = tasks.length - pending - escalations;
   const currentPosition = scopedTasks.findIndex((task) => task.id === selectedTaskId) + 1;
   const bundleReview = detail?.reviewCategory === "bundle_combination_review";
+  const rangeEndpointReview = detail?.reviewCategory === "range_endpoint_review";
+  const selectedRangeOption = detail?.rangeEndpointOptions.find((option) =>
+    option.endpoint === selectedRangeEndpoint) ?? null;
   const previewComponent = detail?.sourceBundleComponents.find((component) =>
     component.dsldLabelId === previewComponentId) ?? detail?.sourceBundleComponents[0] ?? null;
   const next = useMemo(() => {
@@ -535,6 +547,23 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setGlobalColumn(null);
     setGlobalMapping("");
     setProfileColumns(new Map());
+    setSelectedRangeEndpoint(null);
+    if (detail.reviewCategory === "range_endpoint_review") {
+      setProfileResolutionMode("variants");
+      setSelectedOrder(null);
+      setContext(null);
+      setCorrectionOpen(false);
+      setEscalated(false);
+      setExcludeFromIngest(false);
+      setExclusionReason("");
+      setQuantityOverrides(new Map());
+      setProfileRules([]);
+      setProfileQuantityOverrides(new Map());
+      setReviewerNote("");
+      setNoteOpen(false);
+      productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      return;
+    }
     if (detail.reviewCategory === "serving_extraction_review") {
       const effectiveContext = detail.reviewedServingContexts?.[0]
         ?? detail.suggestedServingContext ?? detail.sourceContexts[0] ?? null;
@@ -801,6 +830,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   async function save() {
     if (!detail) return;
     const extractionReview = detail.reviewCategory === "serving_extraction_review";
+    const rangeReview = detail.reviewCategory === "range_endpoint_review";
     const composite = detail.resolutionKind === "composite";
     const profileVariants = detail.resolutionKind === "profile_variants"
       && profileResolutionMode === "variants";
@@ -808,7 +838,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Define the one combined serving SuppVis should use.");
       return;
     }
-    if (!excludeFromIngest && !extractionReview && !composite && !profileVariants && !escalated
+    if (rangeReview && !escalated && selectedRangeEndpoint == null) {
+      setError("Choose the minimum or maximum serving endpoint.");
+      return;
+    }
+    if (!excludeFromIngest && !rangeReview && !extractionReview && !composite && !profileVariants && !escalated
       && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
       return;
@@ -817,7 +851,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Enter the serving printed on the label.");
       return;
     }
-    if (!excludeFromIngest && !composite && !profileVariants && !escalated
+    if (!excludeFromIngest && !rangeReview && !composite && !profileVariants && !escalated
       && detail.reviewCategory === "label_column_review" && globalColumn == null) {
       setError("Choose the printed value column that belongs to this serving.");
       return;
@@ -938,7 +972,17 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         exclusionReason: null,
         reviewerNote: reviewerNote.trim() || null,
       };
-      const body = excludeFromIngest ? {
+      const body = rangeReview && !escalated ? {
+        expectedRevision: detail.revision,
+        outcome: "canonical_selected",
+        selectedRangeEndpoint,
+        reviewedServingContexts: null,
+        selectedServingOrder: null,
+        quantityOverrides: null,
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim() || null,
+      } : excludeFromIngest ? {
         expectedRevision: detail.revision,
         outcome: "excluded_from_ingest",
         reviewedServingContexts: null,
@@ -999,6 +1043,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         : nextTask(nextScopedTasks, updated.id, range.first, range.last)?.id ?? "");
       setNotice(excludeFromIngest
         ? "Product excluded from catalog ingest. Moved to the next label."
+        : rangeReview
+        ? "Serving endpoint saved. Moved to the next label."
         : extractionReview && extractionResolution === "correct"
         ? "Corrected serving saved. Moved to the next label."
         : extractionReview && extractionResolution === "ingredient_review"
@@ -1137,7 +1183,16 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </div> : null}
             <Group1LabelPreview key={`${detail.id}:${previewComponent?.dsldLabelId ?? detail.dsldLabelId}`}
               labelId={previewComponent?.dsldLabelId ?? detail.dsldLabelId}
-              sourceName="Serving Size" suggestedFieldName="Serving Size" />
+              sourceName={rangeEndpointReview ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={rangeEndpointReview ? "Nutrition Facts" : "Serving Size"}
+              focusMode={rangeEndpointReview ? "facts-panel" : "row"} />
+            {next && next.id !== detail.id ? <Group1LabelPreview
+              key={`prefetch:${next.id}`}
+              labelId={next.dsldLabelId}
+              sourceName={next.reviewCategory === "range_endpoint_review" ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={next.reviewCategory === "range_endpoint_review" ? "Nutrition Facts" : "Serving Size"}
+              focusMode={next.reviewCategory === "range_endpoint_review" ? "facts-panel" : "row"}
+              prefetchOnly /> : null}
           </div>
 
           <div className="space-y-4">
@@ -1177,7 +1232,77 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </div>
             </fieldset> : null}
 
-            {detail.reviewCategory === "serving_extraction_review" ? <>
+            {rangeEndpointReview ? <>
+              <section className="rounded border border-teal-300/35 bg-teal-300/5 p-3">
+                <h4 className="font-semibold text-teal-100">Printed serving guidance</h4>
+                {detail.sourceServingSizes.map((serving) => <div key={serving.order}
+                  className="mt-3 rounded border border-white/15 bg-[#080D12] p-3">
+                  <p className="font-semibold">Structured range: {formatServing(
+                    serving.minQuantity, serving.maxQuantity, serving.unit,
+                  )}</p>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    Label guidance: {serving.notes?.trim() || "Not recorded"}
+                  </p>
+                </div>)}
+                <p className="mt-3 text-xs text-text-secondary">
+                  The guidance above stays unchanged. Your choice only sets the one numerical serving basis used by the catalog.
+                </p>
+              </section>
+
+              <fieldset className="space-y-2">
+                <legend className="font-semibold">Choose the canonical serving basis</legend>
+                <p className="text-xs text-text-secondary">
+                  No option is recommended or preselected. Compare both complete ingredient columns with the label and choose one.
+                </p>
+                {detail.rangeEndpointOptions.map((option) => {
+                  const serving = detail.sourceServingSizes.find((candidate) =>
+                    candidate.order === option.selectedServingOrder);
+                  const amount = option.endpoint === "minimum" ? serving?.minQuantity : serving?.maxQuantity;
+                  return <label key={option.endpoint}
+                    className={`block cursor-pointer rounded border p-3 ${selectedRangeEndpoint === option.endpoint
+                      ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12] hover:border-accent/50"}`}>
+                    <span className="flex items-start gap-3"><input type="radio" name="range-endpoint"
+                      className="mt-1 accent-emerald-400" checked={selectedRangeEndpoint === option.endpoint}
+                      onChange={() => {
+                        setSelectedRangeEndpoint(option.endpoint);
+                        setEscalated(false);
+                        setError("");
+                      }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-semibold capitalize">Use the {option.endpoint}</span>
+                        <span className="mt-1 block text-lg font-bold text-accent">
+                          {formatServing(amount ?? null, amount ?? null, serving?.unit ?? null)}
+                        </span>
+                        <span className="mt-1 block text-xs text-text-secondary">
+                          Complete values for {option.projectedRows.length} normalized ingredient rows
+                        </span>
+                        <span className="mt-2 block space-y-1 text-xs text-text-muted">
+                          {option.projectedRows.slice(0, 4).map((row) => <span key={row.logicalRowKey}
+                            className="block">{row.name}: {row.operator ? `${row.operator} ` : ""}
+                            {row.quantity ?? "not recorded"}{row.unit ? ` ${row.unit}` : ""}</span>)}
+                        </span>
+                      </span></span>
+                  </label>;
+                })}
+              </fieldset>
+
+              {selectedRangeOption ? <details className="rounded border border-white/10 p-3 text-xs">
+                <summary className="cursor-pointer font-semibold">
+                  Preview the selected ingredient values ({selectedRangeOption.projectedRows.length})
+                </summary>
+                <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">
+                  {selectedRangeOption.projectedRows.map((row) => <div key={row.logicalRowKey}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded bg-[#080D12] p-2">
+                    <span><span className="font-semibold">{row.name || "Unnamed row"}</span>
+                      {row.ancestorNames.length ? <span className="block text-text-muted">
+                        under {row.ancestorNames.join(" › ")}
+                      </span> : null}</span>
+                    <span className="text-accent">{row.operator ? `${row.operator} ` : ""}
+                      {row.quantity ?? "not recorded"}{row.unit ? ` ${row.unit}` : ""}</span>
+                  </div>)}
+                </div>
+              </details> : null}
+            </> : detail.reviewCategory === "serving_extraction_review" ? <>
               <section className="rounded border border-amber-300/30 bg-amber-300/5 p-3">
                 <h4 className="font-semibold text-amber-100">DSLD extracted serving</h4>
                 {detail.sourceServingSizes.map((serving) => <div key={serving.order}
@@ -1604,7 +1729,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </section> : null}
             </>}
 
-            {bundleReview ? excludeFromIngest ? <section className="rounded border border-red-400/60 bg-red-400/10 p-3">
+            {rangeEndpointReview ? null : bundleReview ? excludeFromIngest ? <section className="rounded border border-red-400/60 bg-red-400/10 p-3">
               <label className="block text-xs font-semibold text-red-100">Reason
                 <select className={`${inputClass} mt-1`} value={exclusionReason}
                   onChange={(event) => setExclusionReason(event.target.value as ServingSizeExclusionReason | "")}>
@@ -1659,7 +1784,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
-              || (!excludeFromIngest && detail.resolutionKind !== "composite"
+              || (rangeEndpointReview && !escalated && selectedRangeEndpoint == null)
+              || (!rangeEndpointReview && !excludeFromIngest && detail.resolutionKind !== "composite"
                 && detail.reviewCategory !== "serving_extraction_review"
                 && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
                 && !escalated && selectedOrder == null)} onClick={save}
@@ -1673,6 +1799,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                         : extractionResolution === "escalate" ? "Save escalation"
                           : "Confirm extracted serving"
                   : escalated ? "Save escalation"
+                  : rangeEndpointReview ? selectedRangeEndpoint
+                    ? `Use ${selectedRangeEndpoint} endpoint` : "Choose an endpoint"
                   : bundleReview ? "Combine fixed package"
                   : detail.resolutionKind === "composite" ? "Save combined serving"
                   : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? "Save profile variants"
@@ -1687,6 +1815,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
           {detail.decisions.map((decision) => <p key={decision.id} className="mb-2 text-xs text-text-secondary">
             Rev {decision.taskRevision}: {humanize(decision.outcome)} by {decision.reviewerEmail} · {new Date(decision.decidedAt).toLocaleString()}
             {decision.selectedServingOrder ? ` · serving order ${decision.selectedServingOrder}` : ""}
+            {decision.selectedRangeEndpoint ? ` · ${decision.selectedRangeEndpoint} endpoint` : ""}
             {decision.exclusionReason ? ` · ${humanize(decision.exclusionReason)}` : ""}
             {decision.reviewerNote ? ` — ${decision.reviewerNote}` : ""}
           </p>)}</div> : null}

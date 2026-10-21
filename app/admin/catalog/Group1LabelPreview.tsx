@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { findLabelHighlights, spotlightForLabelHighlight, withLabelRowValues, type LabelHighlight } from "./group1-label-highlight";
+import { factsPanelSpotlightForLabelHighlight, findLabelHighlights, spotlightForLabelHighlight, withLabelRowValues, type LabelHighlight } from "./group1-label-highlight";
 import { labelOcrPages } from "./group1-label-ocr-cache";
 import { labelPdfBytes } from "./group1-label-pdf";
 import { MAX_LABEL_ZOOM, MIN_LABEL_ZOOM, clampLabelZoom, labelRenderGeometry, labelSpotlightScroll, labelZoomForSpotlight, nextLabelZoom } from "./group1-label-render";
@@ -9,8 +9,10 @@ import { MAX_LABEL_ZOOM, MIN_LABEL_ZOOM, clampLabelZoom, labelRenderGeometry, la
 type PdfDocument = import("pdfjs-dist").PDFDocumentProxy;
 type ZoomAnchor = { pageX: number; pageY: number; viewportX: number; viewportY: number };
 
-export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, prefetchOnly = false, onScanSettled }: {
+export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName,
+  focusMode = "row", prefetchOnly = false, onScanSettled }: {
   labelId: number; sourceName: string; suggestedFieldName: string;
+  focusMode?: "row" | "facts-panel";
   prefetchOnly?: boolean; onScanSettled?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -202,20 +204,30 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       }
       let best: { page: number; boxes: LabelHighlight[] } | null = null;
       const priority = { source: 3, suggested: 2, approximate: 1 };
-      for (let index = 0; index < pages.length; index += 1) {
-        const boxes = findLabelHighlights(pages[index], sourceName, suggestedFieldName);
-        if (boxes.length && (!best || priority[boxes[0].mode] > priority[best.boxes[0].mode])) {
-          best = { page: index + 1, boxes };
+      const searches = focusMode === "facts-panel"
+        ? [["Supplement Facts", "Nutrition Facts"], ["Serving Size", "Serving Size"]] as const
+        : [[sourceName, suggestedFieldName]] as const;
+      for (const [primary, secondary] of searches) {
+        let candidate: { page: number; boxes: LabelHighlight[] } | null = null;
+        for (let index = 0; index < pages.length; index += 1) {
+          const boxes = findLabelHighlights(pages[index], primary, secondary);
+          if (boxes.length && (!candidate
+            || priority[boxes[0].mode] > priority[candidate.boxes[0].mode])) {
+            candidate = { page: index + 1, boxes };
+          }
+          if (candidate?.boxes[0].mode === "source") break;
         }
-        if (best?.boxes[0].mode === "source") break;
+        if (candidate) { best = candidate; break; }
       }
       if (!best) {
         setHint("Couldn’t confidently locate this text in the saved scan. Please inspect the label manually.");
         return;
       }
-      const outlined = withLabelRowValues(best.boxes[0], [pages[best.page - 1]]);
+      const outlined = focusMode === "facts-panel" ? best.boxes[0]
+        : withLabelRowValues(best.boxes[0], [pages[best.page - 1]]);
       best = { ...best, boxes: [outlined, ...best.boxes.slice(1)] };
-      const spotlight = spotlightForLabelHighlight(outlined);
+      const spotlight = focusMode === "facts-panel"
+        ? factsPanelSpotlightForLabelHighlight(outlined) : spotlightForLabelHighlight(outlined);
       if (!prefetchOnly && !manuallyAdjustedViewRef.current && containerRef.current) {
         const container = containerRef.current;
         const page = await document.getPage(best.page);
@@ -232,14 +244,16 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
       const qualifier = outlined.mode === "source" ? "extracted wording"
         : outlined.mode === "suggested" ? "suggested-field wording, not the extracted name"
           : "approximate wording";
-      setHint(`Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${outlined.text}” (${qualifier}, saved scan). Verify it against the label; this is not an approval.`);
+      setHint(focusMode === "facts-panel"
+        ? `Opened the facts-panel area using “${outlined.text}” (${qualifier}, saved scan). Verify the panel against the label.`
+        : `Spotlighted ${best.boxes.length > 1 ? `one of ${best.boxes.length} possible locations` : "a possible location"} for “${outlined.text}” (${qualifier}, saved scan). Verify it against the label; this is not an approval.`);
     })().catch(() => {
       if (!cancelled) setHint("Saved text positions are unavailable. Please inspect the label manually.");
     }).finally(() => {
       if (!cancelled) onScanSettledRef.current?.();
     });
     return () => { cancelled = true; };
-  }, [document, labelId, sourceName, suggestedFieldName, prefetchOnly]);
+  }, [document, labelId, sourceName, suggestedFieldName, focusMode, prefetchOnly]);
 
   useEffect(() => {
     if (!document || prefetchOnly || !viewSize.width || !viewSize.height) return;
@@ -342,7 +356,9 @@ export function Group1LabelPreview({ labelId, sourceName, suggestedFieldName, pr
   }, [loading, highlightedPage, pageNumber, renderRevision]);
 
   const visibleBox = highlightedPage?.page === pageNumber ? highlightedPage.boxes[0] : undefined;
-  const spotlight = visibleBox ? spotlightForLabelHighlight(visibleBox) : null;
+  const spotlight = visibleBox ? focusMode === "facts-panel"
+    ? factsPanelSpotlightForLabelHighlight(visibleBox)
+    : spotlightForLabelHighlight(visibleBox) : null;
 
   if (prefetchOnly) return null;
 

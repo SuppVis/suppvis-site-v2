@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { normalizeLabelText, fallbackRegionScore, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, withLabelRowValues } from '../app/admin/catalog/group1-label-highlight.ts';
+import { factsPanelSpotlightForLabelHighlight, normalizeLabelText, fallbackRegionScore, findLabelHighlights, labelOcrRegions, placeLabelOcrRegion, spotlightForLabelHighlight, withLabelRowValues } from '../app/admin/catalog/group1-label-highlight.ts';
 import { abortable, cachedLabelOcr, createLabelOcrSession } from '../app/admin/catalog/group1-label-ocr.ts';
 
 const word = (text, x, confidence = 95) => ({ text, confidence, box: { x0: x, y0: 100, x1: x + 50, y1: 120 } });
@@ -52,6 +52,8 @@ assert.ok(spotlightForLabelHighlight(enriched).left + spotlightForLabelHighlight
 const edgeSpot = spotlightForLabelHighlight({ ...matches[0], left: 98, top: 97, width: 2, height: 3 });
 assert.equal(edgeSpot.left + edgeSpot.width, 100);
 assert.equal(edgeSpot.top + edgeSpot.height, 100);
+assert.deepEqual(factsPanelSpotlightForLabelHighlight({ text: 'Supplement Facts', mode: 'source',
+  left: 55, top: 8, width: 22, height: 5 }), { left: 35, top: 3, width: 62, height: 92 });
 matches = findLabelHighlights(page([[word('Calories', 20)]]), 'kCals', 'Calories');
 assert.equal(matches[0].mode, 'suggested', 'fallback wording must never masquerade as the source name');
 matches = findLabelHighlights(page([[word('Proteins', 50)], [word('Protein', 60)]]), 'Proteins', 'Protein');
@@ -138,7 +140,13 @@ assert.ok(preview.includes('labelOcrPages(labelId, bytes)'), 'highlighting uses 
 assert.ok(!preview.includes('createLabelOcrSession(signal)'), 'browser OCR is no longer run during review');
 assert.ok(!preview.includes('Find on label'), 'OCR starts automatically, with no button');
 assert.ok(preview.includes('spotlightForLabelHighlight(visibleBox)'), 'located text receives a broad spotlight');
+assert.ok(preview.includes('factsPanelSpotlightForLabelHighlight(visibleBox)'),
+  'facts-panel review can focus the full panel instead of one row');
 assert.ok(!preview.includes('Possible match ↓'), 'the old orange badge must not obscure the label');
 assert.ok(preview.includes('outlineOffset: "7px"'), 'the text outline must sit outside OCR word boxes');
 assert.ok(!preview.includes('saveReviewDecision'), 'location hints never save or approve decisions');
+const servingReview = readFileSync('app/admin/catalog/CatalogServingSizeReview.tsx', 'utf8');
+assert.ok(servingReview.includes('focusMode={rangeEndpointReview ? "facts-panel" : "row"}'));
+assert.ok(servingReview.includes('key={`prefetch:${next.id}`}'),
+  'the next review label is preloaded before navigation');
 console.log('Group 1 OCR highlight tests passed (matching, confidence, coordinates, caching and cancellation).');

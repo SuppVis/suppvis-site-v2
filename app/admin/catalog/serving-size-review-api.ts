@@ -23,7 +23,8 @@ export type ServingSizeReviewCategory =
   | "profile_variant_review"
   | "exclusion_review"
   | "serving_extraction_review"
-  | "bundle_combination_review";
+  | "bundle_combination_review"
+  | "range_endpoint_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
@@ -96,6 +97,29 @@ export type ServingSizeQuantityOverride = {
   contextKey: string | null;
 };
 
+export type ServingSizeRangeEndpoint = "minimum" | "maximum";
+
+export type ServingSizeRangeProjectedRow = {
+  logicalRowKey: string;
+  name: string;
+  ancestorNames: string[];
+  quantity: number | null;
+  unit: string | null;
+  operator: string | null;
+  sourceSelections: Array<{
+    rowPath: string;
+    sourceQuantityIndex: number;
+  }>;
+};
+
+export type ServingSizeRangeEndpointOption = {
+  endpoint: ServingSizeRangeEndpoint;
+  selectedServingOrder: number;
+  canonicalContext: ReviewedServingContext;
+  quantityOverrides: ServingSizeQuantityOverride[];
+  projectedRows: ServingSizeRangeProjectedRow[];
+};
+
 export type ServingSizeProfileVariantRule = {
   contextKey: string;
   dimension: "sex" | "age";
@@ -139,6 +163,7 @@ export type ServingSizeReviewTask = {
   reviewCategory: ServingSizeReviewCategory;
   resolutionKind: ServingSizeResolutionKind;
   exclusionReason: ServingSizeExclusionReason | null;
+  selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
   componentCount: number;
 };
 
@@ -152,6 +177,7 @@ export type ServingSizeReviewDecision = {
   resolutionKind: ServingSizeResolutionKind;
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
   exclusionReason: ServingSizeExclusionReason | null;
+  selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
   reviewerNote: string | null;
   reviewerEmail: string;
   decidedAt: string;
@@ -178,6 +204,8 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   editionGroupingConfidence: "high" | "medium" | null;
   editionGroupingEvidence: string[];
   exclusionReason: ServingSizeExclusionReason | null;
+  rangeEndpointOptions: ServingSizeRangeEndpointOption[];
+  selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
 };
