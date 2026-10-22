@@ -25,7 +25,8 @@ export type ServingSizeReviewCategory =
   | "serving_extraction_review"
   | "bundle_combination_review"
   | "range_endpoint_review"
-  | "ranged_parent_basis_review";
+  | "ranged_parent_basis_review"
+  | "interior_basis_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
@@ -122,6 +123,15 @@ export type ServingSizeRangeEndpointOption = {
   projectedRows: ServingSizeRangeProjectedRow[];
 };
 
+export type ServingSizeBasisOption = {
+  basisQuantity: number;
+  basisUnit: string;
+  selectedServingOrder: number;
+  canonicalContext: ReviewedServingContext;
+  quantityOverrides: ServingSizeQuantityOverride[];
+  projectedRows: ServingSizeRangeProjectedRow[];
+};
+
 export type ServingSizeProfileVariantRule = {
   contextKey: string;
   dimension: "sex" | "age";
@@ -166,6 +176,7 @@ export type ServingSizeReviewTask = {
   resolutionKind: ServingSizeResolutionKind;
   exclusionReason: ServingSizeExclusionReason | null;
   selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
+  selectedServingBasis: number | null;
   basisSourceServingOrder: number | null;
   componentCount: number;
 };
@@ -181,6 +192,7 @@ export type ServingSizeReviewDecision = {
   profileVariantRules: ServingSizeProfileVariantRule[] | null;
   exclusionReason: ServingSizeExclusionReason | null;
   selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
+  selectedServingBasis: number | null;
   reviewerNote: string | null;
   reviewerEmail: string;
   decidedAt: string;
@@ -208,7 +220,9 @@ export type ServingSizeReviewTaskDetail = ServingSizeReviewTask & {
   editionGroupingEvidence: string[];
   exclusionReason: ServingSizeExclusionReason | null;
   rangeEndpointOptions: ServingSizeRangeEndpointOption[];
+  servingBasisOptions: ServingSizeBasisOption[];
   selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
+  selectedServingBasis: number | null;
   prescreenFlags: ServingSizePrescreenFlag[];
   decisions: ServingSizeReviewDecision[];
 };
