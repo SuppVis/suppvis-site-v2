@@ -24,12 +24,14 @@ export type ServingSizeReviewCategory =
   | "exclusion_review"
   | "serving_extraction_review"
   | "bundle_combination_review"
-  | "range_endpoint_review";
+  | "range_endpoint_review"
+  | "ranged_parent_basis_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
   | "label_dsld_mismatch"
   | "unsupported_product_format"
+  | "canonical_serving_basis_not_determinable"
   | "other";
 
 export type DsldServingSize = {
@@ -164,6 +166,7 @@ export type ServingSizeReviewTask = {
   resolutionKind: ServingSizeResolutionKind;
   exclusionReason: ServingSizeExclusionReason | null;
   selectedRangeEndpoint: ServingSizeRangeEndpoint | null;
+  basisSourceServingOrder: number | null;
   componentCount: number;
 };
 

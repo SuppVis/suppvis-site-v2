@@ -32,6 +32,7 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
 };
 
 const categoryOrder: ServingSizeReviewCategory[] = [
+  "ranged_parent_basis_review",
   "range_endpoint_review",
   "bundle_combination_review",
   "label_column_review",
@@ -49,6 +50,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   instructions: string;
   style: string;
 }> = {
+  ranged_parent_basis_review: {
+    title: "Set the basis for a ranged serving",
+    short: "Ingredient amounts point to a serving range but do not identify one exact basis.",
+    instructions: "Inspect the Facts panel and enter the one exact serving amount on which the printed ingredient values are based. The printed range remains unchanged as label guidance.",
+    style: "border-lime-300/40 bg-lime-300/5",
+  },
   range_endpoint_review: {
     title: "Choose a serving-range endpoint",
     short: "Every ingredient has a complete minimum and maximum value set.",
@@ -110,6 +117,7 @@ const exclusionReasons: Array<{ value: ServingSizeExclusionReason; label: string
   { value: "unsupported_multi_day_regimen", label: "Multi-day regimen is not supported" },
   { value: "label_dsld_mismatch", label: "Label and DSLD data cannot be reconciled" },
   { value: "unsupported_product_format", label: "Product format is not supported" },
+  { value: "canonical_serving_basis_not_determinable", label: "Canonical serving basis cannot be determined" },
   { value: "other", label: "Other" },
 ];
 
@@ -405,6 +413,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [rangeEnd, setRangeEnd] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<number | null>(null);
   const [selectedRangeEndpoint, setSelectedRangeEndpoint] = useState<ServingSizeRangeEndpoint | null>(null);
+  const [rangedParentAmount, setRangedParentAmount] = useState("");
   const [context, setContext] = useState<EditableContext | null>(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [escalated, setEscalated] = useState(false);
@@ -435,6 +444,19 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const currentPosition = scopedTasks.findIndex((task) => task.id === selectedTaskId) + 1;
   const bundleReview = detail?.reviewCategory === "bundle_combination_review";
   const rangeEndpointReview = detail?.reviewCategory === "range_endpoint_review";
+  const rangedParentBasisReview = detail?.reviewCategory === "ranged_parent_basis_review";
+  const factsPanelReview = rangeEndpointReview || rangedParentBasisReview;
+  const basisServing = rangedParentBasisReview ? detail.sourceServingSizes.find((serving) =>
+    serving.order === detail.basisSourceServingOrder) ?? null : null;
+  const rangedParentAmountNumber = rangedParentAmount.trim() ? Number(rangedParentAmount) : null;
+  const rangedParentAmountValid = rangedParentAmountNumber != null
+    && Number.isFinite(rangedParentAmountNumber)
+    && basisServing?.minQuantity != null && basisServing.maxQuantity != null
+    && rangedParentAmountNumber >= basisServing.minQuantity
+    && rangedParentAmountNumber <= basisServing.maxQuantity;
+  const rangedParentInterior = rangedParentAmountValid && basisServing != null
+    && Math.abs(rangedParentAmountNumber! - basisServing.minQuantity!) > 1e-9
+    && Math.abs(rangedParentAmountNumber! - basisServing.maxQuantity!) > 1e-9;
   const selectedRangeOption = detail?.rangeEndpointOptions.find((option) =>
     option.endpoint === selectedRangeEndpoint) ?? null;
   const previewComponent = detail?.sourceBundleComponents.find((component) =>
@@ -548,6 +570,23 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setGlobalMapping("");
     setProfileColumns(new Map());
     setSelectedRangeEndpoint(null);
+    setRangedParentAmount("");
+    if (detail.reviewCategory === "ranged_parent_basis_review") {
+      setProfileResolutionMode("variants");
+      setSelectedOrder(null);
+      setContext(null);
+      setCorrectionOpen(false);
+      setEscalated(false);
+      setExcludeFromIngest(false);
+      setExclusionReason("");
+      setQuantityOverrides(new Map());
+      setProfileRules([]);
+      setProfileQuantityOverrides(new Map());
+      setReviewerNote("");
+      setNoteOpen(false);
+      productNameRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      return;
+    }
     if (detail.reviewCategory === "range_endpoint_review") {
       setProfileResolutionMode("variants");
       setSelectedOrder(null);
@@ -831,6 +870,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     if (!detail) return;
     const extractionReview = detail.reviewCategory === "serving_extraction_review";
     const rangeReview = detail.reviewCategory === "range_endpoint_review";
+    const rangedParentReview = detail.reviewCategory === "ranged_parent_basis_review";
     const composite = detail.resolutionKind === "composite";
     const profileVariants = detail.resolutionKind === "profile_variants"
       && profileResolutionMode === "variants";
@@ -842,7 +882,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Choose the minimum or maximum serving endpoint.");
       return;
     }
-    if (!excludeFromIngest && !rangeReview && !extractionReview && !composite && !profileVariants && !escalated
+    if (!excludeFromIngest && rangedParentReview && !escalated && !rangedParentAmountValid) {
+      setError(`Enter one serving amount from ${basisServing?.minQuantity ?? "the minimum"} to ${basisServing?.maxQuantity ?? "the maximum"}.`);
+      return;
+    }
+    if (!excludeFromIngest && !rangeReview && !rangedParentReview && !extractionReview && !composite && !profileVariants && !escalated
       && (selectedOrder == null || !context)) {
       setError("Choose the one serving size the app should use.");
       return;
@@ -851,7 +895,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       setError("Enter the serving printed on the label.");
       return;
     }
-    if (!excludeFromIngest && !rangeReview && !composite && !profileVariants && !escalated
+    if (!excludeFromIngest && !rangeReview && !rangedParentReview && !composite && !profileVariants && !escalated
       && detail.reviewCategory === "label_column_review" && globalColumn == null) {
       setError("Choose the printed value column that belongs to this serving.");
       return;
@@ -914,12 +958,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     const extractionNeedsNote = extractionReview && extractionResolution !== "confirm";
-    if ((excludeFromIngest || (composite && !bundleReview) || escalated || correctionOpen || extractionNeedsNote)
+    if ((excludeFromIngest || (composite && !bundleReview) || escalated || correctionOpen
+      || extractionNeedsNote || (rangedParentReview && rangedParentInterior))
       && !reviewerNote.trim()) {
       setError(excludeFromIngest
         ? "Add a note explaining why this entire product must be excluded."
         : composite
         ? "Add a note explaining what the combined serving represents."
+        : rangedParentReview && rangedParentInterior
+        ? "Add a note explaining where the exact interior serving appears on the label."
         : "Add a reviewer note explaining the escalation or correction.");
       return;
     }
@@ -972,6 +1019,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         exclusionReason: null,
         reviewerNote: reviewerNote.trim() || null,
       };
+      const rangedParentSourceContext = rangedParentReview
+        ? detail.sourceContexts.find((candidate) => candidate.sourceServingOrders.length === 1
+          && candidate.sourceServingOrders[0] === detail.basisSourceServingOrder) ?? null
+        : null;
+      const rangedParentContext = rangedParentSourceContext && rangedParentAmountNumber != null ? {
+        ...rangedParentSourceContext,
+        householdQuantityMin: rangedParentSourceContext.householdUnit
+          ? rangedParentAmountNumber : rangedParentSourceContext.householdQuantityMin,
+        householdQuantityMax: rangedParentSourceContext.householdUnit
+          ? rangedParentAmountNumber : rangedParentSourceContext.householdQuantityMax,
+        metricQuantityMin: rangedParentSourceContext.metricUnit
+          ? rangedParentAmountNumber : rangedParentSourceContext.metricQuantityMin,
+        metricQuantityMax: rangedParentSourceContext.metricUnit
+          ? rangedParentAmountNumber : rangedParentSourceContext.metricQuantityMax,
+      } : null;
       const body = rangeReview && !escalated ? {
         expectedRevision: detail.revision,
         outcome: "canonical_selected",
@@ -1000,6 +1062,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         profileVariantRules: null,
         exclusionReason: null,
         reviewerNote: reviewerNote.trim(),
+      } : rangedParentReview ? {
+        expectedRevision: detail.revision,
+        outcome: "canonical_selected",
+        reviewedServingContexts: [rangedParentContext!],
+        selectedServingOrder: detail.basisSourceServingOrder,
+        quantityOverrides: [],
+        profileVariantRules: null,
+        exclusionReason: null,
+        reviewerNote: reviewerNote.trim() || null,
       } : composite ? {
         expectedRevision: detail.revision,
         outcome: "composite_serving",
@@ -1045,6 +1116,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         ? "Product excluded from catalog ingest. Moved to the next label."
         : rangeReview
         ? "Serving endpoint saved. Moved to the next label."
+        : rangedParentReview
+        ? "Canonical serving basis saved. Moved to the next label."
         : extractionReview && extractionResolution === "correct"
         ? "Corrected serving saved. Moved to the next label."
         : extractionReview && extractionResolution === "ingredient_review"
@@ -1183,15 +1256,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </div> : null}
             <Group1LabelPreview key={`${detail.id}:${previewComponent?.dsldLabelId ?? detail.dsldLabelId}`}
               labelId={previewComponent?.dsldLabelId ?? detail.dsldLabelId}
-              sourceName={rangeEndpointReview ? "Supplement Facts" : "Serving Size"}
-              suggestedFieldName={rangeEndpointReview ? "Nutrition Facts" : "Serving Size"}
-              focusMode={rangeEndpointReview ? "facts-panel" : "row"} />
+              sourceName={factsPanelReview ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={factsPanelReview ? "Nutrition Facts" : "Serving Size"}
+              focusMode={factsPanelReview ? "facts-panel" : "row"} />
             {next && next.id !== detail.id ? <Group1LabelPreview
               key={`prefetch:${next.id}`}
               labelId={next.dsldLabelId}
-              sourceName={next.reviewCategory === "range_endpoint_review" ? "Supplement Facts" : "Serving Size"}
-              suggestedFieldName={next.reviewCategory === "range_endpoint_review" ? "Nutrition Facts" : "Serving Size"}
-              focusMode={next.reviewCategory === "range_endpoint_review" ? "facts-panel" : "row"}
+              sourceName={next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" ? "Nutrition Facts" : "Serving Size"}
+              focusMode={next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" ? "facts-panel" : "row"}
               prefetchOnly /> : null}
           </div>
 
@@ -1232,7 +1305,93 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </div>
             </fieldset> : null}
 
-            {rangeEndpointReview ? <>
+            {rangedParentBasisReview ? <>
+              <section className="rounded border border-lime-300/35 bg-lime-300/5 p-3">
+                <h4 className="font-semibold text-lime-100">Printed serving guidance</h4>
+                {basisServing ? <div className="mt-3 rounded border border-white/15 bg-[#080D12] p-3">
+                  <p className="font-semibold">Structured range: {formatServing(
+                    basisServing.minQuantity, basisServing.maxQuantity, basisServing.unit,
+                  )}</p>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    Label guidance: {basisServing.notes?.trim() || "Not recorded"}
+                  </p>
+                  <p className="mt-1 text-xs text-text-muted">DSLD serving order {basisServing.order}</p>
+                </div> : <p className="mt-2 text-sm text-red-200">The frozen ranged parent is unavailable. Escalate this label.</p>}
+                <p className="mt-3 text-xs text-text-secondary">
+                  This range remains unchanged in source guidance. You are only setting the one numerical basis used for the displayed ingredient amounts.
+                </p>
+              </section>
+
+              <fieldset className="rounded border border-lime-300/25 bg-[#080D12] p-3">
+                <legend className="px-1 font-semibold">Choose the exact canonical serving basis</legend>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Inspect the Facts panel. Nothing is recommended or preselected, and the unit cannot be changed in this review.
+                </p>
+                {basisServing?.minQuantity != null && basisServing.maxQuantity != null ? <>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button type="button" onClick={() => {
+                      setRangedParentAmount(String(basisServing.minQuantity));
+                      setEscalated(false);
+                      setExcludeFromIngest(false);
+                      setExclusionReason("");
+                      setError("");
+                    }} className={`rounded border p-3 text-left ${rangedParentAmount === String(basisServing.minQuantity)
+                      ? "border-accent bg-accent/10" : "border-white/15 hover:border-accent/50"}`}>
+                      <span className="block text-xs font-semibold uppercase text-text-secondary">Minimum endpoint</span>
+                      <span className="mt-1 block text-lg font-bold text-accent">{formatServing(
+                        basisServing.minQuantity, basisServing.minQuantity, basisServing.unit,
+                      )}</span>
+                    </button>
+                    <button type="button" onClick={() => {
+                      setRangedParentAmount(String(basisServing.maxQuantity));
+                      setEscalated(false);
+                      setExcludeFromIngest(false);
+                      setExclusionReason("");
+                      setError("");
+                    }} className={`rounded border p-3 text-left ${rangedParentAmount === String(basisServing.maxQuantity)
+                      ? "border-accent bg-accent/10" : "border-white/15 hover:border-accent/50"}`}>
+                      <span className="block text-xs font-semibold uppercase text-text-secondary">Maximum endpoint</span>
+                      <span className="mt-1 block text-lg font-bold text-accent">{formatServing(
+                        basisServing.maxQuantity, basisServing.maxQuantity, basisServing.unit,
+                      )}</span>
+                    </button>
+                  </div>
+                  <label className="mt-3 block text-xs font-semibold">Exact amount from the label
+                    <div className="mt-1 flex items-center gap-2">
+                      <input className={inputClass} type="number" min={basisServing.minQuantity}
+                        max={basisServing.maxQuantity} step="any" value={rangedParentAmount}
+                        onChange={(event) => {
+                          setRangedParentAmount(event.target.value);
+                          setEscalated(false);
+                          setExcludeFromIngest(false);
+                          setExclusionReason("");
+                          setError("");
+                        }} placeholder={`${basisServing.minQuantity}–${basisServing.maxQuantity}`} />
+                      <span className="shrink-0 text-sm font-semibold text-text-secondary">{basisServing.unit}</span>
+                    </div>
+                  </label>
+                  {rangedParentAmount && !rangedParentAmountValid ? <p className="mt-2 text-xs text-red-200">
+                    Enter a value from {basisServing.minQuantity} to {basisServing.maxQuantity} {basisServing.unit}.
+                  </p> : null}
+                  {rangedParentInterior ? <p className="mt-2 rounded border border-amber-300/30 bg-amber-300/5 p-2 text-xs text-amber-100">
+                    This is between the two endpoints. Add a note explaining where this exact basis appears on the label.
+                  </p> : null}
+                </> : null}
+              </fieldset>
+
+              <details className="rounded border border-white/10 p-3 text-xs">
+                <summary className="cursor-pointer font-semibold">Preview unchanged ingredient amounts ({detail.sourceIngredientRows.length})</summary>
+                <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">
+                  {detail.sourceIngredientRows.map((row) => <div key={row.rowPath}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded bg-[#080D12] p-2">
+                    <span><span className="font-semibold">{row.name || "Unnamed row"}</span>
+                      {row.ancestorNames.length ? <span className="block text-text-muted">under {row.ancestorNames.join(" › ")}</span> : null}</span>
+                    <span className="text-accent">{row.quantities.length
+                      ? row.quantities.map(formatQuantity).join(" | ") : "structural row"}</span>
+                  </div>)}
+                </div>
+              </details>
+            </> : rangeEndpointReview ? <>
               <section className="rounded border border-teal-300/35 bg-teal-300/5 p-3">
                 <h4 className="font-semibold text-teal-100">Printed serving guidance</h4>
                 {detail.sourceServingSizes.map((serving) => <div key={serving.order}
@@ -1741,8 +1900,14 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               <label className="flex cursor-pointer items-start gap-3 text-sm">
                 <input type="checkbox" className="mt-1 accent-red-400" checked={excludeFromIngest}
                   onChange={(event) => {
+                    setError("");
                     setExcludeFromIngest(event.target.checked);
-                    if (event.target.checked) setEscalated(false);
+                    if (event.target.checked) {
+                      setEscalated(false);
+                      if (rangedParentBasisReview) {
+                        setExclusionReason("canonical_serving_basis_not_determinable");
+                      }
+                    }
                     else setExclusionReason("");
                   }} />
                 <span><span className="block font-semibold text-red-200">Do not include this product in catalog ingest</span>
@@ -1774,18 +1939,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </label> : null}
 
             <div>{excludeFromIngest || (detail.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
+              || (rangedParentBasisReview && rangedParentInterior)
               || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
               ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
               {excludeFromIngest || (detail.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
+                || (rangedParentBasisReview && rangedParentInterior)
                 || (detail.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm")
                 || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
                 onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
               || (rangeEndpointReview && !escalated && selectedRangeEndpoint == null)
-              || (!rangeEndpointReview && !excludeFromIngest && detail.resolutionKind !== "composite"
+              || (rangedParentBasisReview && !excludeFromIngest && !escalated && !rangedParentAmountValid)
+              || (!rangeEndpointReview && !rangedParentBasisReview && !excludeFromIngest && detail.resolutionKind !== "composite"
                 && detail.reviewCategory !== "serving_extraction_review"
                 && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
                 && !escalated && selectedOrder == null)} onClick={save}
@@ -1799,6 +1967,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                         : extractionResolution === "escalate" ? "Save escalation"
                           : "Confirm extracted serving"
                   : escalated ? "Save escalation"
+                  : rangedParentBasisReview ? rangedParentAmountValid
+                    ? `Use ${rangedParentAmount} ${basisServing?.unit ?? ""}` : "Enter the exact serving basis"
                   : rangeEndpointReview ? selectedRangeEndpoint
                     ? `Use ${selectedRangeEndpoint} endpoint` : "Choose an endpoint"
                   : bundleReview ? "Combine fixed package"
