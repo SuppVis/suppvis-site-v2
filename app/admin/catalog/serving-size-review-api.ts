@@ -34,6 +34,7 @@ export type ServingSizeExclusionReason =
   | "label_dsld_mismatch"
   | "unsupported_product_format"
   | "canonical_serving_basis_not_determinable"
+  | "deferred_unresolved_escalation"
   | "other";
 
 export type DsldServingSize = {
