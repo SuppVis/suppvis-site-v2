@@ -497,7 +497,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     && exclusionReason === "canonical_serving_basis_not_determinable";
   const missingParentOtherExclusion = standardizedMissingParentExclusion
     && exclusionReason !== "canonical_serving_basis_not_determinable";
-  const reviewerNoteRequired = (!standardizedMissingParentExclusion && excludeFromIngest)
+  const reviewerNoteRequired = missingParentOtherExclusion
+    || (!standardizedMissingParentExclusion && excludeFromIngest)
     || (detail?.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
     || (rangedParentBasisReview && rangedParentInterior)
     || (detail?.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm");
@@ -1051,6 +1052,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     }
     const extractionNeedsNote = extractionReview && extractionResolution !== "confirm";
     if (((excludeFromIngest && !standardizedMissingParentExclusion)
+      || missingParentOtherExclusion
       || (composite && !bundleReview) || escalated || correctionOpen
       || extractionNeedsNote || (rangedParentReview && rangedParentInterior))
       && !reviewerNote.trim()) {
@@ -1493,28 +1495,13 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     className="mt-1 accent-red-400" checked={missingParentOtherExclusion}
                     onChange={() => {
                       setExcludeFromIngest(true);
-                      setExclusionReason("");
+                      setExclusionReason("other");
                       setEscalated(false);
                       setError("");
                     }} />
                     <span><span className="block font-semibold text-red-200">Exclude for another reason</span>
                       <span className="mt-1 block text-xs text-text-secondary">Use this when the serving may be identifiable, but the product should not be included in this ingest.</span></span></span>
                 </label>
-                {missingParentOtherExclusion ? <section className="rounded border border-red-400/40 bg-red-400/5 p-3">
-                  <label className="block text-xs font-semibold text-red-100">Exclusion reason
-                    <select className={`${inputClass} mt-1`} value={exclusionReason}
-                      onChange={(event) => {
-                        setExclusionReason(event.target.value as ServingSizeExclusionReason | "");
-                        setError("");
-                      }}>
-                      <option value="">Choose a reason…</option>
-                      {exclusionReasons.filter((reason) =>
-                        reason.value !== "canonical_serving_basis_not_determinable").map((reason) =>
-                        <option key={reason.value} value={reason.value}>{reason.label}</option>)}
-                    </select>
-                  </label>
-                  <p className="mt-2 text-xs text-text-secondary">A reviewer note is optional and can add detail below.</p>
-                </section> : null}
                 <label className={`block cursor-pointer rounded border p-3 ${escalated
                   ? "border-amber-400 bg-amber-400/10" : "border-white/15 bg-[#080D12]"}`}>
                   <span className="flex items-start gap-3"><input type="radio" name="missing-parent-result"
@@ -2287,19 +2274,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             </label> : null}
 
             <div>{reviewerNoteRequired
-              ? <label className="block text-sm font-semibold">Reviewer note (required)</label>
+              ? <label className="block text-sm font-semibold">{missingParentOtherExclusion
+                ? "Exclusion reason (required)" : "Reviewer note (required)"}</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
               {reviewerNoteRequired
                 || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
-                onChange={(event) => setReviewerNote(event.target.value)} placeholder="Explain what the printed label shows." /> : null}</div>
+                onChange={(event) => setReviewerNote(event.target.value)} placeholder={missingParentOtherExclusion
+                  ? "Explain why this product should be excluded from the current ingest."
+                  : "Explain what the printed label shows."} /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
               || (interiorBasisReview && !excludeFromIngest && !escalated && selectedServingBasis == null)
               || (rangeEndpointReview && !escalated && selectedRangeEndpoint == null)
               || (rangedParentBasisReview && !excludeFromIngest && !escalated && !rangedParentAmountValid)
               || (missingParentServingReview && !excludeFromIngest && !escalated && !missingParentCanonicalValid)
-              || (missingParentServingReview && excludeFromIngest && !exclusionReason)
               || (!interiorBasisReview && !rangeEndpointReview && !rangedParentBasisReview && !missingParentServingReview && !excludeFromIngest && detail.resolutionKind !== "composite"
                 && detail.reviewCategory !== "serving_extraction_review"
                 && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
