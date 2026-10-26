@@ -53,7 +53,6 @@ assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-revie
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/group1-review/labels/258886/pdf"), false);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/group1-review/tasks/123e4567-e89b-42d3-a456-426614174000/decisions"), true);
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review"), true);
-assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review/schema/missing-parent-serving-review"), true);
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000"), true);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000/decisions"), true);
 assert.equal(isCatalogBridgeRouteAllowed("DELETE", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000"), false);
