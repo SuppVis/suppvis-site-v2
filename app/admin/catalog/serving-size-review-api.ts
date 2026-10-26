@@ -26,7 +26,8 @@ export type ServingSizeReviewCategory =
   | "bundle_combination_review"
   | "range_endpoint_review"
   | "ranged_parent_basis_review"
-  | "interior_basis_review";
+  | "interior_basis_review"
+  | "missing_parent_serving_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
