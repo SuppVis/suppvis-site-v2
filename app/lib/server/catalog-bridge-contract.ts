@@ -16,6 +16,7 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/group1-review\/labels\/[1-9][0-9]{0,9}\/ocr$/,
     /^\/api\/admin\/catalog\/serving-size-review$/,
     /^\/api\/admin\/catalog\/serving-size-review\/tasks\/[0-9a-f-]+$/i,
+    /^\/api\/admin\/catalog\/serving-size-review\/schema\/ambiguous-bundle-edition-exclusions$/,
   ],
   POST: [
     /^\/api\/admin\/catalog\/products$/,
