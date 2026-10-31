@@ -32,6 +32,7 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
 };
 
 const categoryOrder: ServingSizeReviewCategory[] = [
+  "amount_column_review",
   "parent_child_basis_review",
   "missing_parent_serving_review",
   "interior_basis_review",
@@ -53,6 +54,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   instructions: string;
   style: string;
 }> = {
+  amount_column_review: {
+    title: "Choose one ingredient amount column",
+    short: "The canonical serving is known, but DSLD retained two or three complete amount columns.",
+    instructions: "Inspect the Facts panel and choose Column A, B, or C for the entire label. Nothing is recommended or preselected; escalate or exclude when the printed panel cannot support one complete column.",
+    style: "border-purple-300/40 bg-purple-300/5",
+  },
   parent_child_basis_review: {
     title: "Choose parent or ingredient serving basis",
     short: "DSLD's parent serving conflicts with one unanimous basis recorded on every quantitative ingredient row.",
@@ -482,12 +489,13 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const decided = tasks.length - pending - escalations;
   const currentPosition = scopedTasks.findIndex((task) => task.id === selectedTaskId) + 1;
   const bundleReview = detail?.reviewCategory === "bundle_combination_review";
+  const amountColumnReview = detail?.reviewCategory === "amount_column_review";
   const interiorBasisReview = detail?.reviewCategory === "interior_basis_review";
   const parentChildBasisReview = detail?.reviewCategory === "parent_child_basis_review";
   const rangeEndpointReview = detail?.reviewCategory === "range_endpoint_review";
   const rangedParentBasisReview = detail?.reviewCategory === "ranged_parent_basis_review";
   const missingParentServingReview = detail?.reviewCategory === "missing_parent_serving_review";
-  const factsPanelReview = interiorBasisReview || parentChildBasisReview
+  const factsPanelReview = amountColumnReview || interiorBasisReview || parentChildBasisReview
     || rangeEndpointReview || rangedParentBasisReview
     || missingParentServingReview;
   const basisServing = rangedParentBasisReview ? detail.sourceServingSizes.find((serving) =>
@@ -511,6 +519,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const missingParentOtherExclusion = standardizedMissingParentExclusion
     && exclusionReason !== "canonical_serving_basis_not_determinable";
   const parentChildCustomExclusion = parentChildBasisReview && excludeFromIngest;
+  const amountColumnCustomExclusion = amountColumnReview && excludeFromIngest;
   const reviewerNoteRequired = missingParentOtherExclusion
     || (!standardizedMissingParentExclusion && excludeFromIngest)
     || (detail?.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
@@ -530,7 +539,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   },
     [scopedTasks, selectedTaskId, range]);
   const projected = useMemo(() => projections(detail?.sourceIngredientRows ?? [], selectedOrder,
-    quantityOverrides, detail?.reviewCategory === "label_column_review"),
+    quantityOverrides, detail?.reviewCategory === "label_column_review"
+      || detail?.reviewCategory === "amount_column_review"),
   [detail, selectedOrder, quantityOverrides]);
   const projectionCounts = useMemo(() => projected.reduce((counts, row) => {
     counts[row.status] += 1;
@@ -547,7 +557,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const unreferencedOptions = useMemo(() => detail?.reviewCategory === "unreferenced_serving_mapping_review"
     ? mappingOptions(detail.sourceIngredientRows, selectedOrder) : [], [detail, selectedOrder]);
   const labelColumnCount = useMemo(() => {
-    if (!detail || selectedOrder == null || detail.reviewCategory !== "label_column_review") return 0;
+    if (!detail || selectedOrder == null || (detail.reviewCategory !== "label_column_review"
+      && detail.reviewCategory !== "amount_column_review")) return 0;
     return detail.sourceIngredientRows.reduce((maximum, row) => Math.max(maximum,
       row.quantities.length), 0);
   }, [detail, selectedOrder]);
@@ -1005,8 +1016,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     if (!excludeFromIngest && !interiorReview && !rangeReview && !rangedParentReview && !missingParentReview && !composite && !profileVariants && !escalated
-      && detail.reviewCategory === "label_column_review" && globalColumn == null) {
-      setError("Choose the printed value column that belongs to this serving.");
+      && (detail.reviewCategory === "label_column_review"
+        || detail.reviewCategory === "amount_column_review") && globalColumn == null) {
+      setError("Choose the printed ingredient amount column for this label.");
       return;
     }
     if (!excludeFromIngest && !composite && !profileVariants && !escalated && !missingParentReview
@@ -1416,9 +1428,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             {next && next.id !== detail.id ? <Group1LabelPreview
               key={`prefetch:${next.id}`}
               labelId={next.dsldLabelId}
-              sourceName={next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Supplement Facts" : "Serving Size"}
-              suggestedFieldName={next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Nutrition Facts" : "Serving Size"}
-              focusMode={next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "facts-panel" : "row"}
+              sourceName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Nutrition Facts" : "Serving Size"}
+              focusMode={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "facts-panel" : "row"}
               prefetchOnly /> : null}
           </div>
 
@@ -2207,16 +2219,20 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </section>
             </> : <>
             <fieldset className="space-y-2">
-              <legend className="font-semibold">1. Choose the one serving size SuppVis should use</legend>
-              <p className="text-xs text-text-secondary">Unused variants stay in source history but will not populate the curated catalog.</p>
+              <legend className="font-semibold">{amountColumnReview
+                ? "1. Canonical serving already fixed"
+                : "1. Choose the one serving size SuppVis should use"}</legend>
+              <p className="text-xs text-text-secondary">{amountColumnReview
+                ? "This queue does not change the serving. It only chooses which complete ingredient amount column belongs to it."
+                : "Unused variants stay in source history but will not populate the curated catalog."}</p>
               {detail.sourceServingSizes.map((serving) => <label key={serving.order}
                 className={`block cursor-pointer rounded border p-3 ${selectedOrder === serving.order
                   ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12] hover:border-accent/50"}`}>
                 <div className="flex items-start gap-3"><input type="radio" name="canonical-serving" className="mt-1 accent-emerald-400"
-                  checked={selectedOrder === serving.order} onChange={() => selectServing(serving.order)} />
+                  disabled={amountColumnReview} checked={selectedOrder === serving.order} onChange={() => selectServing(serving.order)} />
                   <span className="min-w-0"><span className="flex flex-wrap items-center gap-2 font-semibold">
                     {formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}
-                    {detail.policySuggestedServingOrder === serving.order ? <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] uppercase text-accent">precedence suggestion</span> : null}
+                    {!amountColumnReview && detail.policySuggestedServingOrder === serving.order ? <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] uppercase text-accent">precedence suggestion</span> : null}
                   </span><span className="mt-1 block text-sm text-text-secondary">{serving.notes?.trim() || "No additional serving description"}</span>
                     <span className="mt-1 block text-xs text-text-muted">DSLD serving order {serving.order}</span></span></div>
               </label>)}
@@ -2227,7 +2243,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <p className="mt-1 text-xs text-text-secondary">{detail.resolutionKind === "profile_variants"
                   ? "Save the one shared Facts-panel serving. Suggested-use directions remain only in source history."
                   : "Correct only the serving that will enter the catalog."}</p></div>
-                {detail.resolutionKind !== "profile_variants" ? <button type="button" onClick={toggleCorrection}
+                {detail.resolutionKind !== "profile_variants" && !amountColumnReview ? <button type="button" onClick={toggleCorrection}
                   className="shrink-0 text-xs font-semibold text-accent underline">
                   {correctionOpen ? "Use extracted values" : "Correct selected serving"}
                 </button> : null}</div>
@@ -2258,19 +2274,21 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
             {selectedOrder != null ? <section className="rounded border border-white/10 p-3">
               <h4 className="font-semibold">3. Verify the resulting ingredient quantities</h4>
-              <p className="mt-1 text-xs text-text-secondary">{detail.reviewCategory === "label_column_review"
+              <p className="mt-1 text-xs text-text-secondary">{amountColumnReview
+                ? "The serving above is already fixed. Choose the one printed ingredient amount column the catalog should retain."
+                : detail.reviewCategory === "label_column_review"
                 ? "Choose the serving above and the printed ingredient-value column here independently. Incorrect DSLD serving pointers will not hide a column."
                 : detail.reviewCategory === "unreferenced_serving_mapping_review"
                 ? "Choose the printed value column that should populate this serving. The choice applies across the whole label."
                 : "SuppVis keeps quantities tied to the selected serving and excludes quantities tied only to other servings."}</p>
-              {detail.reviewCategory === "label_column_review" && labelColumnCount > 1 ? <div className="mt-3 rounded border border-cyan-400/30 bg-cyan-400/5 p-3">
-                <p className="text-sm font-semibold text-cyan-100">Choose one value column for the whole label</p>
-                <p className="mt-1 text-xs text-text-secondary">This choice is independent of the serving selected above. Every affected ingredient follows the same printed column pattern, so you only need to choose once.</p>
+              {(detail.reviewCategory === "label_column_review" || amountColumnReview) && labelColumnCount > 1 ? <div className="mt-3 rounded border border-cyan-400/30 bg-cyan-400/5 p-3">
+                <p className="text-sm font-semibold text-cyan-100">Choose one amount column for the whole label</p>
+                <p className="mt-1 text-xs text-text-secondary">Every affected ingredient follows the same printed column pattern. Nothing is preselected, and one choice applies to the entire label.</p>
                 <div className="mt-3 flex flex-wrap gap-2">{Array.from({ length: labelColumnCount }, (_, position) =>
                   <button key={position} type="button" onClick={() => applyGlobalColumnChoice(position)}
                     className={`rounded border px-3 py-2 text-xs font-semibold ${globalColumn === position
                       ? "border-accent bg-accent/15 text-accent" : "border-white/15"}`}>
-                    Use column {position + 1}
+                    Use Column {String.fromCharCode(65 + position)}
                   </button>)}</div>
                 <div className="mt-3 space-y-1 text-xs text-text-secondary">{detail.sourceIngredientRows.map((row) => ({
                   row,
@@ -2293,7 +2311,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <div className={`rounded p-2 ${projectionCounts.ambiguous ? "bg-red-400/10 text-red-200" : "bg-white/5"}`}><strong className="block text-lg">{projectionCounts.ambiguous}</strong>needs choice</div>
                 <div className="rounded bg-white/5 p-2"><strong className="block text-lg">{projectionCounts.no_quantity}</strong>structural rows</div>
               </div>
-              {detail.reviewCategory !== "label_column_review" || globalColumn != null
+              {(detail.reviewCategory !== "label_column_review" && !amountColumnReview) || globalColumn != null
                 ? projected.filter((projection) => projection.status === "ambiguous").map((projection) => <div key={projection.row.rowPath}
                 className="mt-3 rounded border border-red-400/35 bg-red-400/5 p-3">
                 <p className="text-sm font-semibold">{projection.row.name || "Unnamed row"}</p>
@@ -2341,7 +2359,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     setExcludeFromIngest(event.target.checked);
                     if (event.target.checked) {
                       setEscalated(false);
-                      if (parentChildBasisReview) {
+                      if (parentChildBasisReview || amountColumnReview) {
                         setExclusionReason("other");
                       } else if (rangedParentBasisReview || interiorBasisReview) {
                         setExclusionReason("canonical_serving_basis_not_determinable");
@@ -2352,7 +2370,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <span><span className="block font-semibold text-red-200">Do not include this product in catalog ingest</span>
                   <span className="block text-xs text-text-secondary">This is a terminal product-level decision. The original DSLD data remains preserved for audit and possible future reconstruction.</span></span>
               </label>
-              {excludeFromIngest && !parentChildBasisReview ? <label className="mt-3 block text-xs font-semibold text-red-100">Reason
+              {excludeFromIngest && !parentChildBasisReview && !amountColumnReview ? <label className="mt-3 block text-xs font-semibold text-red-100">Reason
                 <select className={`${inputClass} mt-1`} value={exclusionReason}
                   onChange={(event) => setExclusionReason(event.target.value as ServingSizeExclusionReason | "")}>
                   <option value="">Choose a reason…</option>
@@ -2372,20 +2390,22 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     setExclusionReason("");
                   }
                 }} />
-              <span><span className="block font-semibold">Escalate — {detail.resolutionKind === "profile_variants"
+              <span><span className="block font-semibold">Escalate — {amountColumnReview
+                ? "cannot determine the correct amount column"
+                : detail.resolutionKind === "profile_variants"
                 && profileResolutionMode === "variants"
                 ? "cannot resolve the profile variants" : "cannot determine the canonical serving"}</span>
                 <span className="block text-xs text-text-secondary">Save this label for a later decision; any admin can return and resolve it.</span></span>
             </label> : null}
 
             <div>{reviewerNoteRequired
-              ? <label className="block text-sm font-semibold">{missingParentOtherExclusion || parentChildCustomExclusion
+              ? <label className="block text-sm font-semibold">{missingParentOtherExclusion || parentChildCustomExclusion || amountColumnCustomExclusion
                 ? "Exclusion reason (required)" : "Reviewer note (required)"}</label>
               : <button type="button" onClick={() => setNoteOpen((open) => !open)} className="text-sm font-semibold text-accent underline">
                 {noteOpen ? "Hide reviewer note" : "Add reviewer note (optional)"}</button>}
               {reviewerNoteRequired
                 || noteOpen ? <textarea className={`${inputClass} mt-2 min-h-20`} value={reviewerNote}
-                onChange={(event) => setReviewerNote(event.target.value)} placeholder={missingParentOtherExclusion || parentChildCustomExclusion
+                onChange={(event) => setReviewerNote(event.target.value)} placeholder={missingParentOtherExclusion || parentChildCustomExclusion || amountColumnCustomExclusion
                   ? "Explain why this product should be excluded from the current ingest."
                   : "Explain what the printed label shows."} /> : null}</div>
 
@@ -2420,6 +2440,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   : detail.resolutionKind === "composite" ? "Save combined serving"
                   : detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants" ? "Save profile variants"
                   : detail.resolutionKind === "profile_variants" ? "Save as one shared serving"
+                  : amountColumnReview && globalColumn != null ? `Use Column ${String.fromCharCode(65 + globalColumn)}`
                   : "Save canonical serving"}</button>
               <button type="button" disabled={saving} onClick={() => setSelectedTaskId(next?.id ?? "")}
                 className="rounded-full border border-white/15 px-5 py-2 text-sm font-semibold disabled:opacity-40">Skip for now</button></div>

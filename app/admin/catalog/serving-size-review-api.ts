@@ -17,6 +17,7 @@ export type ServingSizeResolutionKind = "canonical" | "profile_variants" | "comp
 
 export type ServingSizeReviewCategory =
   | "label_column_review"
+  | "amount_column_review"
   | "canonical_choice_review"
   | "unreferenced_serving_mapping_review"
   | "composite_review"
