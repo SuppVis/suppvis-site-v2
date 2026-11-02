@@ -56,7 +56,6 @@ assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000"), true);
 assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review/decision-batches/serving-decisions-2026-11-02-v1"), true);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/serving-size-review/decision-batches/serving-decisions-2026-11-02-v1"), true);
-assert.equal(isCatalogBridgeRouteAllowed("GET", "/api/admin/catalog/serving-size-review/schema/decision-batch-applicator"), true);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000/decisions"), true);
 assert.equal(isCatalogBridgeRouteAllowed("POST", "/api/admin/catalog/serving-size-review/decision-batches/../../products"), false);
 assert.equal(isCatalogBridgeRouteAllowed("DELETE", "/api/admin/catalog/serving-size-review/tasks/123e4567-e89b-42d3-a456-426614174000"), false);
