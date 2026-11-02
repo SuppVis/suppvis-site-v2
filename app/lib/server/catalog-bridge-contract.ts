@@ -16,6 +16,8 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/group1-review\/labels\/[1-9][0-9]{0,9}\/ocr$/,
     /^\/api\/admin\/catalog\/serving-size-review$/,
     /^\/api\/admin\/catalog\/serving-size-review\/tasks\/[0-9a-f-]+$/i,
+    /^\/api\/admin\/catalog\/serving-size-review\/decision-batches\/[a-z0-9][a-z0-9_-]{5,119}$/,
+    /^\/api\/admin\/catalog\/serving-size-review\/schema\/decision-batch-applicator$/,
   ],
   POST: [
     /^\/api\/admin\/catalog\/products$/,
@@ -26,6 +28,7 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/templates\/(front-label|barcode|ocr|public)$/,
     /^\/api\/admin\/catalog\/group1-review\/tasks\/[0-9a-f-]+\/decisions$/i,
     /^\/api\/admin\/catalog\/serving-size-review\/tasks\/[0-9a-f-]+\/decisions$/i,
+    /^\/api\/admin\/catalog\/serving-size-review\/decision-batches\/[a-z0-9][a-z0-9_-]{5,119}$/,
   ],
   PATCH: [
     /^\/api\/admin\/catalog\/products\/[0-9a-f-]+$/i,
