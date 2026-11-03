@@ -15,10 +15,14 @@ for (const key of ["AUTH_SECRET", "AUTH_MICROSOFT_ENTRA_ID_ID", "AUTH_MICROSOFT_
   "AUTH_MICROSOFT_ENTRA_ID_ISSUER", "ADMIN_ALLOWED_EMAILS", "CATALOG_ADMIN_BRIDGE_SECRET"]) {
   if (!siteConfig[key]?.trim()) throw new Error(`Local admin configuration is missing ${key}.`);
 }
-if (fixture.batchKey !== "dsld-serving-amount-column-review-2026-10-30-v1"
-  || fixture.tasks.length !== 192
-  || fixture.columnCountDistribution?.["2"] !== 191
-  || fixture.columnCountDistribution?.["3"] !== 1) {
+const rehearsalQueue = fixture.policyVersion === "rehearsal-amount-column-review-2026-11-03-v1";
+const expectedDistribution = rehearsalQueue
+  ? { "2": 133, "3": 2 }
+  : { "2": 191, "3": 1 };
+if ((!rehearsalQueue && fixture.batchKey !== "dsld-serving-amount-column-review-2026-10-30-v1")
+  || fixture.tasks.length !== (rehearsalQueue ? 135 : 192)
+  || Object.entries(expectedDistribution).some(([columns, count]) =>
+    fixture.columnCountDistribution?.[columns] !== count)) {
   throw new Error("The frozen amount-column preview fixture is invalid.");
 }
 
@@ -27,9 +31,10 @@ function taskId(labelId) {
 }
 function summary(task) {
   return {
-    id: taskId(task.dsldLabelId), queueOrdinal: task.queueOrdinal,
+    id: task.existingTaskId ?? taskId(task.dsldLabelId), queueOrdinal: task.queueOrdinal,
     dsldLabelId: task.dsldLabelId, labelName: task.labelName, brandName: task.brandName,
-    offMarket: task.offMarket, status: "pending", revision: 0,
+    offMarket: task.offMarket, status: "pending",
+    revision: rehearsalQueue ? task.expectedTaskRevision + 1 : 0,
     flagCodes: task.prescreenFlags.map((flag) => flag.code),
     warningSeverity: task.warningSeverity, reviewReasonCodes: task.reviewReasonCodes,
     reviewCategory: task.reviewCategory, resolutionKind: task.resolutionKind,
@@ -38,7 +43,7 @@ function summary(task) {
   };
 }
 const tasks = fixture.tasks.map(summary);
-const byId = new Map(fixture.tasks.map((task) => [taskId(task.dsldLabelId), task]));
+const byId = new Map(fixture.tasks.map((task) => [task.existingTaskId ?? taskId(task.dsldLabelId), task]));
 function json(response, status, value) {
   response.writeHead(status, { "Cache-Control": "private, no-store",
     "Content-Type": "application/json; charset=utf-8" });
@@ -49,7 +54,7 @@ const mockPlatform = createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1:3001");
   if (request.method === "GET" && url.pathname === "/api/admin/catalog/serving-size-review") {
     json(response, 200, { batchKey: "amount-column-local-preview-v1", tasks,
-      progress: { total: 192, pending: 192, escalated: 0, decided: 0 } });
+      progress: { total: tasks.length, pending: tasks.length, escalated: 0, decided: 0 } });
     return;
   }
   if (request.method === "GET"
@@ -70,12 +75,13 @@ const mockPlatform = createServer((request, response) => {
       ...summary(task), sourceCandidateSha256: task.sourceCandidateSha256,
       productType: task.productType, labelPdfUrl: task.labelPdfUrl,
       sourceServingSizes: task.sourceServingSizes, sourceContexts: task.sourceContexts,
-      reviewedServingContexts: null,
+      reviewedServingContexts: task.reviewedServingContexts ?? null,
       policySuggestedServingOrder: task.policySuggestedServingOrder,
       policySelectionRule: task.policySelectionRule,
       sourceIngredientRows: task.sourceIngredientRows,
       repeatedIngredientNameGroups: task.repeatedIngredientNameGroups,
-      selectedServingOrder: null, quantityOverrides: null, profileVariantRules: null,
+      selectedServingOrder: rehearsalQueue ? task.policySuggestedServingOrder : null,
+      quantityOverrides: null, profileVariantRules: null,
       suggestedServingContext: null, sourceBundleComponents: [], bundleGroupKey: null,
       editionKey: null, editionGroupingConfidence: null, editionGroupingEvidence: [],
       exclusionReason: null, rangeEndpointOptions: [], servingBasisOptions: [],

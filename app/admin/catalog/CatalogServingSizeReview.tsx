@@ -72,8 +72,8 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   },
   amount_column_review: {
     title: "Choose one ingredient amount column",
-    short: "The canonical serving is known, but DSLD retained two or three complete amount columns.",
-    instructions: "Inspect the Facts panel and choose Column A, B, or C for the entire label. Nothing is recommended or preselected; escalate or exclude when the printed panel cannot support one complete column.",
+    short: "The canonical serving is known, but DSLD retained multiple complete amount columns.",
+    instructions: "Inspect the Facts panel and choose one complete column for the entire label. Nothing is recommended or preselected; escalate or exclude when the printed panel cannot support one complete column.",
     style: "border-purple-300/40 bg-purple-300/5",
   },
   parent_child_basis_review: {
@@ -275,6 +275,26 @@ function formatServing(minimum: number | null, maximum: number | null, unit: str
   if (minimum == null) return "Amount not recorded";
   const amount = maximum != null && maximum !== minimum ? `${minimum}–${maximum}` : String(minimum);
   return `${amount} ${unit ?? ""}`.trim();
+}
+
+function formatLockedCanonicalServing(context: EditableContext) {
+  const parts: string[] = [];
+  const householdMinimum = context.householdQuantityMin ? Number(context.householdQuantityMin) : null;
+  const householdMaximum = context.householdQuantityMax ? Number(context.householdQuantityMax) : null;
+  const metricMinimum = context.metricQuantityMin ? Number(context.metricQuantityMin) : null;
+  const metricMaximum = context.metricQuantityMax ? Number(context.metricQuantityMax) : null;
+  if (householdMinimum != null && Number.isFinite(householdMinimum)) {
+    parts.push(formatServing(householdMinimum, householdMaximum ?? householdMinimum,
+      context.householdUnit || null));
+  }
+  if (metricMinimum != null && Number.isFinite(metricMinimum)) {
+    parts.push(formatServing(metricMinimum, metricMaximum ?? metricMinimum, context.metricUnit || null));
+  }
+  if (context.labelText.trim() && !parts.some((part) =>
+    part.toLowerCase() === context.labelText.trim().toLowerCase())) {
+    parts.push(context.labelText.trim());
+  }
+  return parts.join(" · ") || "Canonical serving retained from the prior review";
 }
 
 function formatQuantity(quantity: DsldIngredientQuantity) {
@@ -1304,7 +1324,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         reviewerNote: reviewerNote.trim() || null,
       } : {
         expectedRevision: detail.revision,
-        outcome: correctionOpen ? "canonical_corrected" : "canonical_selected",
+        outcome: amountColumnReview || correctionOpen ? "canonical_corrected" : "canonical_selected",
         reviewedServingContexts: [reviewedContext(context!, [selectedOrder!])],
         selectedServingOrder: selectedOrder,
         quantityOverrides: overrides,
@@ -2451,9 +2471,13 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                 <div className="flex items-start gap-3"><input type="radio" name="canonical-serving" className="mt-1 accent-emerald-400"
                   disabled={amountColumnReview} checked={selectedOrder === serving.order} onChange={() => selectServing(serving.order)} />
                   <span className="min-w-0"><span className="flex flex-wrap items-center gap-2 font-semibold">
-                    {formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}
+                    {amountColumnReview && context
+                      ? formatLockedCanonicalServing(context)
+                      : formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}
                     {!amountColumnReview && detail.policySuggestedServingOrder === serving.order ? <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] uppercase text-accent">precedence suggestion</span> : null}
-                  </span><span className="mt-1 block text-sm text-text-secondary">{serving.notes?.trim() || "No additional serving description"}</span>
+                  </span><span className="mt-1 block text-sm text-text-secondary">{amountColumnReview
+                    ? `Original DSLD guidance: ${formatServing(serving.minQuantity, serving.maxQuantity, serving.unit)}${serving.notes?.trim() ? ` · ${serving.notes.trim()}` : ""}`
+                    : serving.notes?.trim() || "No additional serving description"}</span>
                     <span className="mt-1 block text-xs text-text-muted">DSLD serving order {serving.order}</span></span></div>
               </label>)}
             </fieldset>
@@ -2468,10 +2492,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   {correctionOpen ? "Use extracted values" : "Correct selected serving"}
                 </button> : null}</div>
               {!correctionOpen ? <p className="mt-3 rounded border border-white/10 bg-[#080D12] p-3 text-sm">
-                {formatServing(detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.minQuantity ?? null,
-                  detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.maxQuantity ?? null,
-                  detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.unit ?? null)}
-                {context.labelText ? ` · ${context.labelText}` : ""}
+                {amountColumnReview
+                  ? formatLockedCanonicalServing(context)
+                  : formatServing(detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.minQuantity ?? null,
+                    detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.maxQuantity ?? null,
+                    detail.sourceServingSizes.find((serving) => serving.order === selectedOrder)?.unit ?? null)}
+                {!amountColumnReview && context.labelText ? ` · ${context.labelText}` : ""}
               </p> : <div className="mt-3 space-y-2">
                 <div className="grid grid-cols-3 gap-2">
                   <label className="text-xs">Household amount<input className={`${inputClass} mt-1`} type="number" min="0" step="any"
