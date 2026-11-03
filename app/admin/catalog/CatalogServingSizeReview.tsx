@@ -32,6 +32,7 @@ const severityStyle: Record<ServingSizeWarningSeverity, string> = {
 };
 
 const categoryOrder: ServingSizeReviewCategory[] = [
+  "outside_range_basis_review",
   "amount_column_review",
   "parent_child_basis_review",
   "missing_parent_serving_review",
@@ -54,6 +55,12 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
   instructions: string;
   style: string;
 }> = {
+  outside_range_basis_review: {
+    title: "Verify a serving basis outside the range",
+    short: "Every ingredient uses one basis outside the structured serving range, and automation could not verify the printed Facts panel.",
+    instructions: "Inspect the Facts panel and choose the unanimous ingredient basis, the parent minimum, the parent maximum, or another exact scalar printed on the panel. Ingredient amounts stay locked and the original range remains guidance.",
+    style: "border-indigo-300/40 bg-indigo-300/5",
+  },
   amount_column_review: {
     title: "Choose one ingredient amount column",
     short: "The canonical serving is known, but DSLD retained two or three complete amount columns.",
@@ -457,6 +464,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [selectedRangeEndpoint, setSelectedRangeEndpoint] = useState<ServingSizeRangeEndpoint | null>(null);
   const [selectedServingBasis, setSelectedServingBasis] = useState<number | null>(null);
   const [rangedParentAmount, setRangedParentAmount] = useState("");
+  const [outsideRangeSelection, setOutsideRangeSelection] = useState<"preset" | "other" | "">("");
+  const [outsideRangeCustomAmount, setOutsideRangeCustomAmount] = useState("");
   const [missingParentAmount, setMissingParentAmount] = useState("");
   const [missingParentUnit, setMissingParentUnit] = useState("");
   const [missingParentGuidance, setMissingParentGuidance] = useState("");
@@ -492,13 +501,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const amountColumnReview = detail?.reviewCategory === "amount_column_review";
   const interiorBasisReview = detail?.reviewCategory === "interior_basis_review";
   const parentChildBasisReview = detail?.reviewCategory === "parent_child_basis_review";
+  const outsideRangeBasisReview = detail?.reviewCategory === "outside_range_basis_review";
   const rangeEndpointReview = detail?.reviewCategory === "range_endpoint_review";
   const rangedParentBasisReview = detail?.reviewCategory === "ranged_parent_basis_review";
   const missingParentServingReview = detail?.reviewCategory === "missing_parent_serving_review";
   const factsPanelReview = amountColumnReview || interiorBasisReview || parentChildBasisReview
+    || outsideRangeBasisReview
     || rangeEndpointReview || rangedParentBasisReview
     || missingParentServingReview;
-  const basisServing = rangedParentBasisReview ? detail.sourceServingSizes.find((serving) =>
+  const basisServing = rangedParentBasisReview || outsideRangeBasisReview ? detail.sourceServingSizes.find((serving) =>
     serving.order === detail.basisSourceServingOrder) ?? null : null;
   const rangedParentAmountNumber = rangedParentAmount.trim() ? Number(rangedParentAmount) : null;
   const rangedParentAmountValid = rangedParentAmountNumber != null
@@ -509,6 +520,10 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const rangedParentInterior = rangedParentAmountValid && basisServing != null
     && Math.abs(rangedParentAmountNumber! - basisServing.minQuantity!) > 1e-9
     && Math.abs(rangedParentAmountNumber! - basisServing.maxQuantity!) > 1e-9;
+  const outsideRangeCustomAmountNumber = outsideRangeCustomAmount.trim()
+    ? Number(outsideRangeCustomAmount) : null;
+  const outsideRangeCustomValid = outsideRangeCustomAmountNumber != null
+    && Number.isFinite(outsideRangeCustomAmountNumber) && outsideRangeCustomAmountNumber > 0;
   const missingParentAmountNumber = missingParentAmount.trim() ? Number(missingParentAmount) : null;
   const missingParentCanonicalValid = missingParentAmountNumber != null
     && Number.isFinite(missingParentAmountNumber) && missingParentAmountNumber > 0
@@ -524,6 +539,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     || (!standardizedMissingParentExclusion && excludeFromIngest)
     || (detail?.resolutionKind === "composite" && !bundleReview) || escalated || correctionOpen
     || (rangedParentBasisReview && rangedParentInterior)
+    || (outsideRangeBasisReview && outsideRangeSelection === "other")
     || (detail?.reviewCategory === "serving_extraction_review" && extractionResolution !== "confirm");
   const selectedRangeOption = detail?.rangeEndpointOptions.find((option) =>
     option.endpoint === selectedRangeEndpoint) ?? null;
@@ -644,6 +660,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setSelectedRangeEndpoint(null);
     setSelectedServingBasis(null);
     setRangedParentAmount("");
+    setOutsideRangeSelection("");
+    setOutsideRangeCustomAmount("");
     setMissingParentAmount("");
     setMissingParentUnit("");
     setMissingParentGuidance("");
@@ -664,7 +682,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     if (detail.reviewCategory === "interior_basis_review"
-      || detail.reviewCategory === "parent_child_basis_review") {
+      || detail.reviewCategory === "parent_child_basis_review"
+      || detail.reviewCategory === "outside_range_basis_review") {
       setProfileResolutionMode("variants");
       setSelectedOrder(null);
       setContext(null);
@@ -979,7 +998,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     if (!detail) return;
     const extractionReview = detail.reviewCategory === "serving_extraction_review";
     const interiorReview = detail.reviewCategory === "interior_basis_review"
-      || detail.reviewCategory === "parent_child_basis_review";
+      || detail.reviewCategory === "parent_child_basis_review"
+      || detail.reviewCategory === "outside_range_basis_review";
     const rangeReview = detail.reviewCategory === "range_endpoint_review";
     const rangedParentReview = detail.reviewCategory === "ranged_parent_basis_review";
     const missingParentReview = detail.reviewCategory === "missing_parent_serving_review";
@@ -996,6 +1016,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     }
     if (!excludeFromIngest && interiorReview && !escalated && selectedServingBasis == null) {
       setError("Choose one of the extracted serving bases.");
+      return;
+    }
+    if (!excludeFromIngest && outsideRangeBasisReview && !escalated
+      && outsideRangeSelection === "other" && !outsideRangeCustomValid) {
+      setError("Enter the positive serving amount printed on the Facts panel.");
       return;
     }
     if (!excludeFromIngest && rangedParentReview && !escalated && !rangedParentAmountValid) {
@@ -1079,10 +1104,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
       return;
     }
     const extractionNeedsNote = extractionReview && extractionResolution !== "confirm";
-    if (((excludeFromIngest && !standardizedMissingParentExclusion)
+    if ((((excludeFromIngest && !standardizedMissingParentExclusion)
       || missingParentOtherExclusion
       || (composite && !bundleReview) || escalated || correctionOpen
       || extractionNeedsNote || (rangedParentReview && rangedParentInterior))
+      || (outsideRangeBasisReview && outsideRangeSelection === "other"))
       && !reviewerNote.trim()) {
       setError(excludeFromIngest
         ? "Add a note explaining why this entire product must be excluded."
@@ -1090,6 +1116,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
         ? "Add a note explaining what the combined serving represents."
         : rangedParentReview && rangedParentInterior
         ? "Add a note explaining where the exact interior serving appears on the label."
+        : outsideRangeBasisReview && outsideRangeSelection === "other"
+        ? "Add a note explaining where the other exact serving appears on the Facts panel."
         : "Add a reviewer note explaining the escalation or correction.");
       return;
     }
@@ -1428,9 +1456,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
             {next && next.id !== detail.id ? <Group1LabelPreview
               key={`prefetch:${next.id}`}
               labelId={next.dsldLabelId}
-              sourceName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Supplement Facts" : "Serving Size"}
-              suggestedFieldName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Nutrition Facts" : "Serving Size"}
-              focusMode={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "facts-panel" : "row"}
+              sourceName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "outside_range_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Supplement Facts" : "Serving Size"}
+              suggestedFieldName={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "outside_range_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "Nutrition Facts" : "Serving Size"}
+              focusMode={next.reviewCategory === "amount_column_review" || next.reviewCategory === "interior_basis_review" || next.reviewCategory === "parent_child_basis_review" || next.reviewCategory === "outside_range_basis_review" || next.reviewCategory === "range_endpoint_review" || next.reviewCategory === "ranged_parent_basis_review" || next.reviewCategory === "missing_parent_serving_review" ? "facts-panel" : "row"}
               prefetchOnly /> : null}
           </div>
 
@@ -1582,6 +1610,118 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                       {row.ancestorNames.length ? <span className="block text-text-muted">under {row.ancestorNames.join(" › ")}</span> : null}</span>
                     <span className="text-accent">{row.quantities.length
                       ? row.quantities.map(formatQuantity).join(" | ") : "structural row"}</span>
+                  </div>)}
+                </div>
+              </details>
+            </> : outsideRangeBasisReview ? <>
+              <section className="rounded border border-indigo-300/35 bg-indigo-300/5 p-3">
+                <h4 className="font-semibold text-indigo-100">One child basis falls outside the parent range</h4>
+                <p className="mt-1 text-xs text-text-secondary">
+                  Every quantitative ingredient row records the same serving basis, but it is outside DSLD&apos;s structured range. The label image must decide which scalar the Facts-panel amounts actually use.
+                </p>
+                {basisServing ? <div className="mt-3 rounded border border-white/15 bg-[#080D12] p-3">
+                  <p className="font-semibold">Structured parent range: {formatServing(
+                    basisServing.minQuantity, basisServing.maxQuantity, basisServing.unit,
+                  )}</p>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    Printed guidance stored by DSLD: {basisServing.notes?.trim() || "Not recorded"}
+                  </p>
+                  <p className="mt-1 text-xs text-text-muted">DSLD serving order {basisServing.order}</p>
+                </div> : null}
+                <p className="mt-3 text-xs text-text-secondary">
+                  The original range remains printed serving guidance. This decision sets only the one numerical canonical basis used to scale the unchanged ingredient amounts.
+                </p>
+              </section>
+
+              <fieldset className="space-y-2">
+                <legend className="font-semibold">Choose the canonical serving basis</legend>
+                <p className="text-xs text-text-secondary">
+                  Nothing is recommended or preselected. Choose only the scalar supported by the printed Facts panel.
+                </p>
+                {detail.servingBasisOptions.map((option) => {
+                  const isMinimum = basisServing?.minQuantity != null
+                    && Math.abs(option.basisQuantity - basisServing.minQuantity) <= 1e-9;
+                  const isMaximum = basisServing?.maxQuantity != null
+                    && Math.abs(option.basisQuantity - basisServing.maxQuantity) <= 1e-9;
+                  const label = isMinimum ? "Use parent minimum"
+                    : isMaximum ? "Use parent maximum" : "Use unanimous ingredient-row basis";
+                  const description = isMinimum || isMaximum
+                    ? "Use this endpoint only when the Facts panel prints its values on this basis."
+                    : `Use the outside-range scalar repeated by all ${option.projectedRows.length} quantitative ingredient rows.`;
+                  const checked = outsideRangeSelection === "preset"
+                    && selectedServingBasis === option.basisQuantity;
+                  return <label key={`${option.selectedServingOrder}:${option.basisQuantity}`}
+                    className={`block cursor-pointer rounded border p-3 ${checked
+                      ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12] hover:border-accent/50"}`}>
+                    <span className="flex items-start gap-3"><input type="radio" name="outside-range-basis"
+                      className="mt-1 accent-emerald-400" checked={checked}
+                      onChange={() => {
+                        setOutsideRangeSelection("preset");
+                        setOutsideRangeCustomAmount("");
+                        setSelectedServingBasis(option.basisQuantity);
+                        setEscalated(false);
+                        setExcludeFromIngest(false);
+                        setExclusionReason("");
+                        setError("");
+                      }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</span>
+                        <span className="mt-1 block text-lg font-bold text-accent">
+                          {formatServing(option.basisQuantity, option.basisQuantity, option.basisUnit)}
+                        </span>
+                        <span className="mt-1 block text-xs text-text-secondary">{description}</span>
+                      </span></span>
+                  </label>;
+                })}
+                <label className={`block cursor-pointer rounded border p-3 ${outsideRangeSelection === "other"
+                  ? "border-accent bg-accent/10" : "border-white/15 bg-[#080D12] hover:border-accent/50"}`}>
+                  <span className="flex items-start gap-3"><input type="radio" name="outside-range-basis"
+                    className="mt-1 accent-emerald-400" checked={outsideRangeSelection === "other"}
+                    onChange={() => {
+                      setOutsideRangeSelection("other");
+                      setSelectedServingBasis(outsideRangeCustomValid ? outsideRangeCustomAmountNumber : null);
+                      setEscalated(false);
+                      setExcludeFromIngest(false);
+                      setExclusionReason("");
+                      setError("");
+                    }} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-semibold uppercase tracking-wide text-text-secondary">Use another printed scalar</span>
+                      <span className="mt-1 block text-xs text-text-secondary">
+                        Enter this only when a different exact basis is explicitly printed inside the Facts panel.
+                      </span>
+                    </span></span>
+                  {outsideRangeSelection === "other" ? <div className="mt-3 flex max-w-sm items-center gap-2 pl-7">
+                    <input className={inputClass} type="number" min="0" step="any"
+                      value={outsideRangeCustomAmount} onChange={(event) => {
+                        const value = event.target.value;
+                        const parsed = value.trim() ? Number(value) : null;
+                        setOutsideRangeCustomAmount(value);
+                        setSelectedServingBasis(parsed != null && Number.isFinite(parsed) && parsed > 0
+                          ? parsed : null);
+                        setError("");
+                      }} placeholder="Exact amount" />
+                    <span className="shrink-0 text-sm font-semibold text-text-secondary">{basisServing?.unit}</span>
+                  </div> : null}
+                </label>
+              </fieldset>
+
+              <details open className="rounded border border-white/10 p-3 text-xs">
+                <summary className="cursor-pointer font-semibold">
+                  Ingredient amounts remain unchanged ({detail.servingBasisOptions[0]?.projectedRows.length ?? 0})
+                </summary>
+                <p className="mt-2 text-text-secondary">
+                  Each row already has one amount. This review changes only the product-level canonical serving basis.
+                </p>
+                <div className="mt-2 max-h-80 space-y-1 overflow-y-auto">
+                  {(detail.servingBasisOptions[0]?.projectedRows ?? []).map((row) => <div key={row.logicalRowKey}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded bg-[#080D12] p-2">
+                    <span><span className="font-semibold">{row.name || "Unnamed row"}</span>
+                      {row.ancestorNames.length ? <span className="block text-text-muted">
+                        under {row.ancestorNames.join(" › ")}
+                      </span> : null}</span>
+                    <span className="text-accent">{row.operator ? `${row.operator} ` : ""}
+                      {row.quantity ?? "not recorded"}{row.unit ? ` ${row.unit}` : ""}</span>
                   </div>)}
                 </div>
               </details>
@@ -2361,7 +2501,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                       setEscalated(false);
                       if (parentChildBasisReview || amountColumnReview) {
                         setExclusionReason("other");
-                      } else if (rangedParentBasisReview || interiorBasisReview) {
+                      } else if (rangedParentBasisReview || interiorBasisReview || outsideRangeBasisReview) {
                         setExclusionReason("canonical_serving_basis_not_determinable");
                       }
                     }
@@ -2410,11 +2550,11 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   : "Explain what the printed label shows."} /> : null}</div>
 
             <div className="flex flex-wrap gap-2"><button type="button" disabled={saving
-              || ((interiorBasisReview || parentChildBasisReview) && !excludeFromIngest && !escalated && selectedServingBasis == null)
+              || ((interiorBasisReview || parentChildBasisReview || outsideRangeBasisReview) && !excludeFromIngest && !escalated && selectedServingBasis == null)
               || (rangeEndpointReview && !escalated && selectedRangeEndpoint == null)
               || (rangedParentBasisReview && !excludeFromIngest && !escalated && !rangedParentAmountValid)
               || (missingParentServingReview && !excludeFromIngest && !escalated && !missingParentCanonicalValid)
-              || (!interiorBasisReview && !parentChildBasisReview && !rangeEndpointReview && !rangedParentBasisReview && !missingParentServingReview && !excludeFromIngest && detail.resolutionKind !== "composite"
+              || (!interiorBasisReview && !parentChildBasisReview && !outsideRangeBasisReview && !rangeEndpointReview && !rangedParentBasisReview && !missingParentServingReview && !excludeFromIngest && detail.resolutionKind !== "composite"
                 && detail.reviewCategory !== "serving_extraction_review"
                 && !(detail.resolutionKind === "profile_variants" && profileResolutionMode === "variants")
                 && !escalated && selectedOrder == null)} onClick={save}
@@ -2428,8 +2568,8 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                         : extractionResolution === "escalate" ? "Save escalation"
                           : "Confirm extracted serving"
                   : escalated ? "Save escalation"
-                  : interiorBasisReview || parentChildBasisReview ? selectedServingBasis != null
-                    ? `Use ${selectedServingBasis} ${selectedBasisOption?.basisUnit ?? ""}` : "Choose a serving basis"
+                  : interiorBasisReview || parentChildBasisReview || outsideRangeBasisReview ? selectedServingBasis != null
+                    ? `Use ${selectedServingBasis} ${selectedBasisOption?.basisUnit ?? basisServing?.unit ?? ""}` : "Choose a serving basis"
                   : rangedParentBasisReview ? rangedParentAmountValid
                     ? `Use ${rangedParentAmount} ${basisServing?.unit ?? ""}` : "Enter the exact serving basis"
                   : missingParentServingReview ? missingParentCanonicalValid

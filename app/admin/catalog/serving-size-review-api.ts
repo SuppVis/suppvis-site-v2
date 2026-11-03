@@ -29,7 +29,8 @@ export type ServingSizeReviewCategory =
   | "ranged_parent_basis_review"
   | "interior_basis_review"
   | "missing_parent_serving_review"
-  | "parent_child_basis_review";
+  | "parent_child_basis_review"
+  | "outside_range_basis_review";
 export type ServingSizeExclusionReason =
   | "incomplete_packet_extraction"
   | "unsupported_multi_day_regimen"
