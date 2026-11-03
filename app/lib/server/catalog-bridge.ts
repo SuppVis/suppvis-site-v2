@@ -9,6 +9,8 @@ import {
   isCatalogBridgeSameOrigin,
 } from "./catalog-bridge-contract";
 
+const CATALOG_PROXY_TIMEOUT_MS = 300_000;
+
 function platformBaseUrl() {
   const raw = process.env.CATALOG_PLATFORM_BASE_URL?.trim();
   if (!raw) throw new Error("Catalog platform URL is unavailable.");
@@ -107,7 +109,7 @@ export async function proxyCatalogAdminRequest(request: NextRequest) {
       body: method === "GET" ? undefined : body,
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(CATALOG_PROXY_TIMEOUT_MS),
     });
     const responseBytes = await response.arrayBuffer();
     return new Response(responseBytes, {

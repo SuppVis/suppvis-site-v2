@@ -73,5 +73,9 @@ assert.match(proxySource, /Authorization: `Bearer \$\{assertion\}`/);
 assert.doesNotMatch(proxySource, /request\.headers\.get\(["']cookie["']\)/i);
 assert.doesNotMatch(proxySource, /["']Authorization["']:\s*response\.headers/i);
 assert.match(proxySource, /"Cache-Control": "private, no-store"/);
+assert.match(proxySource, /CATALOG_PROXY_TIMEOUT_MS = 300_000/);
+
+const proxyRouteSource = readFileSync("app/api/admin/catalog/[...path]/route.ts", "utf8");
+assert.match(proxyRouteSource, /export const maxDuration = 300/);
 
 console.log("Website admin catalog bridge checks passed.");

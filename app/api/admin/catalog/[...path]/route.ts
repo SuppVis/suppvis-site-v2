@@ -3,6 +3,7 @@ import { proxyCatalogAdminRequest } from "@/app/lib/server/catalog-bridge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export function GET(request: NextRequest) {
   return proxyCatalogAdminRequest(request);
