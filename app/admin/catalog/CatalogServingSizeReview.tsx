@@ -24,6 +24,15 @@ import {
 } from "./serving-size-review-api";
 
 const inputClass = "w-full rounded border border-white/15 bg-[#080D12] px-3 py-2 text-sm text-text-primary outline-none focus:border-accent";
+const standardServingUnits = [
+  { value: "Capsule(s)", label: "Capsule" },
+  { value: "Tablet(s)", label: "Tablet" },
+  { value: "Softgel(s)", label: "Softgel" },
+  { value: "Scoop(s)", label: "Scoop" },
+  { value: "Packet(s)", label: "Packet" },
+  { value: "Gram(s)", label: "Gram" },
+  { value: "mL", label: "Milliliter" },
+] as const;
 const severityStyle: Record<ServingSizeWarningSeverity, string> = {
   high: "border-red-400/40 bg-red-400/10 text-red-200",
   medium: "border-amber-400/40 bg-amber-400/10 text-amber-100",
@@ -74,9 +83,9 @@ const categoryCopy: Record<ServingSizeReviewCategory, {
     style: "border-cyan-300/40 bg-cyan-300/5",
   },
   missing_parent_serving_review: {
-    title: "Enter a missing canonical serving",
-    short: "Ingredient amounts exist, but DSLD did not extract a usable serving amount and unit.",
-    instructions: "Inspect the Facts panel and enter the exact serving amount and unit used by the displayed ingredient values. Printed serving guidance is optional; ingredient amounts cannot be changed in this review.",
+    title: "Complete a missing canonical serving",
+    short: "Ingredient amounts exist, but DSLD did not extract a usable serving amount, unit, or both.",
+    instructions: "Inspect the Facts panel and supply only the missing serving information. When the quantity is already known it remains locked, and ingredient amounts cannot be changed.",
     style: "border-rose-300/40 bg-rose-300/5",
   },
   interior_basis_review: {
@@ -445,9 +454,9 @@ function projections(
 }
 
 export default function CatalogServingSizeReview({ mode = "selector" }: { mode?: "selector" | "queue" }) {
-  const readOnlyPreview = process.env.NEXT_PUBLIC_SERVING_SIZE_REVIEW_READONLY === "1";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const readOnlyPreview = process.env.NEXT_PUBLIC_SERVING_SIZE_REVIEW_READONLY === "1";
   const requestedCategory = isReviewCategory(searchParams.get("category"))
     ? searchParams.get("category") as ServingSizeReviewCategory : null;
   const productNameRef = useRef<HTMLHeadingElement>(null);
@@ -468,6 +477,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const [outsideRangeCustomAmount, setOutsideRangeCustomAmount] = useState("");
   const [missingParentAmount, setMissingParentAmount] = useState("");
   const [missingParentUnit, setMissingParentUnit] = useState("");
+  const [missingParentCustomUnit, setMissingParentCustomUnit] = useState(false);
   const [missingParentGuidance, setMissingParentGuidance] = useState("");
   const [context, setContext] = useState<EditableContext | null>(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
@@ -505,6 +515,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
   const rangeEndpointReview = detail?.reviewCategory === "range_endpoint_review";
   const rangedParentBasisReview = detail?.reviewCategory === "ranged_parent_basis_review";
   const missingParentServingReview = detail?.reviewCategory === "missing_parent_serving_review";
+  const missingUnitOnlyReview = Boolean(missingParentServingReview
+    && detail?.reviewReasonCodes.includes("parent_serving_unit_unusable")
+    && detail.sourceServingSizes.length === 1
+    && detail.sourceServingSizes[0].minQuantity != null
+    && detail.sourceServingSizes[0].minQuantity > 0
+    && detail.sourceServingSizes[0].minQuantity === detail.sourceServingSizes[0].maxQuantity);
   const factsPanelReview = amountColumnReview || interiorBasisReview || parentChildBasisReview
     || outsideRangeBasisReview
     || rangeEndpointReview || rangedParentBasisReview
@@ -662,9 +678,15 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
     setRangedParentAmount("");
     setOutsideRangeSelection("");
     setOutsideRangeCustomAmount("");
-    setMissingParentAmount("");
+    const unitOnlyServing = detail.reviewReasonCodes.includes("parent_serving_unit_unusable")
+      ? detail.sourceServingSizes[0] : null;
+    setMissingParentAmount(unitOnlyServing?.minQuantity != null
+      && unitOnlyServing.minQuantity > 0
+      && unitOnlyServing.minQuantity === unitOnlyServing.maxQuantity
+      ? String(unitOnlyServing.minQuantity) : "");
     setMissingParentUnit("");
-    setMissingParentGuidance("");
+    setMissingParentCustomUnit(false);
+    setMissingParentGuidance(unitOnlyServing?.notes?.trim() || "");
     if (detail.reviewCategory === "missing_parent_serving_review") {
       setProfileResolutionMode("variants");
       setSelectedOrder(null);
@@ -1501,7 +1523,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
 
             {missingParentServingReview ? <>
               <section className="rounded border border-rose-300/35 bg-rose-300/5 p-3">
-                <h4 className="font-semibold text-rose-100">DSLD serving data is unusable</h4>
+                <h4 className="font-semibold text-rose-100">{missingUnitOnlyReview
+                  ? "DSLD did not extract the serving unit"
+                  : "DSLD serving data is unusable"}</h4>
                 {detail.sourceServingSizes.map((serving) => <div key={serving.order}
                   className="mt-3 rounded border border-white/15 bg-[#080D12] p-3">
                   <p className="font-semibold">Structured value: {formatServing(
@@ -1513,7 +1537,9 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                   <p className="mt-1 text-xs text-text-muted">DSLD serving order {serving.order}</p>
                 </div>)}
                 <p className="mt-3 text-xs text-text-secondary">
-                  The ingredient amounts below are already unambiguous. This review only supplies the missing canonical serving.
+                  {missingUnitOnlyReview
+                    ? "The canonical quantity and ingredient amounts are already unambiguous. This review supplies only the missing unit."
+                    : "The ingredient amounts below are already unambiguous. This review only supplies the missing canonical serving."}
                 </p>
               </section>
 
@@ -1529,8 +1555,12 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                       setEscalated(false);
                       setError("");
                     }} />
-                    <span><span className="block font-semibold">Enter the canonical serving</span>
-                      <span className="mt-1 block text-xs text-text-secondary">Use the serving printed for the ingredient amounts in the Facts panel.</span></span></span>
+                    <span><span className="block font-semibold">{missingUnitOnlyReview
+                      ? "Choose the missing serving unit"
+                      : "Enter the canonical serving"}</span>
+                      <span className="mt-1 block text-xs text-text-secondary">{missingUnitOnlyReview
+                        ? `The quantity is locked at ${missingParentAmount}; select the unit printed on the label.`
+                        : "Use the serving printed for the ingredient amounts in the Facts panel."}</span></span></span>
                 </label>
                 <label className={`block cursor-pointer rounded border p-3 ${missingParentUndeterminedExclusion
                   ? "border-red-400 bg-red-400/10" : "border-white/15 bg-[#080D12]"}`}>
@@ -1574,10 +1604,59 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
               </fieldset>
 
               {!excludeFromIngest && !escalated ? <section className="rounded border border-rose-300/25 bg-[#080D12] p-3">
-                <h4 className="font-semibold">Canonical serving from the label</h4>
+                <h4 className="font-semibold">{missingUnitOnlyReview
+                  ? "Serving unit from the label"
+                  : "Canonical serving from the label"}</h4>
                 <p className="mt-1 text-xs text-text-secondary">
-                  Enter one positive amount and unit. Printed guidance is optional and may remain blank.
+                  {missingUnitOnlyReview
+                    ? "The quantity is frozen from the structured record. Choose a standard unit, or enter the exact printed unit when it is not listed."
+                    : "Enter one positive amount and unit. Printed guidance is optional and may remain blank."}
                 </p>
+                {missingUnitOnlyReview ? <>
+                  <div className="mt-3 rounded border border-white/15 bg-white/5 p-3">
+                    <p className="text-xs font-semibold text-text-secondary">Locked canonical quantity</p>
+                    <p className="mt-1 text-2xl font-bold text-accent">{missingParentAmount}</p>
+                    <p className="mt-1 text-xs text-text-muted">Only the unit will be corrected.</p>
+                  </div>
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold">Serving unit</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {standardServingUnits.map((unit) => <button key={unit.value} type="button"
+                        onClick={() => {
+                          setMissingParentUnit(unit.value);
+                          setMissingParentCustomUnit(false);
+                          setError("");
+                        }}
+                        className={`rounded border px-3 py-2 text-left text-sm font-semibold ${!missingParentCustomUnit
+                          && missingParentUnit === unit.value
+                          ? "border-accent bg-accent/10 text-accent"
+                          : "border-white/15 bg-[#080D12] text-text-primary"}`}>
+                        {unit.label}
+                      </button>)}
+                      <button type="button" onClick={() => {
+                        setMissingParentUnit("");
+                        setMissingParentCustomUnit(true);
+                        setError("");
+                      }} className={`rounded border px-3 py-2 text-left text-sm font-semibold ${missingParentCustomUnit
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-white/15 bg-[#080D12] text-text-primary"}`}>
+                        Other…
+                      </button>
+                    </div>
+                    {missingParentCustomUnit ? <label className="mt-3 block text-xs font-semibold">
+                      Exact unit printed on the label
+                      <input className={`${inputClass} mt-1`} value={missingParentUnit}
+                        onChange={(event) => {
+                          setMissingParentUnit(event.target.value);
+                          setError("");
+                        }} placeholder="teaspoon" autoFocus />
+                    </label> : null}
+                  </div>
+                  {missingParentGuidance ? <div className="mt-3 rounded border border-white/10 p-3 text-xs">
+                    <p className="font-semibold">Printed guidance preserved</p>
+                    <p className="mt-1 text-text-secondary">{missingParentGuidance}</p>
+                  </div> : null}
+                </> : <>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <label className="text-xs font-semibold">Serving amount
                     <input className={`${inputClass} mt-1`} type="number" min="0" step="any"
@@ -1599,6 +1678,7 @@ export default function CatalogServingSizeReview({ mode = "selector" }: { mode?:
                     onChange={(event) => setMissingParentGuidance(event.target.value)}
                     placeholder="Copy the label's serving or suggested-use wording if present." />
                 </label>
+                </>}
               </section> : null}
 
               <details open className="rounded border border-white/10 p-3 text-xs">
