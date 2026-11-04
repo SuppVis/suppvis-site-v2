@@ -17,7 +17,6 @@ const routes: Record<string, RegExp[]> = {
     /^\/api\/admin\/catalog\/serving-size-review$/,
     /^\/api\/admin\/catalog\/serving-size-review\/tasks\/[0-9a-f-]+$/i,
     /^\/api\/admin\/catalog\/serving-size-review\/decision-batches\/[a-z0-9][a-z0-9_-]{5,119}$/,
-    /^\/api\/admin\/catalog\/serving-size-review\/schema\/five-terminal-overlap-reconciliations$/,
   ],
   POST: [
     /^\/api\/admin\/catalog\/products$/,
