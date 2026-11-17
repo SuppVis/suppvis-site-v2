@@ -1,5 +1,9 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import { z } from "zod";
+import {
+  CLINIC_DISPENSING_OPTIONS,
+  CLINIC_PRACTICE_TYPES,
+} from "@/app/clinics/options";
 import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import {
   ADMIN_SMS_MAX_SEGMENTS,
@@ -611,3 +615,30 @@ function isAllowedAdminCampaignUrl(value: string) {
     return false;
   }
 }
+
+// --- Clinics: founding-practice waitlist (spec section 12) ---
+
+const clinicTextSchema = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required.`)
+    .max(120, `${label} is too long.`);
+
+
+export const clinicWaitlistSchema = z
+  .object({
+    practiceName: clinicTextSchema("Practice name"),
+    roleCredential: clinicTextSchema("Role and credential"),
+    email: emailSchema,
+    practiceType: z.enum(CLINIC_PRACTICE_TYPES, {
+      message: "Select a practice type.",
+    }),
+    dispensing: z.enum(CLINIC_DISPENSING_OPTIONS, {
+      message: "Select how you currently dispense.",
+    }),
+    dispensingOther: z.string().trim().max(120).optional().default(""),
+    sourcePage: sourceSchema,
+    botField: honeypotSchema,
+  })
+  .strict();

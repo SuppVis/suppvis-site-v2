@@ -41,6 +41,11 @@ export default function Footer() {
                   Research
                 </a>
               </li>
+              <li>
+                <a href="/clinics" className="text-sm text-text-muted hover:text-text-secondary transition-colors">
+                  Clinics
+                </a>
+              </li>
             </ul>
           </div>
 
