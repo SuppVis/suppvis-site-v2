@@ -29,7 +29,7 @@ export default function Origin() {
           <p>So we built the record that fills that gap.</p>
           <p>
             Patients log what they take, what they do, and how they feel, in
-            about a minute a day. When they choose to share, their practitioner
+            about a minute a day. Through their practice, their practitioner
             sees that history in the SuppVis portal as a pre-visit brief, before
             the visit starts. The portal is built for clinical judgment, not
             around it: it shows the record and proposes associations, and the
@@ -41,14 +41,13 @@ export default function Origin() {
             timing patterns in the person&rsquo;s own record, and grounds every
             insight in 33,000+{" "}
             <a href="/sources" className="text-accent underline decoration-accent/40 hover:decoration-accent underline-offset-4 transition-colors">peer-reviewed
-            studies</a>. The patient owns the account, and sharing it is always
-            their choice.
+            studies</a>.
           </p>
           <p>
             SuppVis is not a supplement brand. We don&rsquo;t sell supplements.
             No company pays to influence what the platform surfaces. We built an
-            independent record, for the patient and the practitioner they
-            choose.
+            independent record, for the patient and the practitioner caring
+            for them.
           </p>
         </div>
       </div>

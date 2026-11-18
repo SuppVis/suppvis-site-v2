@@ -54,13 +54,13 @@ const SECTIONS: Section[] = [
           in this month? Who went quiet? Who added something new?
         </p>
         <p>
-          The roster answers that in one view. Every patient who shares with you,
-          with recent check-in coverage and open flags beside each name. Patients
-          join by invite code, and sharing is always their choice.
+          The roster answers that in one view. Every patient your practice has
+          enrolled, with recent check-in coverage and open flags beside each
+          name.
         </p>
       </>
     ),
-    caption: "The roster: every sharing patient, with coverage and open flags.",
+    caption: "The roster: every enrolled patient, with coverage and open flags.",
   },
   {
     id: "brief",

@@ -12,11 +12,16 @@ const TILES = [
     icon: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
   },
   {
-    // Privacy model under counsel review: keep this framing exactly.
-    title: "They stay in control.",
-    body: "The patient owns their SuppVis account and chooses to share it with you by invite code. They can stop sharing at any time.",
+    // Clinic-contract enrollment model, under counsel review (spec gate 2).
+    title: "Enrolled through your practice.",
+    body: "Patients join SuppVis because you bring them on as part of their care. They download the app, accept your practice's invitation, and their between-visit record is connected to your portal from the first day.",
     icon: (
-      <path d="M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4" />
+      <>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <line x1="19" y1="8" x2="19" y2="14" />
+        <line x1="22" y1="11" x2="16" y2="11" />
+      </>
     ),
   },
 ];

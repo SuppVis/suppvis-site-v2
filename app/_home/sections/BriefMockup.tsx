@@ -203,7 +203,7 @@ export function BriefHeader() {
     <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-white/[0.06]">
       <div>
         <p className="font-headline font-bold text-[15px] text-text-primary">Pre-visit brief</p>
-        <p className="text-[11px] text-text-muted">30 days since last visit &middot; shared by the patient</p>
+        <p className="text-[11px] text-text-muted">30 days since last visit &middot; from the patient&apos;s daily record</p>
       </div>
       <div className="flex gap-1.5" aria-hidden="true">
         <span className="w-2.5 h-2.5 rounded-full bg-white/10" />

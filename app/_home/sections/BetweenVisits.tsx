@@ -1,6 +1,6 @@
 import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 
-// Counsel reviews this section alongside the sharing model before publish:
+// Counsel reviews this section alongside the clinic-contract enrollment model before publish:
 // alert design touches standard-of-care expectations. Keep the alert scope
 // narrow and the clinician in control.
 

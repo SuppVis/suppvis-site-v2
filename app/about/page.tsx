@@ -11,17 +11,17 @@ import AboutCta from "./sections/AboutCta";
 export const metadata: Metadata = {
   title: "About SuppVis | Built by two brothers who needed this to exist",
   description:
-    "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners they choose.",
+    "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners caring for them.",
   openGraph: {
     title: "About SuppVis | Built by two brothers who needed this to exist",
     description:
-      "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners they choose.",
+      "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners caring for them.",
     url: "https://suppvis.health/about",
   },
   twitter: {
     title: "About SuppVis | Built by two brothers who needed this to exist",
     description:
-      "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners they choose.",
+      "SuppVis was built by two brothers: one managing Type 1 diabetes and building the system, the other in naturopathic training doing its clinical review. A between-visits record for patients and the practitioners caring for them.",
   },
   alternates: {
     canonical: "/about",

@@ -8,8 +8,8 @@ const beliefs = [
     body: "SuppVis assembles the record and proposes associations, labeled as associations. What they mean, and what to do about them, is the practitioner\u2019s call. The brief stops where clinical judgment starts.",
   },
   {
-    headline: "The patient owns the record.",
-    body: "Every account belongs to the person who keeps it. They choose whether to share it, and with whom, and they can stop sharing at any time.",
+    headline: "The record starts with the patient.",
+    body: "Every entry comes from the person living it, a minute a day. Their practitioner reads it; the patient can always see everything in their own record.",
   },
   {
     headline: "Science you can audit.",

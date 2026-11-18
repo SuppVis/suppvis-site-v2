@@ -76,32 +76,38 @@ export function CheckInMockup() {
   );
 }
 
-export function SharingMockup() {
+const CARE_ROWS = [
+  { label: "Your plan", detail: "3 items from your practitioner" },
+  { label: "Your daily record", detail: "Day 12" },
+  { label: "Reminders", detail: "At times you set" },
+];
+
+export function CareMockup() {
   return (
     <div
       className="mx-auto max-w-[400px] rounded-3xl bg-bg-secondary border border-white/[0.06] p-6 shadow-2xl shadow-black/30"
       role="img"
-      aria-label="Illustration of account sharing settings"
+      aria-label="Illustration of an app account set up by a practice"
     >
-      <p className="font-headline font-bold text-lg text-text-primary">Sharing</p>
-      <p className="mt-1 text-[12px] text-text-muted">You decide who sees your record.</p>
-
-      <div className="mt-5 rounded-2xl bg-bg-primary/60 border border-white/[0.05] p-4">
-        <p className="text-[10px] uppercase tracking-[0.15em] text-text-muted">Invite code</p>
-        <p className="mt-2 font-headline font-bold text-xl tracking-[0.3em] text-text-primary">&bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull;</p>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between rounded-2xl bg-bg-primary/60 border border-white/[0.05] p-4">
-        <div>
-          <p className="text-[13px] text-text-primary">Your practitioner</p>
-          <p className="text-[11px] text-accent mt-0.5">Sharing on</p>
-        </div>
-        <span className="relative inline-flex h-6 w-11 rounded-full bg-accent" aria-hidden="true">
-          <span className="absolute right-0.5 top-0.5 h-5 w-5 rounded-full bg-bg-primary" />
+      <div className="flex items-center justify-between">
+        <p className="font-headline font-bold text-lg text-text-primary">Your practice</p>
+        <span className="rounded-full bg-accent/10 border border-accent/20 px-2.5 py-0.5 text-[11px] text-accent">
+          Connected
         </span>
       </div>
+      <p className="mt-1 text-[12px] text-text-muted">Set up as part of your care.</p>
 
-      <p className="mt-4 text-center text-[12px] font-medium text-text-secondary">Stop sharing at any time</p>
+      <ul className="mt-5 space-y-2">
+        {CARE_ROWS.map((r) => (
+          <li
+            key={r.label}
+            className="flex items-center justify-between gap-3 rounded-2xl bg-bg-primary/60 border border-white/[0.05] px-4 py-3"
+          >
+            <span className="text-[13px] text-text-primary">{r.label}</span>
+            <span className="text-[11px] text-text-muted text-right">{r.detail}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

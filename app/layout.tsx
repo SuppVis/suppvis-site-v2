@@ -4,11 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "SuppVis | The between-visits record for practitioners and their patients",
   description:
-    "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief.",
+    "Patients log what they take, what they do, and how they feel, in about a minute a day. Their practitioner gets the history as a pre-visit brief.",
   openGraph: {
     title: "SuppVis | The between-visits record for practitioners and their patients",
     description:
-      "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief.",
+      "Patients log what they take, what they do, and how they feel, in about a minute a day. Their practitioner gets the history as a pre-visit brief.",
     url: "https://suppvis.health/",
     siteName: "SuppVis",
     type: "website",

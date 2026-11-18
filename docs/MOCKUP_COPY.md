@@ -59,7 +59,7 @@ Callout titles and body text are verbatim from the spec. The brief document itse
 
 ### Brief header
 - "Pre-visit brief"
-- "30 days since last visit · shared by the patient"
+- "30 days since last visit · from the patient's daily record"
 
 ### Block 1: At a glance
 - Incidents logged: 3
@@ -183,7 +183,7 @@ Errors come from the server and are generic, such as "Practice name is required.
 ---
 
 ## 7. Metadata
-- Site default (`app/layout.tsx`): title "SuppVis | The between-visits record for practitioners and their patients"; description "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief."
+- Site default (`app/layout.tsx`): title "SuppVis | The between-visits record for practitioners and their patients"; description "Patients log what they take, what they do, and how they feel, in about a minute a day. Their practitioner gets the history as a pre-visit brief."
 - / (`app/page.tsx`): title "SuppVis for Practices | Walk in with the history already taken"; description adapted from the hero subhead (unchanged). No noindex in code: indexing is a publish-checklist item.
 - /portal, /patients, /about: see each page file; descriptions repeat page copy below.
 
@@ -202,7 +202,7 @@ Errors come from the server and are generic, such as "Practice name is required.
 `app/portal/page.tsx`. Each section has a "Portal demo" placeholder frame (`app/components/PortalFrame.tsx`) with the caption listed.
 - Hero H1: "A full roster. No time to prepare."
 - Hero sub: "The chart shows what you prescribed, not what happened next. Most days there is no time to find out before the door opens. Open one page per patient and walk in current."
-- Your roster: "Your day starts with a list of names and very little else. Who checked in this month? Who went quiet? Who added something new?" / "The roster answers that in one view. Every patient who shares with you, with recent check-in coverage and open flags beside each name. Patients join by invite code, and sharing is always their choice." Caption: "The roster: every sharing patient, with coverage and open flags."
+- Your roster: "Your day starts with a list of names and very little else. Who checked in this month? Who went quiet? Who added something new?" / "The roster answers that in one view. Every patient your practice has enrolled, with recent check-in coverage and open flags beside each name." Caption: "The roster: every enrolled patient, with coverage and open flags."
 - The pre-visit brief: "Before each visit, the portal assembles one brief from the patient's record, ordered the way you work a case. See the full walkthrough of the brief on the practices page." (links /#pre-visit-brief) Caption: "A pre-visit brief, opened from the roster."
 - Plan versus actual: "You write a protocol. Then you wait a month to hear how it went, and what you hear is a guess." / "The portal sets your plan beside what the patient actually took, day by day, with dose and frequency. Anything they added on their own sits apart, marked as an extra." Caption: "Your plan items beside days actually taken, with extras kept separate."
 - Interaction flags: "Patients add things between visits. You often hear about it late, or not at all." / "Every logged combination is screened against a clinically reviewed interaction library and flagged as it is logged. Any flag from a rule still awaiting clinical review is labeled unreviewed. What a flag means for the patient is your call." Caption: "A flag on a newly logged item, with its review status shown."
@@ -211,21 +211,38 @@ Errors come from the server and are generic, such as "Practice name is required.
 - CTA band: "See it with your own roster in mind." / "Book a demo and we'll walk through the portal with you. Or join the founding practices and we'll reach out." Buttons: Book a demo / Join the founding practices (links /#founding-practices)
 - DEMO PARITY NOTE: every claim here falls under spec gate 3.
 
-## 11. /patients
-`app/patients/page.tsx`, mockups in `app/patients/mockups.tsx`, form in `app/components/WaitlistClose.tsx`
-- Hero H1: "A lot happens between appointments." Sub: "You remember some of it. By the time you sit down with your practitioner, most of it is gone. SuppVis keeps the record for you, in about a minute a day." Buttons: "Get Early Access" (#waitlist), "See how it works ↓"
-- One minute a day: "Open the app once a day. Check off what you took and what you did. Score how you feel. Note anything out of the ordinary." / "Then answer one question: "Did you do anything different today?" A trip, a new food, a hard week, a short night. That is usually the part everyone forgets."
-  - Check-in mockup: "Today's check-in", "Day 12"; "What you took and did": Magnesium (Evening, checked), Vitamin D3 (Morning, checked), Evening walk (Habit, unchecked); "How you feel": Sleep 6 of 10, Energy 7 of 10, Mood 7 of 10; "Did you do anything different today?": "Long travel day."
-- What you get back: "A few weeks in, you have something most people never get: a clear record of your own days." Tiles: "Your days, in order." / "Patterns from your own record." ("SuppVis points out timing patterns in your own days and labels them as patterns. Not promises, and not conclusions.") / "A history you can share."
-- Your account is yours (no HIPAA language): "Not your practitioner's. Not a clinic's. You own your SuppVis account." / "You choose whether to share it, and with whom, using an invite code. You can stop sharing at any time." / "We don't sell supplements, and no company pays to influence what you see."
-  - Sharing mockup: "Sharing", "You decide who sees your record.", "Invite code" (masked), "Your practitioner" / "Sharing on" toggle, "Stop sharing at any time"
-- The app: "SuppVis is an iOS app. It keeps supplements, medications, habits, and how you feel in one place. Every insight links to the research behind it, in a public library of 33,000+ peer-reviewed studies, covering 453 supplements and 89 research-backed habits." Tiles: "Your plan, and your extras." / "Your devices fill in the rest." / "Screened as you log." ("...If something is flagged, bring it to your care team.")
-- Waitlist (existing form and handler, anchor #waitlist): heading now "Start keeping the record."; sub "Join the beta. Get early access to the app and help shape SuppVis."; removed "Free during beta" and "Founding pricing locked forever"; kept "Your feedback shapes the product"
+## 11. /patients (rewritten for the clinic-contract model)
+`app/patients/page.tsx`, mockups in `app/patients/mockups.tsx`, form in `app/components/WaitlistClose.tsx`. Structure follows the /patients hub section of the spec.
+- Metadata description: "SuppVis is where your health lives day to day. One minute a day, everything in one place, and if your practice uses SuppVis, part of your care."
+- Hero H1: "Where your health lives, day to day." Sub: "What you take, what you do, and how you feel, in one place. One minute a day." Buttons: "Get Early Access" (#waitlist), "See how it works ↓" (#part-of-your-care)
+- Part of your care: "If your practitioner's practice uses SuppVis, joining is part of getting care. Your practice sets you up. You download the app and accept your practice's invitation." / "From there, your daily record builds. Your practitioner walks into each visit already current on how the weeks went, instead of starting from what you can remember." / "You can always see everything in your own record."
+  - Care mockup: "Your practice", "Connected" pill, "Set up as part of your care."; rows: "Your plan" (3 items from your practitioner), "Your daily record" (Day 12), "Reminders" (At times you set)
+- Your day: "The check-in takes under a minute. Check off what you took and what you did. Score how you feel. Note anything out of the ordinary." / "Then answer one question: "Did you do anything different today?" A trip, a new food, a hard week, a short night. That is usually the part everyone forgets."
+  - Check-in mockup (unchanged): "Today's check-in", "Day 12"; "What you took and did": Magnesium (Evening, checked), Vitamin D3 (Morning, checked), Evening walk (Habit, unchecked); "How you feel": Sleep 6 of 10, Energy 7 of 10, Mood 7 of 10; "Did you do anything different today?": "Long travel day."
+- Your hub: "Beyond the check-in, the app keeps the rest of your health in one place. We don't sell supplements, and no company pays to influence what you see." Tiles:
+  - "Your plan and reminders." "The schedule you and your practitioner set, in one place. Reminders follow your schedule, at the times you choose, and you can change them or turn them off."
+  - "Knowledge you can trust." "Research-backed deep dives for the supplements you take, drawn from the public library of 33,000+ peer-reviewed studies." (links /research; no per-supplement coverage count, since the browse shows fewer than 453 after reclassified-medication exclusions)
+  - "Your bloodwork over time." "Lab results trended across draws, shown exactly as your lab reported them. What they mean is a conversation with your practitioner."
+  - "Your goals and what moves them." "Daily scores across your goals, and what in your record is associated with the changes. Labeled as associations, not causes."
+  - "Your biometrics." "Sleep, HRV, and activity from the wearables you already use, alongside everything you log."
+  - "Checked for safety." "Everything you log is screened against your medications, and anything worth discussing is flagged for you and your practitioner." **FLAG FOR CLINICAL REVIEW: safety statement.**
+- On your own, too: "If your practice doesn't use SuppVis, the app works on its own. Same check-in, same hub, same record." / "We're building a clinical handoff: a summary of your record you'll be able to print or send, so any doctor you see can get the full picture of what you've been doing." (not built: future tense, no dates)
+- Waitlist (existing form and handler, anchor #waitlist, unchanged): "Start keeping the record." / "Join the beta. Get early access to the app and help shape SuppVis."
+- Removed with the old sharing model: "Your account is yours." section and its sharing mockup ("Invite code", "Sharing on", "Stop sharing at any time"); "What you get back." tiles; "The app." tiles, including "SuppVis is an iOS app" (interaction screening returns as the "Checked for safety." hub tile)
+- DEMO PARITY NOTE: bloodwork trending, goals, reminders, wearables, and medication screening fall under spec gate 3.
 
 ## 12. /about
 `app/about/sections/*`. FounderProfiles is unchanged, word for word.
+- Origin: "When they choose to share" now "Through their practice"; "The patient owns the account, and sharing it is always their choice." deleted; closing now "for the patient and the practitioner caring for them." Meta description ends "for patients and the practitioners caring for them."
 - Hero paragraph: "SuppVis was built by two brothers. One managing Type 1 diabetes and building the system. The other in naturopathic training, doing its clinical review. Both saw how much of a person's health happens between appointments, and how little of it reaches the person caring for them."
 - "Why SuppVis exists" rewritten around the between-visits record and the practitioner portal; one paragraph on the app as the patient side; independence paragraph kept. Removed the "$69.3 billion in 2024" market figure.
-- Values: "Judgment stays with the clinician." / "The patient owns the record." / "Science you can audit."
+- Values: "Judgment stays with the clinician." / "The record starts with the patient." ("Every entry comes from the person living it, a minute a day. Their practitioner reads it; the patient can always see everything in their own record.") / "Science you can audit."
 - Vis line: "SuppVis was built to make that force easier to see. Through a daily record, not guesswork."
 - CTA: "This is the record we wanted. Now it's yours." / "Practitioners can book a demo of the portal. Patients can join the beta of the app. Either way, you talk directly to us." Buttons: Book a demo / For patients. "Founding pricing locked forever" removed.
+
+## 13. Homepage: clinic-contract model
+- Patient-side tile (`app/_home/sections/PatientSide.tsx`, spec section 4), replaces "They stay in control.": "Enrolled through your practice." / "Patients join SuppVis because you bring them on as part of their care. They download the app, accept your practice's invitation, and their between-visit record is connected to your portal from the first day."
+- Three-step strip (`app/_home/sections/PracticeSteps.tsx`, spec section 11A, directly before the CTA band, anchor #how-it-works). Header: "How it works with your practice". Cards numbered 01 to 03:
+  - "Partner with SuppVis." "Your practice signs on and gets the portal."
+  - "Bring your patients on." "You enroll patients as part of their care; their daily record starts building immediately."
+  - "Walk in current." "Every visit opens with the pre-visit brief instead of history-taking."

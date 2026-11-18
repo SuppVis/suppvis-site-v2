@@ -13,6 +13,7 @@ import {
   Independence,
   WhoItsFor,
 } from "./_home/sections/EvidenceIndependence";
+import PracticeSteps from "./_home/sections/PracticeSteps";
 import ClinicsCta from "./_home/sections/ClinicsCta";
 
 // Spec: docs/CLINIC_PAGE_SPEC_v2.md. Not for production until every publish
@@ -56,6 +57,7 @@ export default function Home() {
         <EvidenceHonesty />
         <Independence />
         <WhoItsFor />
+        <PracticeSteps />
         <ClinicsCta />
       </main>
       <Footer />

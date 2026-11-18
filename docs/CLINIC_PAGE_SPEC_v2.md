@@ -52,7 +52,7 @@ Copy: Patients use the SuppVis app: a daily check-in that takes under a minute. 
 Sub-points (three short tiles):
 - **Your plan, tagged.** After a visit, the treatment plan lives in the app with every item marked as yours. The patient follows it or doesn't, and you see which. Anything they add on their own is tracked separately as an extra.
 - **Their data flows in.** Wearable biometrics (sleep, HRV, activity) and Apple Health data fill the record automatically, so the patient logs less and the brief sees more.
-- **They stay in control.** The patient owns their SuppVis account and chooses to share it with you by invite code. They can stop sharing at any time. [Keep this framing exactly; it is the privacy model counsel is reviewing, and it must be described as patient-directed sharing, not as a practice data system. No HIPAA claims.]
+- **Enrolled through your practice.** Patients join SuppVis because you bring them on as part of their care. They download the app, accept your practice's invitation, and their between-visit record is connected to your portal from the first day. [Clinic-contract enrollment model: SuppVis contracts with the practice, the practice enrolls its patients as part of care, and the record connects to the practice portal from enrollment. Under counsel review per gate 2. No HIPAA, BAA, privacy, or security claims.]
 
 ## Section 5: Vignette one, the pregnancy journey
 
@@ -110,6 +110,16 @@ Header: **Built for the clinicians who take the whole person seriously.**
 
 Copy: SuppVis serves individual practitioners first: naturopathic doctors, integrative and functional MDs and DOs, nurse practitioners. Practice-wide plans grow from there. If your visits spend their first twenty minutes rebuilding history, this was built for you.
 
+## Section 11A: How it works with your practice (new, directly before the CTA band)
+
+Header: **How it works with your practice**
+
+Purpose: make the commercial model unmistakable. Visually light: three numbered cards in the same card idiom as the rest of the page.
+
+1. **Partner with SuppVis.** Your practice signs on and gets the portal.
+2. **Bring your patients on.** You enroll patients as part of their care; their daily record starts building immediately.
+3. **Walk in current.** Every visit opens with the pre-visit brief instead of history-taking.
+
 ## Section 12: CTA band
 
 Header: **Open your next visit with the brief.**
@@ -134,7 +144,23 @@ SuppVis provides wellness information and decision support for licensed professi
 ## Gates before this page goes live
 
 1. Connor reviews full copy word by word (he is also the source document's author, so this is alignment, not just compliance)
-2. Counsel confirms the patient-directed sharing model AND reviews the between-visits/alerts section before publish; the page describes both
+2. Counsel review of the clinic-contract enrollment model and the between-visits alerts section
 3. The single demo-parity check: every data-layer tile and brief section verified against the live demo build; anything not demonstrable comes off
 4. Demo CTA has a real destination before any traffic
 5. Ships on a branch with Vercel preview, Tanner approves merge
+
+## Companion page: /patients (hub structure)
+
+Job: what a patient's day with SuppVis looks like, with SuppVis as the daily home for their health. Primary audience is patients whose practice runs SuppVis; the standalone path is secondary. Same language rules as above, plus no privacy or security promises and no engagement framing (the product has no streaks and no noise).
+
+1. **Hero.** SuppVis is where your health lives day to day. One minute a day, everything in one place.
+2. **Part of your care.** If your practitioner's practice uses SuppVis, joining is part of getting care: the practice sets the patient up, the daily record builds, and the practitioner walks into each visit already current. The patient can always see everything in their own record.
+3. **Your day.** The check-in in under a minute: log what you take and do, score how you feel, note anything out of the ordinary, and the one question, "Did you do anything different today?"
+4. **Your hub** (tile grid):
+   a. Your plan and reminders: the schedule the patient and practitioner set, with reminders the patient controls. Reminders serve the patient's own schedule, never engagement.
+   b. Knowledge you can trust: a research-backed deep dive for every supplement, drawn from the public library of 33,000+ peer-reviewed studies.
+   c. Your bloodwork over time: lab results trended across draws, shown exactly as the lab reported them.
+   d. Your goals and what moves them: daily scores across goals and what in the record is associated with the changes.
+   e. Your biometrics: sleep, HRV, and activity from the wearables they already use, alongside everything they log.
+5. **On your own.** One short section: using SuppVis without a practice works too, and a clinical handoff the patient can print or send to any doctor is coming. Future tense, no dates; it is not built yet.
+6. **Beta waitlist.** Existing form, handler, and #waitlist anchor.
