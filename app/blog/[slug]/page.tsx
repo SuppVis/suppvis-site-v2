@@ -145,7 +145,7 @@ export default async function ArticlePage({ params }: Props) {
               unique biology. Join the beta.
             </p>
             <a
-              href="/#waitlist"
+              href="/patients#waitlist"
               className="inline-flex items-center px-8 py-3.5 rounded-full bg-accent text-bg-primary font-semibold hover:bg-accent-hover transition-all hover:shadow-[0_0_20px_rgba(20,184,166,0.3)]"
             >
               Get Early Access

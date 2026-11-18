@@ -1,4 +1,4 @@
-import { Reveal, SectionDivider, SectionHeading, TealRule } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 
 export function EvidenceHonesty() {
   return (
@@ -73,25 +73,6 @@ export function WhoItsFor() {
             </span>
           </p>
         </Reveal>
-      </div>
-    </section>
-  );
-}
-
-export function BoundaryStatement() {
-  // Section 13: verbatim, non-negotiable.
-  return (
-    <section className="px-6 pb-16">
-      <div className="max-w-[900px] mx-auto rounded-2xl border border-white/[0.06] bg-bg-secondary/60 px-6 py-6 sm:px-8">
-        <p className="text-[13px] text-text-muted leading-relaxed">
-          SuppVis provides wellness information and decision support for
-          licensed professionals and their patients. It does not diagnose,
-          treat, cure, or prevent any disease, and it never replaces clinical
-          judgment. Associations shown in SuppVis reflect timing in the
-          patient&apos;s own record, not causation. Medication information is
-          used for safety screening and analysis context only; SuppVis never
-          advises on medications.
-        </p>
       </div>
     </section>
   );

@@ -148,7 +148,7 @@ export default function UnsubscribeClient({
           ) : isSuccess ? (
             <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
               <a
-                href="/#waitlist"
+                href="/patients#waitlist"
                 className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-accent/35 px-6 py-3 font-body text-sm font-bold text-accent transition hover:border-accent hover:bg-accent/10 sm:w-auto"
               >
                 Back to SuppVis
@@ -160,7 +160,7 @@ export default function UnsubscribeClient({
           ) : (
             <div className="mt-8">
               <a
-                href="/#waitlist"
+                href="/patients#waitlist"
                 className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-accent/35 px-6 py-3 font-body text-sm font-bold text-accent transition hover:border-accent hover:bg-accent/10 sm:w-auto"
               >
                 Back to SuppVis

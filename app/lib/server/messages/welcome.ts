@@ -229,7 +229,7 @@ function rawLinkHtml(href: string) {
 }
 
 function waitlistUrl(appBaseUrl?: string) {
-  return buildPublicAssetUrl("/#waitlist", appBaseUrl);
+  return buildPublicAssetUrl("/patients#waitlist", appBaseUrl);
 }
 
 function feedbackEmail() {

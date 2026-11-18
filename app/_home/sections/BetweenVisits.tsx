@@ -1,4 +1,4 @@
-import { Reveal, SectionDivider, SectionHeading, TealRule } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 
 // Counsel reviews this section alongside the sharing model before publish:
 // alert design touches standard-of-care expectations. Keep the alert scope

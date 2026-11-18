@@ -20,8 +20,8 @@ export default function VisQuote() {
         </div>
 
         <p className="mt-8 text-text-secondary text-base md:text-lg md:text-center pl-8 md:pl-0">
-          SuppVis was built to help you understand and strengthen that force.
-          Through data, not guesswork.
+          SuppVis was built to make that force easier to see. Through a daily
+          record, not guesswork.
         </p>
       </div>
     </section>

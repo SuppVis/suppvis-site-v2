@@ -1,7 +1,9 @@
-# /clinics: mockup and UI copy for clinical review
+# Site copy outside the spec, for clinical and counsel review
 
-Every piece of text on suppvis.health/clinics that is NOT verbatim from
-`docs/CLINIC_PAGE_SPEC_v2.md`. Section copy from the spec is not repeated here.
+Every piece of text on the restructured site (/, /portal, /patients, /about,
+nav, footer) that is NOT verbatim from `docs/CLINIC_PAGE_SPEC_v2.md`. Section
+copy from the spec is not repeated here. The former /clinics page is now the
+homepage (/); /clinics 301s to /.
 
 Rules applied to everything below:
 - Generic and illustrative only: no names, no dates (relative days only), round values
@@ -14,7 +16,7 @@ Source file for each block is listed so edits can be made in one place.
 ---
 
 ## 1. Hero split visual
-`app/clinics/sections/HeroSplitVisual.tsx`
+`app/_home/sections/HeroSplitVisual.tsx`
 
 ### Left panel: the first 20 minutes of a visit today
 Panel label (from spec): "The first 20 minutes of a visit today"
@@ -51,7 +53,7 @@ Intake questions, each with a minute marker:
 ---
 
 ## 2. Pre-visit brief walkthrough (section 3)
-`app/clinics/sections/BriefMockup.tsx`
+`app/_home/sections/BriefMockup.tsx`
 
 Callout titles and body text are verbatim from the spec. The brief document itself contains:
 
@@ -122,7 +124,7 @@ The interaction chip does not name the interacting pair or describe a mechanism.
 ---
 
 ## 3. Vignette timelines (sections 5 and 6)
-`app/clinics/sections/Vignettes.tsx`
+`app/_home/sections/Vignettes.tsx`
 
 Decorative SVGs only, with no text (aria-hidden).
 - Pregnancy: 270 thin ticks with 12 visit markers.
@@ -131,7 +133,7 @@ Decorative SVGs only, with no text (aria-hidden).
 ---
 
 ## 4. Between visits alert mockup (section 8)
-`app/clinics/sections/BetweenVisits.tsx`
+`app/_home/sections/BetweenVisits.tsx`
 
 - Label: "Alerts"
 - Segmented control: "All activity" / "Safety only" (selected) / "None" (options are from the spec)
@@ -143,7 +145,7 @@ COUNSEL NOTE: the safety alert example deliberately matches the spec's single al
 ---
 
 ## 5. Founding-practice form (section 12)
-`app/clinics/FoundingPracticeForm.tsx`, options in `app/clinics/options.ts`
+`app/_home/FoundingPracticeForm.tsx`, options in `app/lib/clinicOptions.ts`
 
 Field labels (fields fixed by spec):
 - Practice name
@@ -172,7 +174,7 @@ Errors come from the server and are generic, such as "Practice name is required.
 ---
 
 ## 6. Book a demo placeholder page
-`app/clinics/demo/page.tsx` (temporary; deleted once the real calendar link exists)
+`app/demo/page.tsx` at /demo (temporary; deleted once the real calendar link exists; /clinics/demo 301s here)
 
 - Heading: "Book a demo"
 - Body: "Demo scheduling opens here shortly. In the meantime, join the founding practices and we'll reach out to find a time."
@@ -181,12 +183,49 @@ Errors come from the server and are generic, such as "Practice name is required.
 ---
 
 ## 7. Metadata
-`app/clinics/page.tsx`
-- Page title: "For Clinics - SuppVis"
-- OG title: "SuppVis for Clinics"
-- Description: "SuppVis builds the between-visit history from what your patient actually did, every day, and hands it to you as a pre-visit brief before they sit down." (adapted from the hero subhead)
-- robots: noindex, nofollow (remove at publish)
+- Site default (`app/layout.tsx`): title "SuppVis | The between-visits record for practitioners and their patients"; description "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief."
+- / (`app/page.tsx`): title "SuppVis for Practices | Walk in with the history already taken"; description adapted from the hero subhead (unchanged). No noindex in code: indexing is a publish-checklist item.
+- /portal, /patients, /about: see each page file; descriptions repeat page copy below.
 
-## 8. Site footer
-`app/components/Footer.tsx`
-- New link "Clinics" under Product, next to Research
+## 8. Global nav and footer
+`app/components/Nav.tsx`, `app/components/Footer.tsx`, `app/components/BoundaryStatement.tsx`
+- Nav: For practices / How the portal works / For patients / Research / About; CTA "Book a demo"
+- Footer Product: For practices, Portal, For patients, Research, Sources. Company: About. Legal: Privacy Policy, Terms of Use, Affiliate Disclosure, Medical Disclaimer
+- Removed: Shop, Blog, Partnerships, newsletter placeholder, "As an Amazon Associate" line
+- Spec section 13 boundary statement renders above the footer on every page (and on 404 and /unsubscribe, which have no footer)
+
+## 9. Homepage hero link to patients
+`app/_home/sections/ClinicsHero.tsx`
+- Pill above the H1: "Keeping a record for your own health?" (phone: "Keeping your own record?") + "For patients →" (links /patients)
+
+## 10. /portal
+`app/portal/page.tsx`. Each section has a "Portal demo" placeholder frame (`app/components/PortalFrame.tsx`) with the caption listed.
+- Hero H1: "A full roster. No time to prepare."
+- Hero sub: "The chart shows what you prescribed, not what happened next. Most days there is no time to find out before the door opens. Open one page per patient and walk in current."
+- Your roster: "Your day starts with a list of names and very little else. Who checked in this month? Who went quiet? Who added something new?" / "The roster answers that in one view. Every patient who shares with you, with recent check-in coverage and open flags beside each name. Patients join by invite code, and sharing is always their choice." Caption: "The roster: every sharing patient, with coverage and open flags."
+- The pre-visit brief: "Before each visit, the portal assembles one brief from the patient's record, ordered the way you work a case. See the full walkthrough of the brief on the practices page." (links /#pre-visit-brief) Caption: "A pre-visit brief, opened from the roster."
+- Plan versus actual: "You write a protocol. Then you wait a month to hear how it went, and what you hear is a guess." / "The portal sets your plan beside what the patient actually took, day by day, with dose and frequency. Anything they added on their own sits apart, marked as an extra." Caption: "Your plan items beside days actually taken, with extras kept separate."
+- Interaction flags: "Patients add things between visits. You often hear about it late, or not at all." / "Every logged combination is screened against a clinically reviewed interaction library and flagged as it is logged. Any flag from a rule still awaiting clinical review is labeled unreviewed. What a flag means for the patient is your call." Caption: "A flag on a newly logged item, with its review status shown."
+- The timeline: "Recall collapses a month into one sentence. The timeline keeps it in order." / "Items started, stopped, and missed. Incidents with severity and the patient's notes. Sleep and activity from their wearable. Open it when you choose, flag anything, and your flag surfaces at the top of their next brief." Caption: "One patient's month, in order, with your flags pinned for the next visit."
+- Patterns and key findings: "Some changes only show up across weeks, and no one has time to read weeks of logs." / "The portal proposes timing associations from the patient's own record, labeled as associations, never causes. Each one links back to the entries it came from. Which ones matter is yours to judge." Caption: "Proposed associations, each linked to the entries behind it."
+- CTA band: "See it with your own roster in mind." / "Book a demo and we'll walk through the portal with you. Or join the founding practices and we'll reach out." Buttons: Book a demo / Join the founding practices (links /#founding-practices)
+- DEMO PARITY NOTE: every claim here falls under spec gate 3.
+
+## 11. /patients
+`app/patients/page.tsx`, mockups in `app/patients/mockups.tsx`, form in `app/components/WaitlistClose.tsx`
+- Hero H1: "A lot happens between appointments." Sub: "You remember some of it. By the time you sit down with your practitioner, most of it is gone. SuppVis keeps the record for you, in about a minute a day." Buttons: "Get Early Access" (#waitlist), "See how it works ↓"
+- One minute a day: "Open the app once a day. Check off what you took and what you did. Score how you feel. Note anything out of the ordinary." / "Then answer one question: "Did you do anything different today?" A trip, a new food, a hard week, a short night. That is usually the part everyone forgets."
+  - Check-in mockup: "Today's check-in", "Day 12"; "What you took and did": Magnesium (Evening, checked), Vitamin D3 (Morning, checked), Evening walk (Habit, unchecked); "How you feel": Sleep 6 of 10, Energy 7 of 10, Mood 7 of 10; "Did you do anything different today?": "Long travel day."
+- What you get back: "A few weeks in, you have something most people never get: a clear record of your own days." Tiles: "Your days, in order." / "Patterns from your own record." ("SuppVis points out timing patterns in your own days and labels them as patterns. Not promises, and not conclusions.") / "A history you can share."
+- Your account is yours (no HIPAA language): "Not your practitioner's. Not a clinic's. You own your SuppVis account." / "You choose whether to share it, and with whom, using an invite code. You can stop sharing at any time." / "We don't sell supplements, and no company pays to influence what you see."
+  - Sharing mockup: "Sharing", "You decide who sees your record.", "Invite code" (masked), "Your practitioner" / "Sharing on" toggle, "Stop sharing at any time"
+- The app: "SuppVis is an iOS app. It keeps supplements, medications, habits, and how you feel in one place. Every insight links to the research behind it, in a public library of 33,000+ peer-reviewed studies, covering 453 supplements and 89 research-backed habits." Tiles: "Your plan, and your extras." / "Your devices fill in the rest." / "Screened as you log." ("...If something is flagged, bring it to your care team.")
+- Waitlist (existing form and handler, anchor #waitlist): heading now "Start keeping the record."; sub "Join the beta. Get early access to the app and help shape SuppVis."; removed "Free during beta" and "Founding pricing locked forever"; kept "Your feedback shapes the product"
+
+## 12. /about
+`app/about/sections/*`. FounderProfiles is unchanged, word for word.
+- Hero paragraph: "SuppVis was built by two brothers. One managing Type 1 diabetes and building the system. The other in naturopathic training, doing its clinical review. Both saw how much of a person's health happens between appointments, and how little of it reaches the person caring for them."
+- "Why SuppVis exists" rewritten around the between-visits record and the practitioner portal; one paragraph on the app as the patient side; independence paragraph kept. Removed the "$69.3 billion in 2024" market figure.
+- Values: "Judgment stays with the clinician." / "The patient owns the record." / "Science you can audit."
+- Vis line: "SuppVis was built to make that force easier to see. Through a daily record, not guesswork."
+- CTA: "This is the record we wanted. Now it's yours." / "Practitioners can book a demo of the portal. Patients can join the beta of the app. Either way, you talk directly to us." Buttons: Book a demo / For patients. "Founding pricing locked forever" removed.

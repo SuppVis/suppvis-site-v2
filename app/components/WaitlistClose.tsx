@@ -6,6 +6,7 @@ import {
   SMS_CONSENT_VERSION,
   SMS_INFORMATIONAL_CONSENT_COPY,
 } from "../lib/smsConsent";
+import { PATIENT_WAITLIST_ID } from "../lib/site";
 
 type FormValues = {
   firstName: string;
@@ -212,16 +213,14 @@ export default function WaitlistClose() {
   };
 
   return (
-    <section id="waitlist" className="py-24 md:py-32 px-6">
+    <section id={PATIENT_WAITLIST_ID} className="relative py-24 md:py-32 px-6 scroll-mt-20">
       <div ref={sectionRef} className="scroll-reveal max-w-[600px] mx-auto text-center">
         <h2 className="font-headline font-extrabold text-3xl sm:text-4xl md:text-5xl text-text-primary mb-6 leading-tight">
-          You&rsquo;re already spending on your protocol. Every month you
-          don&rsquo;t track is money spent on guesses.
+          Start keeping the record.
         </h2>
         {!duplicateSubmission && (
           <p className="text-text-secondary text-lg mb-10">
-            Join the beta. Get early access and help shape SuppVis before it
-            opens to everyone.
+            Join the beta. Get early access to the app and help shape SuppVis.
           </p>
         )}
 
@@ -362,8 +361,6 @@ export default function WaitlistClose() {
 
         {/* Value props */}
         <div className="mt-12 flex flex-col items-center gap-3 text-[15px] text-text-secondary">
-          <span>Free during beta</span>
-          <span>Founding pricing locked forever</span>
           <span>Your feedback shapes the product</span>
         </div>
       </div>

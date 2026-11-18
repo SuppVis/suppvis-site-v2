@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   CLINIC_DISPENSING_OPTIONS,
   CLINIC_PRACTICE_TYPES,
-} from "@/app/clinics/options";
+} from "@/app/lib/clinicOptions";
 import { SMS_CONSENT_VERSION } from "@/app/lib/smsConsent";
 import {
   ADMIN_SMS_MAX_SEGMENTS,

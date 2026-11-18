@@ -1,4 +1,4 @@
-import { Reveal, SectionDivider, TealRule } from "../ui";
+import { Reveal, SectionDivider, TealRule } from "@/app/components/ui";
 
 // Decorative, text-free timelines (aria-hidden). No data is implied.
 

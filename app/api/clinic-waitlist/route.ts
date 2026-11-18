@@ -15,7 +15,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Founding-practice waitlist for /clinics. Mirrors the beta-applications
+// Founding-practice waitlist on the homepage (/). Mirrors the beta-applications
 // handler (rate limit, JSON body, zod, honeypot, handleApiError). Persistence
 // is an email to the team via SES; no DynamoDB table yet.
 export async function POST(request: NextRequest) {

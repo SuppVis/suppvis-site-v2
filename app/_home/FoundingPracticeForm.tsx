@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CLINIC_DISPENSING_OPTIONS, CLINIC_PRACTICE_TYPES } from "./options";
+import { CLINIC_DISPENSING_OPTIONS, CLINIC_PRACTICE_TYPES } from "@/app/lib/clinicOptions";
 
 // Field set fixed by spec section 12. Option labels are UI copy catalogued in
 // docs/MOCKUP_COPY.md.

@@ -1,4 +1,4 @@
-import { Reveal, SectionDivider, SectionHeading, TealRule } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 
 const TILES = [
   {

@@ -26,9 +26,11 @@ export default function AboutHero() {
           </div>
 
           <p className="text-lg md:text-xl text-text-secondary leading-relaxed max-w-[600px]">
-            SuppVis was built by two brothers. One managing Type 1 diabetes, the
-            other studying naturopathic medicine. Both frustrated by an industry
-            that sells confidence but delivers confusion.
+            SuppVis was built by two brothers. One managing Type 1 diabetes and
+            building the system. The other in naturopathic training, doing its
+            clinical review. Both saw how much of a person&rsquo;s health happens
+            between appointments, and how little of it reaches the person
+            caring for them.
           </p>
         </div>
       </div>

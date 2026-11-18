@@ -1,10 +1,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { BOOK_DEMO_HREF } from "../lib/site";
+
+const NAV_LINKS = [
+  { href: "/", label: "For practices" },
+  { href: "/portal", label: "How the portal works" },
+  { href: "/patients", label: "For patients" },
+  { href: "/research", label: "Research" },
+  { href: "/about", label: "About" },
+];
+
+function isActive(pathname: string | null, href: string) {
+  if (!pathname) return false;
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -20,18 +37,18 @@ export default function Nav() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50">
-      {/* Mobile menu backdrop — full-screen so the links sit on solid bg */}
+      {/* Mobile menu backdrop: full-screen so the links sit on solid bg */}
       <div
         onClick={() => setMenuOpen(false)}
         aria-hidden="true"
-        className={`md:hidden fixed inset-0 bg-bg-primary/95 backdrop-blur-lg transition-opacity duration-300 ${
+        className={`lg:hidden fixed inset-0 bg-bg-primary/95 backdrop-blur-lg transition-opacity duration-300 ${
           menuOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none"
         }`}
       />
 
-      {/* Bar — carries the scrolled blur so <nav> stays free of backdrop-filter */}
+      {/* Bar: carries the scrolled blur so <nav> stays free of backdrop-filter */}
       <div
         className={`relative z-10 transition-all duration-300 ${
           scrolled
@@ -47,32 +64,36 @@ export default function Nav() {
           </a>
 
           {/* Desktop links */}
-          <div className="hidden md:flex items-center gap-8">
-            <a href="/how-it-works" className="text-sm text-text-secondary hover:text-text-primary transition-colors">
-              How It Works
-            </a>
-            <a href="/shop" className="text-sm text-text-secondary hover:text-text-primary transition-colors">
-              Shop
-            </a>
-            <a href="/blog" className="text-sm text-text-secondary hover:text-text-primary transition-colors">
-              Blog
-            </a>
-            <a href="/about" className="text-sm text-text-secondary hover:text-text-primary transition-colors">
-              About
-            </a>
+          <div className="hidden lg:flex items-center gap-7">
+            {NAV_LINKS.map((l) => {
+              const active = isActive(pathname, l.href);
+              return (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`text-sm transition-colors ${
+                    active ? "text-text-primary" : "text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {l.label}
+                </a>
+              );
+            })}
             <a
-              href="#waitlist"
+              href={BOOK_DEMO_HREF}
               className="inline-flex items-center px-5 py-2.5 rounded-full bg-accent text-bg-primary text-sm font-semibold hover:bg-accent-hover transition-colors"
             >
-              Get Early Access
+              Book a demo
             </a>
           </div>
 
           {/* Mobile hamburger */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden relative w-8 h-8 flex items-center justify-center"
+            className="lg:hidden relative w-8 h-8 flex items-center justify-center"
             aria-label="Toggle menu"
+            aria-expanded={menuOpen}
           >
             <span
               className={`absolute h-0.5 w-5 bg-text-primary transition-all duration-300 ${
@@ -96,47 +117,35 @@ export default function Nav() {
       {/* Mobile menu */}
       <div
         onClick={() => setMenuOpen(false)}
-        className={`md:hidden fixed inset-0 top-16 transition-all duration-300 ${
+        className={`lg:hidden fixed inset-0 top-16 md:top-20 transition-all duration-300 ${
           menuOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none"
         }`}
       >
         <div className="flex flex-col items-center gap-8 pt-12">
+          {NAV_LINKS.map((l) => {
+            const active = isActive(pathname, l.href);
+            return (
+              <a
+                key={l.href}
+                href={l.href}
+                aria-current={active ? "page" : undefined}
+                onClick={() => setMenuOpen(false)}
+                className={`text-lg transition-colors ${
+                  active ? "text-text-primary" : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {l.label}
+              </a>
+            );
+          })}
           <a
-            href="/how-it-works"
-            onClick={() => setMenuOpen(false)}
-            className="text-lg text-text-secondary hover:text-text-primary transition-colors"
-          >
-            How It Works
-          </a>
-          <a
-            href="/shop"
-            onClick={() => setMenuOpen(false)}
-            className="text-lg text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Shop
-          </a>
-          <a
-            href="/blog"
-            onClick={() => setMenuOpen(false)}
-            className="text-lg text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Blog
-          </a>
-          <a
-            href="/about"
-            onClick={() => setMenuOpen(false)}
-            className="text-lg text-text-secondary hover:text-text-primary transition-colors"
-          >
-            About
-          </a>
-          <a
-            href="#waitlist"
+            href={BOOK_DEMO_HREF}
             onClick={() => setMenuOpen(false)}
             className="inline-flex items-center px-8 py-3 rounded-full bg-accent text-bg-primary text-lg font-semibold hover:bg-accent-hover transition-colors"
           >
-            Get Early Access
+            Book a demo
           </a>
         </div>
       </div>

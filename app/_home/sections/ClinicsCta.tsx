@@ -1,6 +1,6 @@
-import { BOOK_DEMO_HREF, FOUNDING_FORM_ID } from "../config";
+import { BOOK_DEMO_HREF, FOUNDING_FORM_ID } from "@/app/lib/site";
 import FoundingPracticeForm from "../FoundingPracticeForm";
-import { Reveal, SectionDivider, SectionHeading, primaryButton, secondaryButton } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, primaryButton, secondaryButton } from "@/app/components/ui";
 
 export default function ClinicsCta() {
   return (

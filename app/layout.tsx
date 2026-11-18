@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SuppVis - Track Your Stack. See What's Working.",
+  title: "SuppVis | The between-visits record for practitioners and their patients",
   description:
-    "SuppVis is an AI-powered platform that tracks your supplements, meds, and habits, scores your health goals, and shows you exactly what's moving the needle. Evidence-based. Brand-agnostic.",
+    "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief.",
   openGraph: {
-    title: "SuppVis - Track Your Stack. See What's Working.",
+    title: "SuppVis | The between-visits record for practitioners and their patients",
     description:
-      "SuppVis is an AI-powered platform that tracks your supplements, meds, and habits, scores your health goals, and shows you exactly what's moving the needle. Evidence-based. Brand-agnostic.",
+      "Patients log what they take, what they do, and how they feel, in about a minute a day. When they choose to share, their practitioner gets the history as a pre-visit brief.",
     url: "https://suppvis.health/",
     siteName: "SuppVis",
     type: "website",

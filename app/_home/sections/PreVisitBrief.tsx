@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Reveal, SectionDivider, SectionHeading, TealRule } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 import { BriefBlock, BriefHeader, BRIEF_BLOCKS } from "./BriefMockup";
 
 const CALLOUTS = [

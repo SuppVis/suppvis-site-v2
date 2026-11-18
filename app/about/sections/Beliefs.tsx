@@ -4,16 +4,16 @@ import { useScrollReveal } from "../../hooks/useScrollReveal";
 
 const beliefs = [
   {
-    headline: "Built around your biology, not a catalog.",
-    body: "Most \u201Cpersonalized\u201D supplements just pick from a handful of pre-made stacks. SuppVis recommends the specific compounds your body actually needs, based on your conditions, goals, medications, and how you\u2019ve responded over time. Your stack is yours, down to the molecule.",
+    headline: "Judgment stays with the clinician.",
+    body: "SuppVis assembles the record and proposes associations, labeled as associations. What they mean, and what to do about them, is the practitioner\u2019s call. The brief stops where clinical judgment starts.",
   },
   {
-    headline: "Screened against what you\u2019ve told us.",
-    body: "Every recommendation is checked against the medications and conditions you\u2019ve logged before it reaches your stack. The more you share with SuppVis, the sharper the screen.",
+    headline: "The patient owns the record.",
+    body: "Every account belongs to the person who keeps it. They choose whether to share it, and with whom, and they can stop sharing at any time.",
   },
   {
     headline: "Science you can audit.",
-    body: "Every recommendation traces back to peer-reviewed research, clinical guidelines, and condition-specific evidence. Not influencer opinions. Not marketing claims. If the science doesn\u2019t support it, we don\u2019t recommend it.",
+    body: "Every insight traces to a research library of 33,000+ peer-reviewed studies, browsable publicly. Not influencer opinions. Not marketing claims. When the record isn\u2019t sufficient to say something, SuppVis says so.",
   },
 ];
 

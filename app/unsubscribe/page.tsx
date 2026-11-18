@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import UnsubscribeClient from "./UnsubscribeClient";
+import BoundaryStatement from "../components/BoundaryStatement";
 
 export const metadata: Metadata = {
   title: "Unsubscribe | SuppVis",
@@ -15,9 +16,12 @@ type UnsubscribePageProps = {
 
 export default function UnsubscribePage({ searchParams }: UnsubscribePageProps) {
   return (
-    <UnsubscribeClient
-      subscriberId={searchParams?.subscriber}
-      token={searchParams?.token}
-    />
+    <>
+      <UnsubscribeClient
+        subscriberId={searchParams?.subscriber}
+        token={searchParams?.token}
+      />
+      <BoundaryStatement />
+    </>
   );
 }

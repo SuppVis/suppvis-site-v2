@@ -78,7 +78,7 @@ export async function sendClinicLeadEmail(lead: ClinicLead) {
   const rows = leadRows(lead);
   const subject = singleLine(`Founding practice request: ${lead.practiceName}`).slice(0, 200);
   const text = [
-    "New founding-practice waitlist submission from suppvis.health/clinics",
+    "New founding-practice waitlist submission from suppvis.health",
     "",
     ...rows.map(([k, v]) => `${k}: ${v}`),
     "",

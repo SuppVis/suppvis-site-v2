@@ -1,4 +1,4 @@
-import { Reveal, SectionDivider, SectionHeading, TealRule } from "../ui";
+import { Reveal, SectionDivider, SectionHeading, TealRule } from "@/app/components/ui";
 
 // Publish gate 3: before go-live, every tile is verified against the live demo
 // build. Anything not demonstrable comes off the page.

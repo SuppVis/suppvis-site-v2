@@ -1,16 +1,16 @@
 import type { Metadata } from "next";
-import Nav from "../../components/Nav";
-import Footer from "../../components/Footer";
-import { FOUNDING_FORM_ID } from "../config";
+import Nav from "../components/Nav";
+import Footer from "../components/Footer";
+import { FOUNDING_FORM_HREF } from "../lib/site";
 
 // Placeholder destination for "Book a demo". Once the real calendar link
-// exists, set BOOK_DEMO_HREF in app/clinics/config.ts and delete this route.
+// exists, set BOOK_DEMO_HREF in app/lib/site.ts and delete this route.
 export const metadata: Metadata = {
-  title: "Book a demo - SuppVis for Clinics",
+  title: "Book a demo - SuppVis",
   robots: { index: false, follow: false },
 };
 
-export default function ClinicsDemoPlaceholder() {
+export default function DemoPlaceholder() {
   return (
     <>
       <Nav />
@@ -25,7 +25,7 @@ export default function ClinicsDemoPlaceholder() {
             founding practices and we&apos;ll reach out to find a time.
           </p>
           <a
-            href={`/clinics#${FOUNDING_FORM_ID}`}
+            href={FOUNDING_FORM_HREF}
             className="mt-10 inline-flex items-center justify-center px-8 py-3.5 rounded-full bg-accent hover:bg-accent-hover text-bg-primary font-semibold transition-colors"
           >
             Join the founding practices

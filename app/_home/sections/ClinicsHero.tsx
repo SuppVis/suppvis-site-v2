@@ -1,12 +1,13 @@
 "use client";
 
-import { useScrollReveal } from "../../hooks/useScrollReveal";
-import { BOOK_DEMO_HREF, FOUNDING_FORM_ID } from "../config";
-import { primaryButton, secondaryButton } from "../ui";
+import { useScrollReveal } from "@/app/hooks/useScrollReveal";
+import { BOOK_DEMO_HREF, FOUNDING_FORM_ID } from "@/app/lib/site";
+import { primaryButton, secondaryButton } from "@/app/components/ui";
 import HeroSplitVisual from "./HeroSplitVisual";
 
 export default function ClinicsHero() {
-  const headRef = useScrollReveal<HTMLHeadingElement>();
+  const pillRef = useScrollReveal<HTMLAnchorElement>();
+  const headRef = useScrollReveal<HTMLHeadingElement>(0.05);
   const subRef = useScrollReveal<HTMLParagraphElement>(0.15);
   const ctaRef = useScrollReveal(0.25);
   const vizRef = useScrollReveal(0.35);
@@ -30,6 +31,15 @@ export default function ClinicsHero() {
 
       <div className="relative max-w-[1200px] mx-auto">
         <div className="max-w-[860px] mx-auto text-center">
+          <a
+            ref={pillRef}
+            href="/patients"
+            className="scroll-reveal inline-flex items-center gap-2 mb-8 rounded-full border border-white/10 bg-bg-secondary/70 px-4 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:border-accent/40 transition-colors"
+          >
+            <span className="sm:hidden">Keeping your own record?</span>
+            <span className="hidden sm:inline">Keeping a record for your own health?</span>
+            <span className="text-accent font-medium whitespace-nowrap">For patients &rarr;</span>
+          </a>
           <h1
             ref={headRef}
             className="scroll-reveal font-headline font-extrabold text-4xl sm:text-5xl md:text-6xl lg:text-7xl text-text-primary leading-[1.05] tracking-tight"

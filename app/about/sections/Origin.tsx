@@ -14,46 +14,41 @@ export default function Origin() {
 
         <div className="space-y-6 text-[16px] md:text-[17px] text-text-secondary leading-[1.7]">
           <p>
-            The supplement industry generated{" "}
-            <a
-              href="https://www.nutraceuticalsworld.com/exclusives/the-state-of-supplements-u-s-market-approaches-70-billion/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline decoration-transparent hover:decoration-accent transition-colors"
-            >
-              $69.3 billion in 2024
-            </a>
-            . Most of
-            that money is spent on trust. Trust in a brand. Trust in an
-            influencer. Trust in a label that says &ldquo;clinically
-            studied&rdquo; without telling you what that actually means.
-          </p>
-          <p>
-            We spent years on both sides of that problem. Tanner as someone
-            whose life depends on understanding exactly what goes into his body.
-            Connor as someone being trained to help patients navigate health
+            We spent years on both sides of the visit. Tanner as a patient whose
+            life depends on understanding exactly what goes into his body.
+            Connor as someone being trained to take a history and make clinical
             decisions with evidence, not marketing.
           </p>
           <p>
-            The thing that kept frustrating us was simple: there was no tool that
-            connected what you take to how you actually feel. No system that
-            tracked your supplements, measured your outcomes, and told you the
-            truth about what was working.
+            The same gap kept showing up. A patient lives a whole month between
+            appointments. The practitioner sees one visit of it, rebuilt from
+            memory. The supplement started in week two, the bad nights in week
+            three, the missed doses, the travel: most of it never makes it into
+            the room.
           </p>
-          <p>So we built one.</p>
+          <p>So we built the record that fills that gap.</p>
           <p>
-            SuppVis tracks your supplements and habits daily, correlates them
-            against how you feel, and grounds every insight in 33,000+{" "}
+            Patients log what they take, what they do, and how they feel, in
+            about a minute a day. When they choose to share, their practitioner
+            sees that history in the SuppVis portal as a pre-visit brief, before
+            the visit starts. The portal is built for clinical judgment, not
+            around it: it shows the record and proposes associations, and the
+            practitioner decides what they mean.
+          </p>
+          <p>
+            The patient side is the SuppVis app. It keeps supplements,
+            medications, habits, and daily scores in one place, points out
+            timing patterns in the person&rsquo;s own record, and grounds every
+            insight in 33,000+{" "}
             <a href="/sources" className="text-accent underline decoration-accent/40 hover:decoration-accent underline-offset-4 transition-colors">peer-reviewed
-            studies</a>. It&rsquo;s an iOS app, brand-agnostic, and built for
-            skeptics.
+            studies</a>. The patient owns the account, and sharing it is always
+            their choice.
           </p>
           <p>
-            SuppVis is not a supplement brand. We don&rsquo;t sell pills. We
-            don&rsquo;t take money from brands to promote their products. We
-            built an independent platform that watches what you take, tracks how
-            you respond, and gives you clarity you can&rsquo;t get anywhere
-            else.
+            SuppVis is not a supplement brand. We don&rsquo;t sell supplements.
+            No company pays to influence what the platform surfaces. We built an
+            independent record, for the patient and the practitioner they
+            choose.
           </p>
         </div>
       </div>

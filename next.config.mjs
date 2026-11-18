@@ -67,8 +67,37 @@ const adminNoStoreHeaders = [
   },
 ];
 
+// Site restructure (clinical-first). All 301 per the approved route map.
+// Next's `permanent: true` would send 308, so statusCode is set explicitly.
+const siteRedirects = [
+  ["/clinics", "/"],
+  ["/clinics/demo", "/demo"],
+  ["/how-it-works", "/patients"],
+  ["/shop", "/"],
+  ["/shop/:path*", "/"],
+  ["/partnerships", "/"],
+  // Retired static pages that used to be served from public/
+  ["/legacy-index.html", "/"],
+  ["/product.html", "/"],
+  ["/article.html", "/blog"],
+  ["/suppvis-about.html", "/about"],
+  ["/suppvis-affiliate-disclosure.html", "/affiliate-disclosure"],
+  ["/suppvis-ai-chat.html", "/patients"],
+  ["/suppvis-blog.html", "/blog"],
+  ["/suppvis-how-it-works.html", "/patients"],
+  ["/suppvis-medical-disclaimer.html", "/medical-disclaimer"],
+  ["/suppvis-partnerships.html", "/"],
+  ["/suppvis-privacy.html", "/privacy"],
+  ["/suppvis-shop.html", "/"],
+  ["/suppvis-terms.html", "/terms"],
+  ["/suppvis-waitlist.html", "/patients#waitlist"],
+].map(([source, destination]) => ({ source, destination, statusCode: 301 }));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async redirects() {
+    return siteRedirects;
+  },
   async headers() {
     return [
       {
